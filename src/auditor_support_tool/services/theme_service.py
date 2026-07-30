@@ -73,6 +73,8 @@ def build_stylesheet(
             "field_border": "#465047",
             "success": "#A7E4AD",
             "status": "#202621",
+            "selected": "#203B2C",
+            "error": "#FFB4AB",
         }
     else:
         colors = {
@@ -90,6 +92,8 @@ def build_stylesheet(
             "field_border": "#C9D8CD",
             "success": "#2E6A45",
             "status": "#FFFFFF",
+            "selected": "#EAF7EC",
+            "error": "#B42318",
         }
 
     return f"""
@@ -225,7 +229,12 @@ def build_stylesheet(
             border: 1px solid {colors["field_border"]};
             border-radius: 7px;
             padding: 8px 10px;
-            min-height: 20px;
+            min-height: 24px;
+        }}
+
+        QLineEdit#formInput:hover,
+        QComboBox#formInput:hover {{
+            border-color: {PRIMARY_ACCENT};
         }}
 
         QLineEdit#formInput:focus,
@@ -233,10 +242,27 @@ def build_stylesheet(
             border: 2px solid {PRIMARY_ACCENT};
         }}
 
+        QLineEdit#formInput:disabled,
+        QComboBox#formInput:disabled {{
+            background: {colors["content"]};
+            color: {colors["muted"]};
+        }}
+
+        QComboBox#formInput {{
+            padding-right: 28px;
+        }}
+
+        QComboBox#formInput::drop-down {{
+            border: none;
+            width: 26px;
+        }}
+
         QComboBox#formInput QAbstractItemView {{
             background: {colors["surface"]};
             color: {colors["text"]};
             border: 1px solid {colors["border"]};
+            outline: none;
+            padding: 4px;
             selection-background-color: {PRIMARY_ACCENT};
             selection-color: #173A2C;
         }}
@@ -247,6 +273,7 @@ def build_stylesheet(
             border: 1px solid #6FC273;
             border-radius: 7px;
             padding: 9px 16px;
+            min-height: 22px;
             font-weight: 600;
         }}
 
@@ -256,6 +283,12 @@ def build_stylesheet(
 
         QPushButton#primaryActionButton:pressed {{
             background: #5EAE63;
+        }}
+
+        QPushButton#primaryActionButton:disabled {{
+            background: {colors["border"]};
+            color: {colors["muted"]};
+            border-color: {colors["border"]};
         }}
 
         QPushButton#secondaryActionButton,
@@ -275,10 +308,142 @@ def build_stylesheet(
             border-color: {PRIMARY_ACCENT};
         }}
 
+        QFrame#settingsPanel {{
+            background: {colors["surface"]};
+            border: 1px solid {colors["border"]};
+            border-radius: 12px;
+        }}
+
+        QLabel#settingsEyebrow {{
+            color: {colors["success"]};
+            font-size: 8pt;
+            font-weight: 700;
+        }}
+
+        QLabel#settingsPanelTitle {{
+            color: {colors["text"]};
+            font-size: 16pt;
+            font-weight: 700;
+        }}
+
+        QLabel#settingsPanelDescription {{
+            color: {colors["muted"]};
+            font-size: 10pt;
+        }}
+
+        QLabel#settingsSectionTitle {{
+            color: {colors["text"]};
+            font-size: 11pt;
+            font-weight: 700;
+        }}
+
+        QLabel#settingsSectionDescription {{
+            color: {colors["muted"]};
+        }}
+
+        QLabel#fieldLabel {{
+            color: {colors["text"]};
+            font-weight: 600;
+        }}
+
+        QLabel#fieldHint {{
+            color: {colors["muted"]};
+            font-size: 9pt;
+        }}
+
+        QLabel#profileAvatar {{
+            background: {colors["selected"]};
+            color: {colors["text"]};
+            border: 2px solid {PRIMARY_ACCENT};
+            border-radius: 27px;
+            font-size: 14pt;
+            font-weight: 700;
+        }}
+
+        QLabel#privacyBadge,
+        QLabel#selectedBadge {{
+            background: {colors["selected"]};
+            color: {colors["success"]};
+            border: 1px solid {PRIMARY_ACCENT};
+            border-radius: 6px;
+            padding: 5px 8px;
+            font-size: 8pt;
+            font-weight: 700;
+        }}
+
+        QFrame#horizontalDivider {{
+            background: {colors["border"]};
+            border: none;
+            min-height: 1px;
+            max-height: 1px;
+        }}
+
+        QLabel#formStatus {{
+            color: {colors["muted"]};
+            font-weight: 600;
+        }}
+
+        QLabel#formStatus[status="success"] {{
+            color: {colors["success"]};
+        }}
+
+        QLabel#formStatus[status="error"] {{
+            color: {colors["error"]};
+        }}
+
+        QFrame#themeOption,
+        QFrame#appearancePreviewPanel {{
+            background: {colors["content"]};
+            border: 1px solid {colors["border"]};
+            border-radius: 9px;
+        }}
+
+        QFrame#themeSwatch {{
+            background: {PRIMARY_ACCENT};
+            border: 1px solid #6FC273;
+            border-radius: 9px;
+        }}
+
+        QLabel#themeName {{
+            color: {colors["text"]};
+            font-size: 11pt;
+            font-weight: 700;
+        }}
+
+        QPushButton#appearanceModeButton {{
+            background: {colors["surface"]};
+            color: {colors["text"]};
+            border: 1px solid {colors["field_border"]};
+            border-radius: 8px;
+            padding: 11px 12px;
+            min-height: 48px;
+            text-align: left;
+            font-weight: 600;
+        }}
+
+        QPushButton#appearanceModeButton:hover {{
+            background: {colors["selected"]};
+            border-color: {PRIMARY_ACCENT};
+        }}
+
+        QPushButton#appearanceModeButton:checked {{
+            background: {colors["selected"]};
+            color: {colors["text"]};
+            border: 2px solid {PRIMARY_ACCENT};
+        }}
+
+        QFrame#appearancePreviewCanvas {{
+            border-radius: 9px;
+        }}
+
         QStatusBar {{
             background: {colors["status"]};
             color: {colors["muted"]};
             border-top: 1px solid {colors["border"]};
+        }}
+
+        QStatusBar::item {{
+            border: none;
         }}
 
         QScrollBar:vertical {{
@@ -293,9 +458,25 @@ def build_stylesheet(
             min-height: 30px;
         }}
 
+        QScrollBar::handle:vertical:hover {{
+            background: {colors["muted"]};
+        }}
+
         QScrollBar::add-line:vertical,
         QScrollBar::sub-line:vertical {{
             height: 0;
+        }}
+
+        QScrollBar::add-page:vertical,
+        QScrollBar::sub-page:vertical {{
+            background: transparent;
+        }}
+
+        QToolTip {{
+            background: {colors["surface"]};
+            color: {colors["text"]};
+            border: 1px solid {colors["border"]};
+            padding: 5px;
         }}
     """
 
@@ -323,6 +504,7 @@ class ThemeService(QObject):
         """Apply the currently stored appearance."""
 
         appearance = self._settings_service.get_appearance()
+
         self.apply_appearance(
             appearance,
             persist=False,
@@ -359,12 +541,12 @@ class ThemeService(QObject):
             system_scheme=system_scheme,
         )
 
-        self._application.setStyleSheet(
-            build_stylesheet(
-                theme=theme,
-                mode=effective_mode,
-            )
+        stylesheet = build_stylesheet(
+            theme=theme,
+            mode=effective_mode,
         )
+
+        self._application.setStyleSheet(stylesheet)
 
         if persist:
             self._settings_service.save_appearance(normalized_appearance)
