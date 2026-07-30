@@ -1,14 +1,9 @@
-"""Primary application window."""
+"""Primary application window and page routing."""
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QFrame,
     QHBoxLayout,
-    QLabel,
     QMainWindow,
-    QPushButton,
-    QSizePolicy,
-    QVBoxLayout,
+    QStackedWidget,
     QWidget,
 )
 
@@ -20,6 +15,11 @@ from auditor_support_tool.core.constants import (
     MINIMUM_WINDOW_HEIGHT,
     MINIMUM_WINDOW_WIDTH,
 )
+from auditor_support_tool.gui.pages.dashboard_page import DashboardPage
+from auditor_support_tool.gui.pages.placeholder_page import PlaceholderPage
+from auditor_support_tool.gui.widgets.sidebar import Sidebar
+
+PageDefinition = tuple[str, str, str]
 
 
 class MainWindow(QMainWindow):
@@ -30,106 +30,188 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
         self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
-        self.setMinimumSize(MINIMUM_WINDOW_WIDTH, MINIMUM_WINDOW_HEIGHT)
+        self.setMinimumSize(
+            MINIMUM_WINDOW_WIDTH,
+            MINIMUM_WINDOW_HEIGHT,
+        )
+
+        self._pages: dict[str, QWidget] = {}
+        self._page_titles: dict[str, str] = {}
 
         self._build_interface()
-        self.statusBar().showMessage(f"Ready   |   Version {APP_VERSION}")
+        self.show_route("dashboard")
 
     def _build_interface(self) -> None:
         central_widget = QWidget(self)
+
         root_layout = QHBoxLayout(central_widget)
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
-        sidebar = self._build_sidebar()
-        content = self._build_content()
+        self._sidebar = Sidebar()
+        self._page_stack = QStackedWidget()
+        self._page_stack.setObjectName("pageStack")
 
-        root_layout.addWidget(sidebar)
-        root_layout.addWidget(content, 1)
+        self._sidebar.route_selected.connect(self.show_route)
+
+        root_layout.addWidget(self._sidebar)
+        root_layout.addWidget(self._page_stack, 1)
 
         self.setCentralWidget(central_widget)
 
-    def _build_sidebar(self) -> QFrame:
-        sidebar = QFrame()
-        sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(240)
+        self._register_pages()
 
-        layout = QVBoxLayout(sidebar)
-        layout.setContentsMargins(16, 20, 16, 16)
-        layout.setSpacing(8)
+    def _register_pages(self) -> None:
+        dashboard = DashboardPage()
+        dashboard.route_requested.connect(self.show_route)
 
-        application_name = QLabel(APP_NAME)
-        application_name.setObjectName("applicationName")
-        application_name.setWordWrap(True)
+        self._register_page(
+            route="dashboard",
+            title="Dashboard",
+            page=dashboard,
+        )
 
-        layout.addWidget(application_name)
-        layout.addSpacing(24)
+        page_definitions: tuple[PageDefinition, ...] = (
+            (
+                "engagements.all",
+                "All Engagements",
+                "Search, open and manage active audit engagements.",
+            ),
+            (
+                "engagements.new",
+                "New Engagement",
+                "Create an engagement and intentionally select its audit domain and audit area.",
+            ),
+            (
+                "engagements.archived",
+                "Archived Engagements",
+                "View and restore engagements that are no longer active.",
+            ),
+            (
+                "workspace.overview",
+                "Engagement Overview",
+                "Review the current engagement, workflow status and "
+                "outstanding analysis activities.",
+            ),
+            (
+                "workspace.data_sources",
+                "Data Sources",
+                "Register Excel and CSV source files and verify file integrity.",
+            ),
+            (
+                "workspace.data_profile",
+                "Data Profile",
+                "Review population statistics, detected fields and data-quality issues.",
+            ),
+            (
+                "workspace.field_mapping",
+                "Field Mapping",
+                "Map auditee-specific source columns to standard audit fields.",
+            ),
+            (
+                "workspace.audit_procedures",
+                "Audit Procedures",
+                "Select and configure procedures available for the engagement's audit domain.",
+            ),
+            (
+                "workspace.results",
+                "Results",
+                "Review procedure results and combined transaction risk.",
+            ),
+            (
+                "workspace.investigation",
+                "Investigation",
+                "Select records for follow-up, add notes and assign preliminary statuses.",
+            ),
+            (
+                "reports.generate",
+                "Generate Reports",
+                "Generate audit working papers and structured exception reports.",
+            ),
+            (
+                "reports.export",
+                "Export Results",
+                "Export full results or selected investigation records.",
+            ),
+            (
+                "reports.previous",
+                "Previous Reports",
+                "Open reports previously generated for an engagement.",
+            ),
+            (
+                "settings.user_profile",
+                "User Profile",
+                "Manage the local auditor profile and default information.",
+            ),
+            (
+                "settings.appearance",
+                "Appearance",
+                "Select the application theme and display preferences.",
+            ),
+            (
+                "settings.data_storage",
+                "Data & Storage",
+                "Review application paths, engagement locations and temporary-storage usage.",
+            ),
+            (
+                "settings.ai_browser",
+                "AI Browser Access",
+                "Configure the approved browser-based local AI service.",
+            ),
+            (
+                "settings.updates",
+                "Updates",
+                "Check GitHub Releases and review available improvements and corrections.",
+            ),
+            (
+                "settings.backup_restore",
+                "Backup & Restore",
+                "Create and restore engagement or application-managed backups.",
+            ),
+            (
+                "settings.reset",
+                "Reset Application",
+                "Reset settings, clear temporary data or perform a factory reset.",
+            ),
+            (
+                "settings.diagnostics",
+                "Diagnostics",
+                "Review application version, environment, paths and "
+                "non-sensitive diagnostic information.",
+            ),
+        )
 
-        for label in (
-            "Dashboard",
-            "Engagements",
-            "Audit Workspace",
-            "Reports",
-            "Settings",
-        ):
-            button = QPushButton(label)
-            button.setObjectName("navigationButton")
-            button.setCursor(Qt.CursorShape.PointingHandCursor)
-            button.setSizePolicy(
-                QSizePolicy.Policy.Expanding,
-                QSizePolicy.Policy.Fixed,
+        for route, title, description in page_definitions:
+            self._register_page(
+                route=route,
+                title=title,
+                page=PlaceholderPage(
+                    title=title,
+                    description=description,
+                ),
             )
-            layout.addWidget(button)
 
-        layout.addStretch()
+    def _register_page(
+        self,
+        route: str,
+        title: str,
+        page: QWidget,
+    ) -> None:
+        self._pages[route] = page
+        self._page_titles[route] = title
+        self._page_stack.addWidget(page)
 
-        version_label = QLabel(f"Version {APP_VERSION}")
-        version_label.setObjectName("sidebarVersion")
-        layout.addWidget(version_label)
+    def show_route(self, route: str) -> None:
+        """Display the page registered for a route."""
 
-        return sidebar
+        page = self._pages.get(route)
 
-    def _build_content(self) -> QWidget:
-        content = QWidget()
-        content.setObjectName("contentArea")
+        if page is None:
+            self.statusBar().showMessage(f"Unknown page: {route}   |   Version {APP_VERSION}")
+            return
 
-        layout = QVBoxLayout(content)
-        layout.setContentsMargins(32, 28, 32, 28)
-        layout.setSpacing(18)
+        self._page_stack.setCurrentWidget(page)
+        self._sidebar.set_active_route(route)
 
-        title = QLabel("Dashboard")
-        title.setObjectName("pageTitle")
-
-        subtitle = QLabel(
-            "Welcome to the Auditor Support Tool. "
-            "The application foundation is running successfully."
-        )
-        subtitle.setObjectName("pageSubtitle")
-        subtitle.setWordWrap(True)
-
-        status_card = QFrame()
-        status_card.setObjectName("card")
-
-        card_layout = QVBoxLayout(status_card)
-        card_layout.setContentsMargins(22, 20, 22, 20)
-        card_layout.setSpacing(8)
-
-        card_title = QLabel("Application Foundation")
-        card_title.setObjectName("cardTitle")
-
-        card_text = QLabel(
-            "The desktop interface, application paths and development "
-            "environment have been configured."
-        )
-        card_text.setObjectName("cardText")
-        card_text.setWordWrap(True)
-
-        card_layout.addWidget(card_title)
-        card_layout.addWidget(card_text)
-
-        layout.addWidget(title)
-        layout.addWidget(subtitle)
-        layout.addWidget(status_card)
-        layout.addStretch()
-
-        return content
+        title = self._page_titles[route]
+        self.statusBar().showMessage(f"{title}   |   Ready   |   Version {APP_VERSION}")
