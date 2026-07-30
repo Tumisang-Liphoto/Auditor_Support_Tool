@@ -228,8 +228,7 @@ def build_stylesheet(
             color: {colors["text"]};
             border: 1px solid {colors["field_border"]};
             border-radius: 7px;
-            padding: 8px 10px;
-            min-height: 24px;
+            padding: 7px 10px;
         }}
 
         QLineEdit#formInput:hover,

@@ -61,6 +61,7 @@ class UserProfilePage(QWidget):
         page_layout = QVBoxLayout(content)
         page_layout.setContentsMargins(40, 32, 40, 32)
         page_layout.setSpacing(22)
+        page_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         page_title = QLabel("User Profile")
         page_title.setObjectName("pageTitle")
@@ -81,18 +82,108 @@ class UserProfilePage(QWidget):
         )
 
         panel_layout = QVBoxLayout(settings_panel)
-        panel_layout.setContentsMargins(28, 26, 28, 26)
+        panel_layout.setContentsMargins(30, 28, 30, 28)
         panel_layout.setSpacing(24)
 
+        header_layout = self._build_header()
+
+        top_divider = self._create_divider()
+        bottom_divider = self._create_divider()
+
+        section_title = QLabel("Profile details")
+        section_title.setObjectName("settingsSectionTitle")
+
+        section_description = QLabel("Fields marked with an asterisk are required.")
+        section_description.setObjectName("settingsSectionDescription")
+
+        self._configure_inputs()
+
+        form_layout = QGridLayout()
+        form_layout.setContentsMargins(0, 0, 0, 0)
+        form_layout.setHorizontalSpacing(24)
+        form_layout.setVerticalSpacing(22)
+        form_layout.setColumnStretch(0, 1)
+        form_layout.setColumnStretch(1, 1)
+
+        display_name_field = self._create_field(
+            label_text="Display name *",
+            control=self._display_name_input,
+            hint_text=("The name shown in engagement records and reports."),
+        )
+
+        role_field = self._create_field(
+            label_text="Role",
+            control=self._role_input,
+            hint_text="Your audit or organisational role.",
+        )
+
+        organization_field = self._create_field(
+            label_text="Organisation *",
+            control=self._organization_input,
+            hint_text=("The organisation or audit institution represented."),
+        )
+
+        currency_field = self._create_field(
+            label_text="Default currency",
+            control=self._currency_input,
+            hint_text=("Used as the initial currency for financial engagements."),
+        )
+
+        form_layout.addWidget(display_name_field, 0, 0)
+        form_layout.addWidget(role_field, 0, 1)
+        form_layout.addWidget(organization_field, 1, 0, 1, 2)
+        form_layout.addWidget(currency_field, 2, 0)
+
+        actions_layout = QHBoxLayout()
+        actions_layout.setContentsMargins(0, 0, 0, 0)
+        actions_layout.setSpacing(16)
+
+        self._status_label.setObjectName("formStatus")
+        self._status_label.setWordWrap(True)
+        self._status_label.setVisible(False)
+
+        save_button = QPushButton("Save Profile")
+        save_button.setObjectName("primaryActionButton")
+        save_button.setFixedWidth(150)
+        save_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        save_button.clicked.connect(self.save_profile)
+
+        actions_layout.addWidget(self._status_label)
+        actions_layout.addStretch(1)
+        actions_layout.addWidget(save_button)
+
+        panel_layout.addLayout(header_layout)
+        panel_layout.addWidget(top_divider)
+        panel_layout.addWidget(section_title)
+        panel_layout.addWidget(section_description)
+        panel_layout.addLayout(form_layout)
+        panel_layout.addWidget(bottom_divider)
+        panel_layout.addLayout(actions_layout)
+
+        page_layout.addWidget(page_title)
+        page_layout.addWidget(page_subtitle)
+
+        # Do not use AlignLeft here. Allow the panel to expand up to
+        # its maximum width instead of remaining at its natural size.
+        page_layout.addWidget(settings_panel)
+
+        scroll_area.setWidget(content)
+        root_layout.addWidget(scroll_area)
+
+    def _build_header(self) -> QHBoxLayout:
+        """Build the profile panel header."""
+
         header_layout = QHBoxLayout()
-        header_layout.setSpacing(16)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(18)
 
         self._avatar_label.setObjectName("profileAvatar")
-        self._avatar_label.setFixedSize(54, 54)
+        self._avatar_label.setFixedSize(64, 64)
         self._avatar_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        header_text_layout = QVBoxLayout()
-        header_text_layout.setSpacing(3)
+        text_layout = QVBoxLayout()
+        text_layout.setContentsMargins(0, 0, 0, 0)
+        text_layout.setSpacing(4)
 
         eyebrow = QLabel("LOCAL PROFILE")
         eyebrow.setObjectName("settingsEyebrow")
@@ -101,167 +192,57 @@ class UserProfilePage(QWidget):
         panel_title.setObjectName("settingsPanelTitle")
 
         panel_description = QLabel(
-            "This information is stored locally on this computer and is not "
-            "automatically shared outside the application."
+            "This information is stored locally on this computer and is "
+            "not automatically shared outside the application."
         )
         panel_description.setObjectName("settingsPanelDescription")
         panel_description.setWordWrap(True)
 
-        header_text_layout.addWidget(eyebrow)
-        header_text_layout.addWidget(panel_title)
-        header_text_layout.addWidget(panel_description)
+        text_layout.addWidget(eyebrow)
+        text_layout.addWidget(panel_title)
+        text_layout.addWidget(panel_description)
 
         privacy_badge = QLabel("STORED LOCALLY")
         privacy_badge.setObjectName("privacyBadge")
         privacy_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        header_layout.addWidget(self._avatar_label)
-        header_layout.addLayout(header_text_layout, 1)
+        header_layout.addWidget(
+            self._avatar_label,
+            0,
+            Qt.AlignmentFlag.AlignTop,
+        )
+        header_layout.addLayout(text_layout, 1)
         header_layout.addWidget(
             privacy_badge,
             0,
             Qt.AlignmentFlag.AlignTop,
         )
 
-        details_title = QLabel("Profile details")
-        details_title.setObjectName("settingsSectionTitle")
-
-        details_description = QLabel("Fields marked with an asterisk are required.")
-        details_description.setObjectName("settingsSectionDescription")
-
-        self._configure_inputs()
-
-        fields_layout = QGridLayout()
-        fields_layout.setHorizontalSpacing(24)
-        fields_layout.setVerticalSpacing(8)
-        fields_layout.setColumnStretch(0, 1)
-        fields_layout.setColumnStretch(1, 1)
-
-        fields_layout.addWidget(
-            self._create_field_label("Display name *"),
-            0,
-            0,
-        )
-        fields_layout.addWidget(
-            self._create_field_label("Role"),
-            0,
-            1,
-        )
-        fields_layout.addWidget(
-            self._display_name_input,
-            1,
-            0,
-        )
-        fields_layout.addWidget(
-            self._role_input,
-            1,
-            1,
-        )
-        fields_layout.addWidget(
-            self._create_field_hint("The name shown in engagement records and reports."),
-            2,
-            0,
-        )
-        fields_layout.addWidget(
-            self._create_field_hint("Your audit or organisational role."),
-            2,
-            1,
-        )
-
-        fields_layout.addWidget(
-            self._create_field_label("Organisation *"),
-            3,
-            0,
-            1,
-            2,
-        )
-        fields_layout.addWidget(
-            self._organization_input,
-            4,
-            0,
-            1,
-            2,
-        )
-        fields_layout.addWidget(
-            self._create_field_hint("The organisation or audit institution represented."),
-            5,
-            0,
-            1,
-            2,
-        )
-
-        fields_layout.addWidget(
-            self._create_field_label("Default currency"),
-            6,
-            0,
-        )
-        fields_layout.addWidget(
-            self._currency_input,
-            7,
-            0,
-        )
-        fields_layout.addWidget(
-            self._create_field_hint("Used as the initial currency for financial engagements."),
-            8,
-            0,
-        )
-
-        divider = QFrame()
-        divider.setObjectName("horizontalDivider")
-        divider.setFrameShape(QFrame.Shape.HLine)
-
-        action_layout = QHBoxLayout()
-        action_layout.setSpacing(16)
-
-        self._status_label.setObjectName("formStatus")
-        self._status_label.setWordWrap(True)
-        self._status_label.setVisible(False)
-
-        save_button = QPushButton("Save Profile")
-        save_button.setObjectName("primaryActionButton")
-        save_button.setMinimumWidth(140)
-        save_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        save_button.clicked.connect(self.save_profile)
-
-        action_layout.addWidget(self._status_label, 1)
-        action_layout.addWidget(save_button)
-
-        panel_layout.addLayout(header_layout)
-        panel_layout.addWidget(divider)
-        panel_layout.addWidget(details_title)
-        panel_layout.addWidget(details_description)
-        panel_layout.addLayout(fields_layout)
-        panel_layout.addSpacing(4)
-        panel_layout.addWidget(divider)
-        panel_layout.addLayout(action_layout)
-
-        page_layout.addWidget(page_title)
-        page_layout.addWidget(page_subtitle)
-        page_layout.addWidget(
-            settings_panel,
-            0,
-            Qt.AlignmentFlag.AlignLeft,
-        )
-        page_layout.addStretch()
-
-        scroll_area.setWidget(content)
-        root_layout.addWidget(scroll_area)
+        return header_layout
 
     def _configure_inputs(self) -> None:
-        self._display_name_input.setObjectName("formInput")
+        """Configure the profile input controls."""
+
+        inputs = (
+            self._display_name_input,
+            self._organization_input,
+            self._role_input,
+        )
+
+        for input_control in inputs:
+            input_control.setObjectName("formInput")
+            input_control.setMinimumHeight(44)
+            input_control.setClearButtonEnabled(True)
+
         self._display_name_input.setPlaceholderText("For example: Tumisang Liphoto")
-        self._display_name_input.setClearButtonEnabled(True)
         self._display_name_input.textChanged.connect(self._update_avatar)
 
-        self._organization_input.setObjectName("formInput")
         self._organization_input.setPlaceholderText("For example: Office of the Auditor-General")
-        self._organization_input.setClearButtonEnabled(True)
 
-        self._role_input.setObjectName("formInput")
         self._role_input.setPlaceholderText("For example: Auditor")
-        self._role_input.setClearButtonEnabled(True)
 
         self._currency_input.setObjectName("formInput")
+        self._currency_input.setMinimumHeight(44)
         self._currency_input.setEditable(True)
         self._currency_input.addItems(
             [
@@ -274,17 +255,42 @@ class UserProfilePage(QWidget):
         )
 
     @staticmethod
-    def _create_field_label(text: str) -> QLabel:
-        label = QLabel(text)
+    def _create_field(
+        label_text: str,
+        control: QWidget,
+        hint_text: str,
+    ) -> QWidget:
+        """Create a vertically arranged form field."""
+
+        field = QWidget()
+        field.setObjectName("formField")
+
+        layout = QVBoxLayout(field)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(7)
+
+        label = QLabel(label_text)
         label.setObjectName("fieldLabel")
-        return label
+
+        hint = QLabel(hint_text)
+        hint.setObjectName("fieldHint")
+        hint.setWordWrap(True)
+
+        layout.addWidget(label)
+        layout.addWidget(control)
+        layout.addWidget(hint)
+
+        return field
 
     @staticmethod
-    def _create_field_hint(text: str) -> QLabel:
-        label = QLabel(text)
-        label.setObjectName("fieldHint")
-        label.setWordWrap(True)
-        return label
+    def _create_divider() -> QFrame:
+        """Create a horizontal section divider."""
+
+        divider = QFrame()
+        divider.setObjectName("horizontalDivider")
+        divider.setFrameShape(QFrame.Shape.HLine)
+
+        return divider
 
     def load_profile(self) -> None:
         """Load the saved profile into the form."""
@@ -355,6 +361,8 @@ class UserProfilePage(QWidget):
         self.profile_saved.emit(profile)
 
     def _update_avatar(self, display_name: str) -> None:
+        """Update the avatar using the entered initials."""
+
         parts = [part for part in display_name.strip().split() if part]
 
         if not parts:
@@ -371,6 +379,8 @@ class UserProfilePage(QWidget):
         message: str,
         status: str,
     ) -> None:
+        """Display save or validation feedback."""
+
         self._status_label.setText(message)
         self._status_label.setProperty("status", status)
         self._status_label.setVisible(True)
