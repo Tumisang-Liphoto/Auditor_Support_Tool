@@ -17,7 +17,14 @@ from auditor_support_tool.core.constants import (
 )
 from auditor_support_tool.gui.pages.dashboard_page import DashboardPage
 from auditor_support_tool.gui.pages.placeholder_page import PlaceholderPage
+from auditor_support_tool.gui.pages.user_profile_page import (
+    UserProfilePage,
+)
 from auditor_support_tool.gui.widgets.sidebar import Sidebar
+from auditor_support_tool.services.settings_service import (
+    SettingsService,
+    UserProfile,
+)
 
 PageDefinition = tuple[str, str, str]
 
@@ -25,11 +32,20 @@ PageDefinition = tuple[str, str, str]
 class MainWindow(QMainWindow):
     """Main window for the Auditor Support Tool."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        settings_service: SettingsService,
+    ) -> None:
         super().__init__()
 
+        self._settings_service = settings_service
+        self._profile_required = not self._settings_service.is_profile_complete()
+
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
-        self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
+        self.resize(
+            DEFAULT_WINDOW_WIDTH,
+            DEFAULT_WINDOW_HEIGHT,
+        )
         self.setMinimumSize(
             MINIMUM_WINDOW_WIDTH,
             MINIMUM_WINDOW_HEIGHT,
@@ -39,7 +55,12 @@ class MainWindow(QMainWindow):
         self._page_titles: dict[str, str] = {}
 
         self._build_interface()
-        self.show_route("dashboard")
+
+        if self._profile_required:
+            self.show_route("settings.user_profile")
+            self.statusBar().showMessage("Complete the local user profile to continue.")
+        else:
+            self.show_route("dashboard")
 
     def _build_interface(self) -> None:
         central_widget = QWidget(self)
@@ -69,6 +90,17 @@ class MainWindow(QMainWindow):
             route="dashboard",
             title="Dashboard",
             page=dashboard,
+        )
+
+        user_profile_page = UserProfilePage(
+            settings_service=self._settings_service,
+        )
+        user_profile_page.profile_saved.connect(self._handle_profile_saved)
+
+        self._register_page(
+            route="settings.user_profile",
+            title="User Profile",
+            page=user_profile_page,
         )
 
         page_definitions: tuple[PageDefinition, ...] = (
@@ -139,11 +171,6 @@ class MainWindow(QMainWindow):
                 "Open reports previously generated for an engagement.",
             ),
             (
-                "settings.user_profile",
-                "User Profile",
-                "Manage the local auditor profile and default information.",
-            ),
-            (
                 "settings.appearance",
                 "Appearance",
                 "Select the application theme and display preferences.",
@@ -204,6 +231,10 @@ class MainWindow(QMainWindow):
     def show_route(self, route: str) -> None:
         """Display the page registered for a route."""
 
+        if self._profile_required and route != "settings.user_profile":
+            route = "settings.user_profile"
+            self.statusBar().showMessage("Complete the local user profile to continue.")
+
         page = self._pages.get(route)
 
         if page is None:
@@ -214,4 +245,28 @@ class MainWindow(QMainWindow):
         self._sidebar.set_active_route(route)
 
         title = self._page_titles[route]
-        self.statusBar().showMessage(f"{title}   |   Ready   |   Version {APP_VERSION}")
+
+        if self._profile_required:
+            status = "Profile setup required"
+        else:
+            status = "Ready"
+
+        self.statusBar().showMessage(f"{title}   |   {status}   |   Version {APP_VERSION}")
+
+    def _handle_profile_saved(
+        self,
+        profile: UserProfile,
+    ) -> None:
+        """Unlock the application after first-run profile completion."""
+
+        first_run_completed = self._profile_required
+        self._profile_required = False
+
+        if first_run_completed:
+            self.statusBar().showMessage(
+                f"Welcome, {profile.display_name}. Your local profile has been created."
+            )
+            self.show_route("dashboard")
+            return
+
+        self.statusBar().showMessage(f"Profile updated for {profile.display_name}.")
