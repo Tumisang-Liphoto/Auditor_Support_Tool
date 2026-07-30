@@ -5,6 +5,16 @@ from pathlib import Path
 
 from PySide6.QtCore import QSettings
 
+SUPPORTED_APPEARANCE_THEMES = {
+    "mint_green",
+}
+
+SUPPORTED_APPEARANCE_MODES = {
+    "system",
+    "light",
+    "dark",
+}
+
 
 @dataclass(frozen=True, slots=True)
 class UserProfile:
@@ -110,15 +120,24 @@ class SettingsService:
         self,
         appearance: AppearanceSettings,
     ) -> None:
-        """Save the selected theme and appearance mode."""
+        """Validate and save the selected appearance."""
+
+        theme = appearance.theme.strip().lower()
+        mode = appearance.mode.strip().lower()
+
+        if theme not in SUPPORTED_APPEARANCE_THEMES:
+            raise ValueError(f"Unsupported application theme: {appearance.theme}")
+
+        if mode not in SUPPORTED_APPEARANCE_MODES:
+            raise ValueError("Appearance mode must be 'system', 'light' or 'dark'.")
 
         self._settings.setValue(
             "appearance/theme",
-            appearance.theme,
+            theme,
         )
         self._settings.setValue(
             "appearance/mode",
-            appearance.mode,
+            mode,
         )
 
         self._settings.sync()

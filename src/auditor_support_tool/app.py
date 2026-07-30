@@ -13,9 +13,7 @@ from auditor_support_tool.core.constants import (
 from auditor_support_tool.core.paths import ensure_application_paths
 from auditor_support_tool.gui.main_window import MainWindow
 from auditor_support_tool.services.settings_service import SettingsService
-from auditor_support_tool.services.theme_service import (
-    build_default_stylesheet,
-)
+from auditor_support_tool.services.theme_service import ThemeService
 
 
 def main() -> int:
@@ -29,12 +27,18 @@ def main() -> int:
     application.setOrganizationName(ORGANIZATION_NAME)
     application.setOrganizationDomain(ORGANIZATION_DOMAIN)
     application.setStyle("Fusion")
-    application.setStyleSheet(build_default_stylesheet())
 
     settings_service = SettingsService(paths.config / "settings.ini")
 
+    theme_service = ThemeService(
+        application=application,
+        settings_service=settings_service,
+    )
+    theme_service.apply_saved_appearance()
+
     window = MainWindow(
         settings_service=settings_service,
+        theme_service=theme_service,
     )
     window.show()
 

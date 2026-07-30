@@ -15,6 +15,7 @@ from auditor_support_tool.core.constants import (
     MINIMUM_WINDOW_HEIGHT,
     MINIMUM_WINDOW_WIDTH,
 )
+from auditor_support_tool.gui.pages.appearance_page import AppearancePage
 from auditor_support_tool.gui.pages.dashboard_page import DashboardPage
 from auditor_support_tool.gui.pages.placeholder_page import PlaceholderPage
 from auditor_support_tool.gui.pages.user_profile_page import (
@@ -25,6 +26,7 @@ from auditor_support_tool.services.settings_service import (
     SettingsService,
     UserProfile,
 )
+from auditor_support_tool.services.theme_service import ThemeService
 
 PageDefinition = tuple[str, str, str]
 
@@ -35,10 +37,12 @@ class MainWindow(QMainWindow):
     def __init__(
         self,
         settings_service: SettingsService,
+        theme_service: ThemeService,
     ) -> None:
         super().__init__()
 
         self._settings_service = settings_service
+        self._theme_service = theme_service
         self._profile_required = not self._settings_service.is_profile_complete()
 
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
@@ -90,6 +94,17 @@ class MainWindow(QMainWindow):
             route="dashboard",
             title="Dashboard",
             page=dashboard,
+        )
+
+        appearance_page = AppearancePage(
+            settings_service=self._settings_service,
+            theme_service=self._theme_service,
+        )
+
+        self._register_page(
+            route="settings.appearance",
+            title="Appearance",
+            page=appearance_page,
         )
 
         user_profile_page = UserProfilePage(
@@ -169,11 +184,6 @@ class MainWindow(QMainWindow):
                 "reports.previous",
                 "Previous Reports",
                 "Open reports previously generated for an engagement.",
-            ),
-            (
-                "settings.appearance",
-                "Appearance",
-                "Select the application theme and display preferences.",
             ),
             (
                 "settings.data_storage",
