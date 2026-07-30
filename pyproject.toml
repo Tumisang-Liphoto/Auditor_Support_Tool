@@ -35,7 +35,23 @@ classifiers = [
     "Programming Language :: Python :: 3.14"
 ]
 
-dependencies = []
+dependencies = [
+    "PySide6",
+    "platformdirs",
+    "duckdb",
+    "openpyxl",
+    "python-docx",
+    "packaging"
+]
+
+[project.optional-dependencies]
+
+dev = [
+    "pytest",
+    "pytest-qt",
+    "ruff",
+    "pyinstaller"
+]
 
 [project.scripts]
 auditor-support-tool = "auditor_support_tool.app:main"
