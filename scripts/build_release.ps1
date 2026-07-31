@@ -11,14 +11,54 @@ if (-not $SkipTests) {
     python -m pytest -q
 }
 
-$Version = python -c "from auditor_support_tool.core.constants import APP_VERSION; print(APP_VERSION)"
+$Version = (
+    python -c "from auditor_support_tool.core.constants import APP_VERSION; print(APP_VERSION)"
+).Trim()
+
 $PackageName = "Auditor-Support-Tool-Windows-x64.zip"
+$InstallerName = "Auditor-Support-Tool-Setup.exe"
 $ReleaseDirectory = Join-Path $ProjectRoot "release"
 $ApplicationDirectory = Join-Path $ProjectRoot "dist\Auditor Support Tool"
 $UpdaterExecutable = Join-Path $ProjectRoot "dist\Auditor Support Tool Updater.exe"
+$InstallerScript = Join-Path $ProjectRoot "installer\AuditorSupportTool.iss"
 
-Remove-Item .\build, .\dist, $ReleaseDirectory -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Force -Path $ReleaseDirectory | Out-Null
+$InnoSetupCandidates = @(
+    (Join-Path $env:LOCALAPPDATA "Programs\Inno Setup 7\ISCC.exe"),
+    (Join-Path $env:ProgramFiles "Inno Setup 7\ISCC.exe"),
+    (Join-Path ${env:ProgramFiles(x86)} "Inno Setup 7\ISCC.exe"),
+    (Join-Path $env:LOCALAPPDATA "Programs\Inno Setup 6\ISCC.exe"),
+    (Join-Path $env:ProgramFiles "Inno Setup 6\ISCC.exe"),
+    (Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe")
+)
+
+$InnoCompiler = $InnoSetupCandidates |
+    Where-Object { $_ -and (Test-Path $_) } |
+    Select-Object -First 1
+
+if (-not $InnoCompiler) {
+    throw (
+        "Inno Setup compiler was not found. Install Inno Setup 7 " +
+        "and confirm that ISCC.exe is available."
+    )
+}
+
+if (-not (Test-Path $InstallerScript)) {
+    throw "Installer definition not found: $InstallerScript"
+}
+
+Remove-Item `
+    .\build, `
+    .\dist, `
+    $ReleaseDirectory `
+    -Recurse `
+    -Force `
+    -ErrorAction SilentlyContinue
+
+New-Item `
+    -ItemType Directory `
+    -Force `
+    -Path $ReleaseDirectory |
+    Out-Null
 
 python -m PyInstaller `
     --noconfirm `
@@ -27,6 +67,7 @@ python -m PyInstaller `
     --onedir `
     --name "Auditor Support Tool" `
     --paths .\src `
+    --add-data ".\src\auditor_support_tool\resources;auditor_support_tool\resources" `
     .\main.py
 
 python -m PyInstaller `
@@ -38,25 +79,70 @@ python -m PyInstaller `
     --paths .\src `
     .\updater_main.py
 
-Copy-Item $UpdaterExecutable $ApplicationDirectory -Force
+Copy-Item `
+    $UpdaterExecutable `
+    $ApplicationDirectory `
+    -Force
 
 $Manifest = @{
     format_version = 1
-    version = $Version.Trim()
+    version = $Version
     application_executable = "Auditor Support Tool.exe"
     updater_executable = "Auditor Support Tool Updater.exe"
 } | ConvertTo-Json
 
-$ManifestPath = Join-Path $ApplicationDirectory "update-manifest.json"
-Set-Content -Path $ManifestPath -Value $Manifest -Encoding UTF8
+$ManifestPath = Join-Path `
+    $ApplicationDirectory `
+    "update-manifest.json"
 
-$PackagePath = Join-Path $ReleaseDirectory $PackageName
-Compress-Archive -Path "$ApplicationDirectory\*" -DestinationPath $PackagePath -Force
+Set-Content `
+    -Path $ManifestPath `
+    -Value $Manifest `
+    -Encoding UTF8
 
-$Hash = (Get-FileHash -Path $PackagePath -Algorithm SHA256).Hash.ToLowerInvariant()
+$PackagePath = Join-Path `
+    $ReleaseDirectory `
+    $PackageName
+
+Compress-Archive `
+    -Path "$ApplicationDirectory\*" `
+    -DestinationPath $PackagePath `
+    -Force
+
+$Hash = (
+    Get-FileHash `
+        -Path $PackagePath `
+        -Algorithm SHA256
+).Hash.ToLowerInvariant()
+
 $ChecksumPath = "$PackagePath.sha256"
-Set-Content -Path $ChecksumPath -Value "$Hash  $PackageName" -Encoding ASCII
 
-Write-Host "Release package created: $PackagePath"
-Write-Host "Checksum created: $ChecksumPath"
-Write-Host "Version: $Version"
+Set-Content `
+    -Path $ChecksumPath `
+    -Value "$Hash  $PackageName" `
+    -Encoding ASCII
+
+& $InnoCompiler `
+    "/DMyAppVersion=$Version" `
+    "/DSourceDirectory=$ApplicationDirectory" `
+    "/DOutputDirectory=$ReleaseDirectory" `
+    $InstallerScript
+
+if ($LASTEXITCODE -ne 0) {
+    throw "Inno Setup failed with exit code $LASTEXITCODE."
+}
+
+$InstallerPath = Join-Path `
+    $ReleaseDirectory `
+    $InstallerName
+
+if (-not (Test-Path $InstallerPath)) {
+    throw "Installer was not created: $InstallerPath"
+}
+
+Write-Host ""
+Write-Host "Release files created successfully:"
+Write-Host "  Installer: $InstallerPath"
+Write-Host "  Update package: $PackagePath"
+Write-Host "  Update checksum: $ChecksumPath"
+Write-Host "  Version: $Version"
