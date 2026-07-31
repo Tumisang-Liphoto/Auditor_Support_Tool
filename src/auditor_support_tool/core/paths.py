@@ -1,9 +1,4 @@
-"""Application storage locations.
-
-All runtime data is stored in locations writable by the current Windows user.
-The application must not require administrator rights to create or update these
-folders.
-"""
+"""Per-user application storage locations."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +18,9 @@ class ApplicationPaths:
     logs: Path
     backups: Path
     updates: Path
+    update_downloads: Path
+    update_staging: Path
+    update_runtime: Path
     temporary: Path
 
 
@@ -39,14 +37,18 @@ def get_application_paths() -> ApplicationPaths:
     config_path = Path(directories.user_config_dir)
     cache_path = Path(directories.user_cache_dir)
     log_path = Path(directories.user_log_dir)
+    updates_path = cache_path / "Updates"
 
     return ApplicationPaths(
         data=data_path,
         config=config_path,
         cache=cache_path,
         logs=log_path,
-        backups=data_path / "Backups",
-        updates=cache_path / "Updates",
+        backups=data_path / "Backups" / "Application",
+        updates=updates_path,
+        update_downloads=updates_path / "Downloads",
+        update_staging=updates_path / "Staging",
+        update_runtime=updates_path / "Runtime",
         temporary=cache_path / "Temporary",
     )
 
@@ -63,6 +65,9 @@ def ensure_application_paths() -> ApplicationPaths:
         paths.logs,
         paths.backups,
         paths.updates,
+        paths.update_downloads,
+        paths.update_staging,
+        paths.update_runtime,
         paths.temporary,
     ):
         path.mkdir(parents=True, exist_ok=True)
