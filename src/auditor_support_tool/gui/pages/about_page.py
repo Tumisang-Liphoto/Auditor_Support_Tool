@@ -86,17 +86,24 @@ class AboutPage(QWidget):
         details.addWidget(self._field_label("Installed version"), 1, 0)
         details.addWidget(self._value_label(APP_VERSION), 1, 1)
 
-        details.addWidget(self._field_label("Platform"), 2, 0)
+        details.addWidget(self._field_label("Release status"), 2, 0)
         details.addWidget(
-            self._value_label("Windows 10 and Windows 11"),
+            self._value_label("Beta 1 updater validation"),
             2,
             1,
         )
 
-        details.addWidget(self._field_label("Storage model"), 3, 0)
+        details.addWidget(self._field_label("Platform"), 3, 0)
+        details.addWidget(
+            self._value_label("Windows 10 and Windows 11"),
+            3,
+            1,
+        )
+
+        details.addWidget(self._field_label("Storage model"), 4, 0)
         details.addWidget(
             self._value_label("Local, per-user application data and settings"),
-            3,
+            4,
             1,
         )
 
