@@ -174,10 +174,17 @@ class Sidebar(QFrame):
                     ("Appearance", "settings.appearance"),
                     ("Data && Storage", "settings.data_storage"),
                     ("AI Browser Access", "settings.ai_browser"),
-                    ("Updates", "settings.updates"),
                     ("Backup && Restore", "settings.backup_restore"),
                     ("Reset Application", "settings.reset"),
                     ("Diagnostics", "settings.diagnostics"),
+                ),
+            ),
+            (
+                "About",
+                (
+                    ("Overview", "about.overview"),
+                    ("Updates", "settings.updates"),
+                    ("Manuals", "about.manuals"),
                 ),
             ),
         )

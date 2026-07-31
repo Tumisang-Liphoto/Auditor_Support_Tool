@@ -1,5 +1,7 @@
 """Primary application window and page routing."""
 
+from PySide6.QtCore import QUrl
+from PySide6.QtGui import QAction, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QMainWindow,
@@ -12,11 +14,15 @@ from auditor_support_tool.core.constants import (
     APP_VERSION,
     DEFAULT_WINDOW_HEIGHT,
     DEFAULT_WINDOW_WIDTH,
+    GITHUB_REPOSITORY_NAME,
+    GITHUB_REPOSITORY_OWNER,
     MINIMUM_WINDOW_HEIGHT,
     MINIMUM_WINDOW_WIDTH,
 )
+from auditor_support_tool.gui.pages.about_page import AboutPage
 from auditor_support_tool.gui.pages.appearance_page import AppearancePage
 from auditor_support_tool.gui.pages.dashboard_page import DashboardPage
+from auditor_support_tool.gui.pages.manuals_page import ManualsPage
 from auditor_support_tool.gui.pages.placeholder_page import PlaceholderPage
 from auditor_support_tool.gui.pages.updates_page import UpdatesPage
 from auditor_support_tool.gui.pages.user_profile_page import (
@@ -61,6 +67,7 @@ class MainWindow(QMainWindow):
 
         self._pages: dict[str, QWidget] = {}
         self._page_titles: dict[str, str] = {}
+        self._menu_actions: dict[str, QAction] = {}
 
         self._build_interface()
 
@@ -89,6 +96,150 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central_widget)
 
         self._register_pages()
+        self._build_menu_bar()
+
+    def _build_menu_bar(self) -> None:
+        """Create the application menu bar and keyboard shortcuts."""
+
+        menu_bar = self.menuBar()
+        menu_bar.setObjectName("applicationMenuBar")
+
+        file_menu = menu_bar.addMenu("&File")
+        file_menu.setObjectName("applicationMenu")
+        file_menu.addAction(
+            self._create_route_action(
+                key="dashboard",
+                text="Dashboard",
+                route="dashboard",
+                shortcut="Ctrl+H",
+                status_tip="Open the application dashboard.",
+            )
+        )
+        file_menu.addSeparator()
+        file_menu.addAction(
+            self._create_route_action(
+                key="new_engagement",
+                text="New Engagement",
+                route="engagements.new",
+                shortcut="Ctrl+N",
+                status_tip="Create a new audit engagement.",
+            )
+        )
+        file_menu.addAction(
+            self._create_route_action(
+                key="open_engagement",
+                text="Open Engagement",
+                route="engagements.all",
+                shortcut="Ctrl+O",
+                status_tip="Open or manage an existing engagement.",
+            )
+        )
+        file_menu.addSeparator()
+        exit_action = QAction("Exit", self)
+        exit_action.setShortcut(QKeySequence("Ctrl+Q"))
+        exit_action.setStatusTip("Close the Auditor Support Tool.")
+        exit_action.triggered.connect(self.close)
+        self._menu_actions["exit"] = exit_action
+        file_menu.addAction(exit_action)
+
+        view_menu = menu_bar.addMenu("&View")
+        view_menu.setObjectName("applicationMenu")
+        view_menu.addAction(
+            self._create_route_action(
+                key="appearance",
+                text="Appearance",
+                route="settings.appearance",
+                shortcut="Ctrl+,",
+                status_tip="Change the application theme and appearance mode.",
+            )
+        )
+        view_menu.addAction(
+            self._create_route_action(
+                key="data_storage",
+                text="Data && Storage",
+                route="settings.data_storage",
+                status_tip="Review application data and storage locations.",
+            )
+        )
+        view_menu.addAction(
+            self._create_route_action(
+                key="diagnostics",
+                text="Diagnostics",
+                route="settings.diagnostics",
+                status_tip="Review application diagnostics.",
+            )
+        )
+
+        help_menu = menu_bar.addMenu("&Help")
+        help_menu.setObjectName("applicationMenu")
+        help_menu.addAction(
+            self._create_route_action(
+                key="manuals",
+                text="Manuals",
+                route="about.manuals",
+                shortcut="F1",
+                status_tip="Open the application manuals.",
+            )
+        )
+        help_menu.addAction(
+            self._create_route_action(
+                key="updates",
+                text="Check for Updates",
+                route="settings.updates",
+                status_tip="Check GitHub Releases for application updates.",
+            )
+        )
+        releases_action = QAction("View Releases", self)
+        releases_action.setStatusTip("Open published GitHub releases.")
+        releases_action.triggered.connect(self._open_release_page)
+        self._menu_actions["view_releases"] = releases_action
+        help_menu.addAction(releases_action)
+        help_menu.addSeparator()
+        help_menu.addAction(
+            self._create_route_action(
+                key="about",
+                text="About Auditor Support Tool",
+                route="about.overview",
+                status_tip="View application information.",
+            )
+        )
+
+    def _create_route_action(
+        self,
+        *,
+        key: str,
+        text: str,
+        route: str,
+        shortcut: str | None = None,
+        status_tip: str = "",
+    ) -> QAction:
+        """Create a menu action that opens an existing application route."""
+
+        action = QAction(text, self)
+
+        if shortcut:
+            action.setShortcut(QKeySequence(shortcut))
+
+        if status_tip:
+            action.setStatusTip(status_tip)
+
+        action.triggered.connect(
+            lambda checked=False, selected_route=route: self.show_route(selected_route)
+        )
+        self._menu_actions[key] = action
+
+        return action
+
+    @staticmethod
+    def _repository_url() -> str:
+        """Return the public GitHub repository URL."""
+
+        return f"https://github.com/{GITHUB_REPOSITORY_OWNER}/{GITHUB_REPOSITORY_NAME}"
+
+    def _open_release_page(self) -> None:
+        """Open the GitHub Releases page in the default browser."""
+
+        QDesktopServices.openUrl(QUrl(f"{self._repository_url()}/releases"))
 
     def _register_pages(self) -> None:
         dashboard = DashboardPage()
@@ -131,6 +282,18 @@ class MainWindow(QMainWindow):
             route="settings.updates",
             title="Updates",
             page=updates_page,
+        )
+
+        self._register_page(
+            route="about.overview",
+            title="About",
+            page=AboutPage(),
+        )
+
+        self._register_page(
+            route="about.manuals",
+            title="Manuals",
+            page=ManualsPage(),
         )
 
         page_definitions: tuple[PageDefinition, ...] = (
