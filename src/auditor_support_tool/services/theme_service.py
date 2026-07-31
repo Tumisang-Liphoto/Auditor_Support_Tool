@@ -1,9 +1,10 @@
 """Application theme management."""
 
+from typing import TypedDict
+
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import QApplication
 
-from auditor_support_tool.core.constants import PRIMARY_ACCENT
 from auditor_support_tool.services.settings_service import (
     SUPPORTED_APPEARANCE_MODES,
     SUPPORTED_APPEARANCE_THEMES,
@@ -11,15 +12,124 @@ from auditor_support_tool.services.settings_service import (
     SettingsService,
 )
 
-THEME_DISPLAY_NAMES = {
-    "mint_green": "Mint Green",
+
+class ThemeDefinition(TypedDict):
+    """Colours and descriptive information for an application theme."""
+
+    display_name: str
+    description: str
+    accent: str
+    accent_hover: str
+    accent_pressed: str
+    accent_text: str
+    sidebar_light: str
+    sidebar_dark: str
+    sidebar_hover_light: str
+    sidebar_hover_dark: str
+    selected_light: str
+    selected_dark: str
+
+
+THEME_DEFINITIONS: dict[str, ThemeDefinition] = {
+    "mint_green": {
+        "display_name": "Mint Green",
+        "description": "Calm and balanced",
+        "accent": "#81D185",
+        "accent_hover": "#6FC273",
+        "accent_pressed": "#5EAE63",
+        "accent_text": "#173A2C",
+        "sidebar_light": "#173A2C",
+        "sidebar_dark": "#10271E",
+        "sidebar_hover_light": "#28503F",
+        "sidebar_hover_dark": "#244638",
+        "selected_light": "#EAF7EC",
+        "selected_dark": "#203B2C",
+    },
+    "auditor_blue": {
+        "display_name": "Auditor Blue",
+        "description": "Formal and dependable",
+        "accent": "#5B8DEF",
+        "accent_hover": "#4A7FDD",
+        "accent_pressed": "#3E6FC4",
+        "accent_text": "#102A4C",
+        "sidebar_light": "#17365D",
+        "sidebar_dark": "#102540",
+        "sidebar_hover_light": "#274E7D",
+        "sidebar_hover_dark": "#1D3C63",
+        "selected_light": "#EAF1FE",
+        "selected_dark": "#1E3556",
+    },
+    "professional_teal": {
+        "display_name": "Professional Teal",
+        "description": "Modern and analytical",
+        "accent": "#36B8A0",
+        "accent_hover": "#2EA58F",
+        "accent_pressed": "#278E7B",
+        "accent_text": "#103B34",
+        "sidebar_light": "#16453E",
+        "sidebar_dark": "#102F2B",
+        "sidebar_hover_light": "#24645A",
+        "sidebar_hover_dark": "#1D4D46",
+        "selected_light": "#E5F7F3",
+        "selected_dark": "#1B3E39",
+    },
+    "royal_purple": {
+        "display_name": "Royal Purple",
+        "description": "Distinctive and polished",
+        "accent": "#9B7AE5",
+        "accent_hover": "#8967D4",
+        "accent_pressed": "#7555BE",
+        "accent_text": "#2F1D58",
+        "sidebar_light": "#3D2F62",
+        "sidebar_dark": "#29203F",
+        "sidebar_hover_light": "#56427F",
+        "sidebar_hover_dark": "#41335E",
+        "selected_light": "#F1ECFC",
+        "selected_dark": "#3A2E54",
+    },
+    "graphite": {
+        "display_name": "Graphite",
+        "description": "Neutral and understated",
+        "accent": "#8A9AAA",
+        "accent_hover": "#788897",
+        "accent_pressed": "#677684",
+        "accent_text": "#17202A",
+        "sidebar_light": "#303A45",
+        "sidebar_dark": "#20272F",
+        "sidebar_hover_light": "#465360",
+        "sidebar_hover_dark": "#343F49",
+        "selected_light": "#EDF0F3",
+        "selected_dark": "#343D46",
+    },
 }
+
+
+THEME_DISPLAY_NAMES = {
+    theme_key: definition["display_name"] for theme_key, definition in THEME_DEFINITIONS.items()
+}
+
 
 MODE_DISPLAY_NAMES = {
     "system": "System",
     "light": "Light",
     "dark": "Dark",
 }
+
+
+def get_theme_definition(theme: str) -> ThemeDefinition:
+    """Return a validated application theme definition."""
+
+    normalized_theme = theme.strip().lower()
+
+    if normalized_theme not in SUPPORTED_APPEARANCE_THEMES:
+        raise ValueError(f"Unsupported application theme: {theme}")
+
+    definition = THEME_DEFINITIONS.get(normalized_theme)
+
+    if definition is None:
+        raise ValueError(f"No colour definition exists for theme: {theme}")
+
+    return definition
 
 
 def resolve_effective_mode(
@@ -51,21 +161,25 @@ def build_stylesheet(
     normalized_theme = theme.strip().lower()
     normalized_mode = mode.strip().lower()
 
-    if normalized_theme not in SUPPORTED_APPEARANCE_THEMES:
-        raise ValueError(f"Unsupported application theme: {theme}")
+    theme_definition = get_theme_definition(normalized_theme)
 
     if normalized_mode not in {"light", "dark"}:
         raise ValueError("Effective appearance mode must be 'light' or 'dark'.")
+
+    accent = theme_definition["accent"]
+    accent_hover = theme_definition["accent_hover"]
+    accent_pressed = theme_definition["accent_pressed"]
+    accent_text = theme_definition["accent_text"]
 
     if normalized_mode == "dark":
         colors = {
             "window": "#171C18",
             "content": "#202621",
             "surface": "#282F29",
-            "sidebar": "#10271E",
-            "sidebar_hover": "#244638",
-            "sidebar_text": "#EAF7EC",
-            "sidebar_muted": "#A9B9AD",
+            "sidebar": theme_definition["sidebar_dark"],
+            "sidebar_hover": theme_definition["sidebar_hover_dark"],
+            "sidebar_text": "#F0F3F1",
+            "sidebar_muted": "#ADB7B0",
             "text": "#F1F5F1",
             "muted": "#B7C2B8",
             "border": "#39423A",
@@ -73,7 +187,7 @@ def build_stylesheet(
             "field_border": "#465047",
             "success": "#A7E4AD",
             "status": "#202621",
-            "selected": "#203B2C",
+            "selected": theme_definition["selected_dark"],
             "error": "#FFB4AB",
         }
     else:
@@ -81,10 +195,10 @@ def build_stylesheet(
             "window": "#F7FAF7",
             "content": "#F7FAF7",
             "surface": "#FFFFFF",
-            "sidebar": "#173A2C",
-            "sidebar_hover": "#28503F",
-            "sidebar_text": "#EAF7EC",
-            "sidebar_muted": "#B7C9BC",
+            "sidebar": theme_definition["sidebar_light"],
+            "sidebar_hover": theme_definition["sidebar_hover_light"],
+            "sidebar_text": "#F4F7F5",
+            "sidebar_muted": "#C0CBC4",
             "text": "#1F2A22",
             "muted": "#5D6B60",
             "border": "#D9E5DB",
@@ -92,7 +206,7 @@ def build_stylesheet(
             "field_border": "#C9D8CD",
             "success": "#2E6A45",
             "status": "#FFFFFF",
-            "selected": "#EAF7EC",
+            "selected": theme_definition["selected_light"],
             "error": "#B42318",
         }
 
@@ -144,8 +258,8 @@ def build_stylesheet(
         }}
 
         QPushButton#navigationButton:checked {{
-            background: {PRIMARY_ACCENT};
-            color: #173A2C;
+            background: {accent};
+            color: {accent_text};
         }}
 
         QPushButton#navigationChildButton {{
@@ -164,8 +278,9 @@ def build_stylesheet(
         }}
 
         QPushButton#navigationChildButton:checked {{
-            background: #DDF2E0;
-            color: #173A2C;
+            background: {colors["selected"]};
+            color: {colors["text"]};
+            border: 1px solid {accent};
             font-weight: 600;
         }}
 
@@ -233,12 +348,12 @@ def build_stylesheet(
 
         QLineEdit#formInput:hover,
         QComboBox#formInput:hover {{
-            border-color: {PRIMARY_ACCENT};
+            border-color: {accent};
         }}
 
         QLineEdit#formInput:focus,
         QComboBox#formInput:focus {{
-            border: 2px solid {PRIMARY_ACCENT};
+            border: 2px solid {accent};
         }}
 
         QLineEdit#formInput:disabled,
@@ -262,14 +377,14 @@ def build_stylesheet(
             border: 1px solid {colors["border"]};
             outline: none;
             padding: 4px;
-            selection-background-color: {PRIMARY_ACCENT};
-            selection-color: #173A2C;
+            selection-background-color: {accent};
+            selection-color: {accent_text};
         }}
 
         QPushButton#primaryActionButton {{
-            background: {PRIMARY_ACCENT};
-            color: #173A2C;
-            border: 1px solid #6FC273;
+            background: {accent};
+            color: {accent_text};
+            border: 1px solid {accent_hover};
             border-radius: 7px;
             padding: 9px 16px;
             min-height: 22px;
@@ -277,11 +392,11 @@ def build_stylesheet(
         }}
 
         QPushButton#primaryActionButton:hover {{
-            background: #6FC273;
+            background: {accent_hover};
         }}
 
         QPushButton#primaryActionButton:pressed {{
-            background: #5EAE63;
+            background: {accent_pressed};
         }}
 
         QPushButton#primaryActionButton:disabled {{
@@ -302,9 +417,9 @@ def build_stylesheet(
 
         QPushButton#secondaryActionButton:hover,
         QPushButton#cardActionButton:hover {{
-            background: #DDF2E0;
-            color: #173A2C;
-            border-color: {PRIMARY_ACCENT};
+            background: {colors["selected"]};
+            color: {colors["text"]};
+            border-color: {accent};
         }}
 
         QFrame#settingsPanel {{
@@ -314,7 +429,7 @@ def build_stylesheet(
         }}
 
         QLabel#settingsEyebrow {{
-            color: {colors["success"]};
+            color: {accent};
             font-size: 8pt;
             font-weight: 700;
         }}
@@ -353,7 +468,7 @@ def build_stylesheet(
         QLabel#profileAvatar {{
             background: {colors["selected"]};
             color: {colors["text"]};
-            border: 2px solid {PRIMARY_ACCENT};
+            border: 2px solid {accent};
             border-radius: 27px;
             font-size: 14pt;
             font-weight: 700;
@@ -362,8 +477,8 @@ def build_stylesheet(
         QLabel#privacyBadge,
         QLabel#selectedBadge {{
             background: {colors["selected"]};
-            color: {colors["success"]};
-            border: 1px solid {PRIMARY_ACCENT};
+            color: {colors["text"]};
+            border: 1px solid {accent};
             border-radius: 6px;
             padding: 5px 8px;
             font-size: 8pt;
@@ -398,8 +513,8 @@ def build_stylesheet(
         }}
 
         QFrame#themeSwatch {{
-            background: {PRIMARY_ACCENT};
-            border: 1px solid #6FC273;
+            background: {accent};
+            border: 1px solid {accent_hover};
             border-radius: 9px;
         }}
 
@@ -407,6 +522,27 @@ def build_stylesheet(
             color: {colors["text"]};
             font-size: 11pt;
             font-weight: 700;
+        }}
+
+        QPushButton#themeChoiceButton {{
+            background: {colors["surface"]};
+            color: {colors["text"]};
+            border: 1px solid {colors["field_border"]};
+            border-radius: 9px;
+            padding: 12px 14px;
+            min-height: 62px;
+            text-align: left;
+            font-weight: 600;
+        }}
+
+        QPushButton#themeChoiceButton:hover {{
+            background: {colors["selected"]};
+            border-color: {accent};
+        }}
+
+        QPushButton#themeChoiceButton:checked {{
+            background: {colors["selected"]};
+            border: 2px solid {accent};
         }}
 
         QPushButton#appearanceModeButton {{
@@ -422,17 +558,56 @@ def build_stylesheet(
 
         QPushButton#appearanceModeButton:hover {{
             background: {colors["selected"]};
-            border-color: {PRIMARY_ACCENT};
+            border-color: {accent};
         }}
 
         QPushButton#appearanceModeButton:checked {{
             background: {colors["selected"]};
             color: {colors["text"]};
-            border: 2px solid {PRIMARY_ACCENT};
+            border: 2px solid {accent};
         }}
 
         QFrame#appearancePreviewCanvas {{
             border-radius: 9px;
+        }}
+
+        QFrame#profileSectionCard {{
+            background: {colors["surface"]};
+            border: 1px solid {colors["border"]};
+            border-radius: 11px;
+        }}
+
+        QLabel#profileSectionTitle {{
+            color: {colors["text"]};
+            font-size: 16pt;
+            font-weight: 700;
+        }}
+
+        QLabel#profileSectionDescription {{
+            color: {colors["muted"]};
+            font-size: 10pt;
+        }}
+
+        QWidget#fieldLabelContainer,
+        QWidget#formField {{
+            background: transparent;
+        }}
+
+        QLabel#requiredAsterisk {{
+            color: #D92D20;
+            font-weight: 800;
+            font-size: 11pt;
+        }}
+
+        QFrame#profileActionBar {{
+            background: {colors["surface"]};
+            border: 1px solid {colors["border"]};
+            border-radius: 9px;
+        }}
+
+        QLineEdit#formInput[validationState="error"],
+        QComboBox#formInput[validationState="error"] {{
+            border: 2px solid {colors["error"]};
         }}
 
         QStatusBar {{
@@ -504,6 +679,12 @@ class ThemeService(QObject):
 
         appearance = self._settings_service.get_appearance()
 
+        if (
+            appearance.theme not in SUPPORTED_APPEARANCE_THEMES
+            or appearance.mode not in SUPPORTED_APPEARANCE_MODES
+        ):
+            appearance = AppearanceSettings()
+
         self.apply_appearance(
             appearance,
             persist=False,
@@ -522,8 +703,7 @@ class ThemeService(QObject):
         theme = appearance.theme.strip().lower()
         selected_mode = appearance.mode.strip().lower()
 
-        if theme not in SUPPORTED_APPEARANCE_THEMES:
-            raise ValueError(f"Unsupported application theme: {appearance.theme}")
+        get_theme_definition(theme)
 
         if selected_mode not in SUPPORTED_APPEARANCE_MODES:
             raise ValueError("Appearance mode must be 'system', 'light' or 'dark'.")

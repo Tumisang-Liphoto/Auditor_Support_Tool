@@ -272,11 +272,13 @@ class MainWindow(QMainWindow):
         first_run_completed = self._profile_required
         self._profile_required = False
 
+        profile_name = profile.preferred_name.strip() or profile.full_name.strip()
+
         if first_run_completed:
             self.statusBar().showMessage(
-                f"Welcome, {profile.display_name}. Your local profile has been created."
+                f"Welcome, {profile_name}. Your local profile has been created."
             )
             self.show_route("dashboard")
             return
 
-        self.statusBar().showMessage(f"Profile updated for {profile.display_name}.")
+        self.statusBar().showMessage(f"Profile updated for {profile_name}.")

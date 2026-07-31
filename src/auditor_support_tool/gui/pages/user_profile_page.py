@@ -1,5 +1,7 @@
 """Local user-profile setup and maintenance page."""
 
+import re
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
@@ -20,6 +22,31 @@ from auditor_support_tool.services.settings_service import (
     UserProfile,
 )
 
+ROLE_OPTIONS = (
+    "Auditor",
+    "Assistant Auditor",
+    "Senior Auditor",
+    "Principal Auditor",
+    "Audit Supervisor",
+    "Audit Manager",
+    "Director",
+    "ICT Auditor",
+    "IT Audit Manager",
+    "Internal Auditor",
+    "Chief Internal Auditor",
+    "Finance Officer",
+    "Administrator",
+)
+
+
+CURRENCY_OPTIONS = (
+    "LSL",
+    "ZAR",
+    "USD",
+    "EUR",
+    "GBP",
+)
+
 
 class UserProfilePage(QWidget):
     """Page used to configure the local auditor profile."""
@@ -35,10 +62,13 @@ class UserProfilePage(QWidget):
 
         self._settings_service = settings_service
 
-        self._avatar_label = QLabel("AU")
-        self._display_name_input = QLineEdit()
+        self._preferred_name_input = QLineEdit()
+        self._full_name_input = QLineEdit()
+        self._job_title_input = QComboBox()
         self._organization_input = QLineEdit()
-        self._role_input = QLineEdit()
+        self._directorate_input = QLineEdit()
+        self._email_input = QLineEdit()
+        self._phone_input = QLineEdit()
         self._currency_input = QComboBox()
         self._status_label = QLabel()
 
@@ -67,76 +97,286 @@ class UserProfilePage(QWidget):
         page_title.setObjectName("pageTitle")
 
         page_subtitle = QLabel(
-            "Manage the auditor information used when creating engagements "
-            "and generating working papers and reports."
+            "Maintain your personal and organisational information "
+            "separately from application and connection settings."
         )
         page_subtitle.setObjectName("pageSubtitle")
         page_subtitle.setWordWrap(True)
 
-        settings_panel = QFrame()
-        settings_panel.setObjectName("settingsPanel")
-        settings_panel.setMaximumWidth(980)
-        settings_panel.setSizePolicy(
+        self._configure_inputs()
+
+        personal_card = self._create_section_card(
+            title="Personal Information",
+            description=(
+                "This information is stored only for the current Windows "
+                "user and is not sent outside the application automatically."
+            ),
+            fields=(
+                (
+                    "Preferred name",
+                    True,
+                    self._preferred_name_input,
+                    "The name the application should use when addressing you.",
+                ),
+                (
+                    "Full name",
+                    True,
+                    self._full_name_input,
+                    "The full name that may appear in reports and activity records.",
+                ),
+                (
+                    "Job title / role",
+                    True,
+                    self._job_title_input,
+                    "Select a listed role or enter another appropriate title.",
+                ),
+            ),
+        )
+
+        organization_card = self._create_section_card(
+            title="Organisation",
+            description=(
+                "These details can later be used in report headings, "
+                "engagement records and exported outputs."
+            ),
+            fields=(
+                (
+                    "Organisation",
+                    True,
+                    self._organization_input,
+                    "The audit institution or organisation represented.",
+                ),
+                (
+                    "Directorate",
+                    False,
+                    self._directorate_input,
+                    "The directorate, department or business unit.",
+                ),
+            ),
+        )
+
+        contact_card = self._create_section_card(
+            title="Contact Information",
+            description=("Contact details are optional and remain stored locally."),
+            fields=(
+                (
+                    "Email address",
+                    False,
+                    self._email_input,
+                    "Used only where a generated output requires contact details.",
+                ),
+                (
+                    "Phone number",
+                    False,
+                    self._phone_input,
+                    "International and local number formats are accepted.",
+                ),
+            ),
+        )
+
+        defaults_card = self._create_section_card(
+            title="Application Defaults",
+            description=(
+                "Default values reduce repeated data entry when creating new audit engagements."
+            ),
+            fields=(
+                (
+                    "Default currency",
+                    False,
+                    self._currency_input,
+                    "Used as the initial currency for financial engagements.",
+                ),
+            ),
+        )
+
+        action_bar = self._build_action_bar()
+
+        page_layout.addWidget(page_title)
+        page_layout.addWidget(page_subtitle)
+        page_layout.addWidget(personal_card)
+        page_layout.addWidget(organization_card)
+        page_layout.addWidget(contact_card)
+        page_layout.addWidget(defaults_card)
+        page_layout.addWidget(action_bar)
+
+        scroll_area.setWidget(content)
+        root_layout.addWidget(scroll_area)
+
+        self._set_tab_order()
+
+    def _configure_inputs(self) -> None:
+        """Configure profile controls and generic placeholders."""
+
+        line_edits = (
+            self._preferred_name_input,
+            self._full_name_input,
+            self._organization_input,
+            self._directorate_input,
+            self._email_input,
+            self._phone_input,
+        )
+
+        for input_control in line_edits:
+            input_control.setObjectName("formInput")
+            input_control.setMinimumHeight(44)
+            input_control.setClearButtonEnabled(True)
+
+        self._preferred_name_input.setPlaceholderText("Name")
+        self._full_name_input.setPlaceholderText("Name Surname")
+        self._organization_input.setPlaceholderText("Organisation name")
+        self._directorate_input.setPlaceholderText("Directorate or department")
+        self._email_input.setPlaceholderText("name.surname@example.org")
+        self._phone_input.setPlaceholderText("+266 5XXX XXXX")
+
+        self._job_title_input.setObjectName("formInput")
+        self._job_title_input.setMinimumHeight(44)
+        self._job_title_input.setEditable(True)
+        self._job_title_input.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self._job_title_input.addItems(ROLE_OPTIONS)
+        self._job_title_input.setCurrentIndex(-1)
+
+        job_title_line_edit = self._job_title_input.lineEdit()
+
+        if job_title_line_edit is not None:
+            job_title_line_edit.setPlaceholderText("Select or enter a role")
+            job_title_line_edit.setClearButtonEnabled(True)
+
+        self._currency_input.setObjectName("formInput")
+        self._currency_input.setMinimumHeight(44)
+        self._currency_input.setEditable(True)
+        self._currency_input.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self._currency_input.addItems(CURRENCY_OPTIONS)
+
+    def _create_section_card(
+        self,
+        title: str,
+        description: str,
+        fields: tuple[
+            tuple[str, bool, QWidget, str],
+            ...,
+        ],
+    ) -> QFrame:
+        """Create a full-width profile section."""
+
+        card = QFrame()
+        card.setObjectName("profileSectionCard")
+        card.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Preferred,
         )
 
-        panel_layout = QVBoxLayout(settings_panel)
-        panel_layout.setContentsMargins(30, 28, 30, 28)
-        panel_layout.setSpacing(24)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(30, 26, 30, 26)
+        card_layout.setSpacing(18)
 
-        header_layout = self._build_header()
+        section_title = QLabel(title)
+        section_title.setObjectName("profileSectionTitle")
 
-        top_divider = self._create_divider()
-        bottom_divider = self._create_divider()
+        section_description = QLabel(description)
+        section_description.setObjectName("profileSectionDescription")
+        section_description.setWordWrap(True)
 
-        section_title = QLabel("Profile details")
-        section_title.setObjectName("settingsSectionTitle")
+        fields_layout = QGridLayout()
+        fields_layout.setContentsMargins(0, 4, 0, 0)
+        fields_layout.setHorizontalSpacing(24)
+        fields_layout.setVerticalSpacing(18)
+        fields_layout.setColumnMinimumWidth(0, 150)
+        fields_layout.setColumnStretch(1, 1)
 
-        section_description = QLabel("Fields marked with an asterisk are required.")
-        section_description.setObjectName("settingsSectionDescription")
+        for row, (
+            label_text,
+            required,
+            control,
+            hint_text,
+        ) in enumerate(fields):
+            label = self._create_field_label(
+                text=label_text,
+                required=required,
+            )
+            field_container = self._create_field_container(
+                control=control,
+                hint_text=hint_text,
+            )
 
-        self._configure_inputs()
+            fields_layout.addWidget(
+                label,
+                row,
+                0,
+                Qt.AlignmentFlag.AlignTop,
+            )
+            fields_layout.addWidget(
+                field_container,
+                row,
+                1,
+            )
 
-        form_layout = QGridLayout()
-        form_layout.setContentsMargins(0, 0, 0, 0)
-        form_layout.setHorizontalSpacing(24)
-        form_layout.setVerticalSpacing(22)
-        form_layout.setColumnStretch(0, 1)
-        form_layout.setColumnStretch(1, 1)
+        card_layout.addWidget(section_title)
+        card_layout.addWidget(section_description)
+        card_layout.addLayout(fields_layout)
 
-        display_name_field = self._create_field(
-            label_text="Display name *",
-            control=self._display_name_input,
-            hint_text=("The name shown in engagement records and reports."),
-        )
+        return card
 
-        role_field = self._create_field(
-            label_text="Role",
-            control=self._role_input,
-            hint_text="Your audit or organisational role.",
-        )
+    @staticmethod
+    def _create_field_label(
+        text: str,
+        required: bool,
+    ) -> QWidget:
+        """Create a label with an optional red required marker."""
 
-        organization_field = self._create_field(
-            label_text="Organisation *",
-            control=self._organization_input,
-            hint_text=("The organisation or audit institution represented."),
-        )
+        container = QWidget()
+        container.setObjectName("fieldLabelContainer")
 
-        currency_field = self._create_field(
-            label_text="Default currency",
-            control=self._currency_input,
-            hint_text=("Used as the initial currency for financial engagements."),
-        )
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 10, 0, 0)
+        layout.setSpacing(4)
 
-        form_layout.addWidget(display_name_field, 0, 0)
-        form_layout.addWidget(role_field, 0, 1)
-        form_layout.addWidget(organization_field, 1, 0, 1, 2)
-        form_layout.addWidget(currency_field, 2, 0)
+        label = QLabel(text)
+        label.setObjectName("fieldLabel")
 
-        actions_layout = QHBoxLayout()
-        actions_layout.setContentsMargins(0, 0, 0, 0)
-        actions_layout.setSpacing(16)
+        layout.addWidget(label)
+
+        if required:
+            required_marker = QLabel("*")
+            required_marker.setObjectName("requiredAsterisk")
+            required_marker.setToolTip("Required field")
+            layout.addWidget(required_marker)
+
+        layout.addStretch()
+
+        return container
+
+    @staticmethod
+    def _create_field_container(
+        control: QWidget,
+        hint_text: str,
+    ) -> QWidget:
+        """Create an input with its supporting guidance."""
+
+        container = QWidget()
+        container.setObjectName("formField")
+
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        hint = QLabel(hint_text)
+        hint.setObjectName("fieldHint")
+        hint.setWordWrap(True)
+
+        layout.addWidget(control)
+        layout.addWidget(hint)
+
+        return container
+
+    def _build_action_bar(self) -> QFrame:
+        """Create the save and validation action bar."""
+
+        action_bar = QFrame()
+        action_bar.setObjectName("profileActionBar")
+
+        layout = QHBoxLayout(action_bar)
+        layout.setContentsMargins(22, 16, 22, 16)
+        layout.setSpacing(16)
 
         self._status_label.setObjectName("formStatus")
         self._status_label.setWordWrap(True)
@@ -148,196 +388,128 @@ class UserProfilePage(QWidget):
         save_button.setCursor(Qt.CursorShape.PointingHandCursor)
         save_button.clicked.connect(self.save_profile)
 
-        actions_layout.addWidget(self._status_label)
-        actions_layout.addStretch(1)
-        actions_layout.addWidget(save_button)
+        layout.addWidget(self._status_label, 1)
+        layout.addWidget(save_button)
 
-        panel_layout.addLayout(header_layout)
-        panel_layout.addWidget(top_divider)
-        panel_layout.addWidget(section_title)
-        panel_layout.addWidget(section_description)
-        panel_layout.addLayout(form_layout)
-        panel_layout.addWidget(bottom_divider)
-        panel_layout.addLayout(actions_layout)
+        return action_bar
 
-        page_layout.addWidget(page_title)
-        page_layout.addWidget(page_subtitle)
+    def _set_tab_order(self) -> None:
+        """Define a predictable keyboard-navigation order."""
 
-        # Do not use AlignLeft here. Allow the panel to expand up to
-        # its maximum width instead of remaining at its natural size.
-        page_layout.addWidget(settings_panel)
-
-        scroll_area.setWidget(content)
-        root_layout.addWidget(scroll_area)
-
-    def _build_header(self) -> QHBoxLayout:
-        """Build the profile panel header."""
-
-        header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(18)
-
-        self._avatar_label.setObjectName("profileAvatar")
-        self._avatar_label.setFixedSize(64, 64)
-        self._avatar_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        text_layout = QVBoxLayout()
-        text_layout.setContentsMargins(0, 0, 0, 0)
-        text_layout.setSpacing(4)
-
-        eyebrow = QLabel("LOCAL PROFILE")
-        eyebrow.setObjectName("settingsEyebrow")
-
-        panel_title = QLabel("Auditor information")
-        panel_title.setObjectName("settingsPanelTitle")
-
-        panel_description = QLabel(
-            "This information is stored locally on this computer and is "
-            "not automatically shared outside the application."
+        self.setTabOrder(
+            self._preferred_name_input,
+            self._full_name_input,
         )
-        panel_description.setObjectName("settingsPanelDescription")
-        panel_description.setWordWrap(True)
-
-        text_layout.addWidget(eyebrow)
-        text_layout.addWidget(panel_title)
-        text_layout.addWidget(panel_description)
-
-        privacy_badge = QLabel("STORED LOCALLY")
-        privacy_badge.setObjectName("privacyBadge")
-        privacy_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        header_layout.addWidget(
-            self._avatar_label,
-            0,
-            Qt.AlignmentFlag.AlignTop,
+        self.setTabOrder(
+            self._full_name_input,
+            self._job_title_input,
         )
-        header_layout.addLayout(text_layout, 1)
-        header_layout.addWidget(
-            privacy_badge,
-            0,
-            Qt.AlignmentFlag.AlignTop,
-        )
-
-        return header_layout
-
-    def _configure_inputs(self) -> None:
-        """Configure the profile input controls."""
-
-        inputs = (
-            self._display_name_input,
+        self.setTabOrder(
+            self._job_title_input,
             self._organization_input,
-            self._role_input,
         )
-
-        for input_control in inputs:
-            input_control.setObjectName("formInput")
-            input_control.setMinimumHeight(44)
-            input_control.setClearButtonEnabled(True)
-
-        self._display_name_input.setPlaceholderText("For example: Tumisang Liphoto")
-        self._display_name_input.textChanged.connect(self._update_avatar)
-
-        self._organization_input.setPlaceholderText("For example: Office of the Auditor-General")
-
-        self._role_input.setPlaceholderText("For example: Auditor")
-
-        self._currency_input.setObjectName("formInput")
-        self._currency_input.setMinimumHeight(44)
-        self._currency_input.setEditable(True)
-        self._currency_input.addItems(
-            [
-                "LSL",
-                "ZAR",
-                "USD",
-                "EUR",
-                "GBP",
-            ]
+        self.setTabOrder(
+            self._organization_input,
+            self._directorate_input,
         )
-
-    @staticmethod
-    def _create_field(
-        label_text: str,
-        control: QWidget,
-        hint_text: str,
-    ) -> QWidget:
-        """Create a vertically arranged form field."""
-
-        field = QWidget()
-        field.setObjectName("formField")
-
-        layout = QVBoxLayout(field)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(7)
-
-        label = QLabel(label_text)
-        label.setObjectName("fieldLabel")
-
-        hint = QLabel(hint_text)
-        hint.setObjectName("fieldHint")
-        hint.setWordWrap(True)
-
-        layout.addWidget(label)
-        layout.addWidget(control)
-        layout.addWidget(hint)
-
-        return field
-
-    @staticmethod
-    def _create_divider() -> QFrame:
-        """Create a horizontal section divider."""
-
-        divider = QFrame()
-        divider.setObjectName("horizontalDivider")
-        divider.setFrameShape(QFrame.Shape.HLine)
-
-        return divider
+        self.setTabOrder(
+            self._directorate_input,
+            self._email_input,
+        )
+        self.setTabOrder(
+            self._email_input,
+            self._phone_input,
+        )
+        self.setTabOrder(
+            self._phone_input,
+            self._currency_input,
+        )
 
     def load_profile(self) -> None:
         """Load the saved profile into the form."""
 
         profile = self._settings_service.get_user_profile()
 
-        self._display_name_input.setText(profile.display_name)
+        self._preferred_name_input.setText(profile.preferred_name)
+        self._full_name_input.setText(profile.full_name)
         self._organization_input.setText(profile.organization)
-        self._role_input.setText(profile.role)
+        self._directorate_input.setText(profile.directorate)
+        self._email_input.setText(profile.email_address)
+        self._phone_input.setText(profile.phone_number)
 
-        currency_index = self._currency_input.findText(
-            profile.default_currency,
-            Qt.MatchFlag.MatchFixedString,
+        self._select_or_enter_combo_value(
+            combo=self._job_title_input,
+            value=profile.job_title,
         )
-
-        if currency_index >= 0:
-            self._currency_input.setCurrentIndex(currency_index)
-        else:
-            self._currency_input.setCurrentText(profile.default_currency)
-
-        self._update_avatar(profile.display_name)
+        self._select_or_enter_combo_value(
+            combo=self._currency_input,
+            value=profile.default_currency,
+        )
 
     def save_profile(self) -> None:
         """Validate and save the local profile."""
 
-        display_name = self._display_name_input.text().strip()
+        self._clear_validation_errors()
+
+        preferred_name = self._preferred_name_input.text().strip()
+        full_name = self._full_name_input.text().strip()
+        job_title = self._job_title_input.currentText().strip()
         organization = self._organization_input.text().strip()
-        role = self._role_input.text().strip() or "Auditor"
-        currency = self._currency_input.currentText().strip().upper() or "LSL"
+        directorate = self._directorate_input.text().strip()
+        email_address = self._email_input.text().strip()
+        phone_number = self._phone_input.text().strip()
+        default_currency = self._currency_input.currentText().strip().upper() or "LSL"
 
-        if not display_name:
+        required_fields = (
+            (
+                self._preferred_name_input,
+                preferred_name,
+                "Enter a preferred name.",
+            ),
+            (
+                self._full_name_input,
+                full_name,
+                "Enter the auditor's full name.",
+            ),
+            (
+                self._job_title_input,
+                job_title,
+                "Select or enter a job title or role.",
+            ),
+            (
+                self._organization_input,
+                organization,
+                "Enter the organisation name.",
+            ),
+        )
+
+        for control, value, message in required_fields:
+            if not value:
+                self._mark_invalid(control)
+                self._show_status(message, "error")
+                control.setFocus()
+                return
+
+        if email_address and not self._is_valid_email(email_address):
+            self._mark_invalid(self._email_input)
             self._show_status(
-                "Enter the auditor's display name.",
+                "Enter a valid email address.",
                 "error",
             )
-            self._display_name_input.setFocus()
+            self._email_input.setFocus()
             return
 
-        if not organization:
+        if phone_number and not self._is_valid_phone(phone_number):
+            self._mark_invalid(self._phone_input)
             self._show_status(
-                "Enter the auditor's organisation.",
+                "Enter a valid phone number.",
                 "error",
             )
-            self._organization_input.setFocus()
+            self._phone_input.setFocus()
             return
 
-        if len(currency) != 3 or not currency.isalpha():
+        if len(default_currency) != 3 or not default_currency.isalpha():
+            self._mark_invalid(self._currency_input)
             self._show_status(
                 "Enter a valid three-letter currency code.",
                 "error",
@@ -346,10 +518,14 @@ class UserProfilePage(QWidget):
             return
 
         profile = UserProfile(
-            display_name=display_name,
+            preferred_name=preferred_name,
+            full_name=full_name,
+            job_title=job_title,
             organization=organization,
-            role=role,
-            default_currency=currency,
+            directorate=directorate,
+            email_address=email_address,
+            phone_number=phone_number,
+            default_currency=default_currency,
         )
 
         self._settings_service.save_user_profile(profile)
@@ -360,27 +536,84 @@ class UserProfilePage(QWidget):
         )
         self.profile_saved.emit(profile)
 
-    def _update_avatar(self, display_name: str) -> None:
-        """Update the avatar using the entered initials."""
+    def _clear_validation_errors(self) -> None:
+        controls = (
+            self._preferred_name_input,
+            self._full_name_input,
+            self._job_title_input,
+            self._organization_input,
+            self._directorate_input,
+            self._email_input,
+            self._phone_input,
+            self._currency_input,
+        )
 
-        parts = [part for part in display_name.strip().split() if part]
+        for control in controls:
+            self._set_validation_state(
+                control,
+                "",
+            )
 
-        if not parts:
-            initials = "AU"
-        elif len(parts) == 1:
-            initials = parts[0][:2].upper()
+    def _mark_invalid(self, control: QWidget) -> None:
+        self._set_validation_state(
+            control,
+            "error",
+        )
+
+    @staticmethod
+    def _set_validation_state(
+        control: QWidget,
+        state: str,
+    ) -> None:
+        control.setProperty("validationState", state)
+
+        style = control.style()
+        style.unpolish(control)
+        style.polish(control)
+        control.update()
+
+    @staticmethod
+    def _select_or_enter_combo_value(
+        combo: QComboBox,
+        value: str,
+    ) -> None:
+        value = value.strip()
+        index = combo.findText(
+            value,
+            Qt.MatchFlag.MatchFixedString,
+        )
+
+        if index >= 0:
+            combo.setCurrentIndex(index)
         else:
-            initials = (parts[0][0] + parts[-1][0]).upper()
+            combo.setCurrentText(value)
 
-        self._avatar_label.setText(initials)
+    @staticmethod
+    def _is_valid_email(email_address: str) -> bool:
+        return bool(
+            re.fullmatch(
+                r"[^@\s]+@[^@\s]+\.[^@\s]+",
+                email_address,
+            )
+        )
+
+    @staticmethod
+    def _is_valid_phone(phone_number: str) -> bool:
+        if not re.fullmatch(
+            r"[0-9+\-()\s]+",
+            phone_number,
+        ):
+            return False
+
+        digit_count = sum(character.isdigit() for character in phone_number)
+
+        return digit_count >= 7
 
     def _show_status(
         self,
         message: str,
         status: str,
     ) -> None:
-        """Display save or validation feedback."""
-
         self._status_label.setText(message)
         self._status_label.setProperty("status", status)
         self._status_label.setVisible(True)

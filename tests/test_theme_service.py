@@ -4,7 +4,9 @@ import pytest
 from PySide6.QtCore import Qt
 
 from auditor_support_tool.services.theme_service import (
+    THEME_DEFINITIONS,
     build_stylesheet,
+    get_theme_definition,
     resolve_effective_mode,
 )
 
@@ -39,14 +41,45 @@ def test_explicit_dark_overrides_system_light() -> None:
     )
 
 
-def test_dark_stylesheet_contains_dark_palette() -> None:
+@pytest.mark.parametrize(
+    "theme_key",
+    tuple(THEME_DEFINITIONS),
+)
+def test_each_theme_builds_light_stylesheet(
+    theme_key: str,
+) -> None:
+    definition = get_theme_definition(theme_key)
+
     stylesheet = build_stylesheet(
-        theme="mint_green",
+        theme=theme_key,
+        mode="light",
+    )
+
+    assert definition["accent"] in stylesheet
+    assert definition["sidebar_light"] in stylesheet
+
+
+@pytest.mark.parametrize(
+    "theme_key",
+    tuple(THEME_DEFINITIONS),
+)
+def test_each_theme_builds_dark_stylesheet(
+    theme_key: str,
+) -> None:
+    definition = get_theme_definition(theme_key)
+
+    stylesheet = build_stylesheet(
+        theme=theme_key,
         mode="dark",
     )
 
-    assert "#171C18" in stylesheet
-    assert "#81D185" in stylesheet
+    assert definition["accent"] in stylesheet
+    assert definition["sidebar_dark"] in stylesheet
+
+
+def test_invalid_theme_is_rejected() -> None:
+    with pytest.raises(ValueError):
+        get_theme_definition("unsupported_theme")
 
 
 def test_invalid_effective_mode_is_rejected() -> None:

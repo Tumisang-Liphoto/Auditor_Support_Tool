@@ -7,6 +7,10 @@ from PySide6.QtCore import QSettings
 
 SUPPORTED_APPEARANCE_THEMES = {
     "mint_green",
+    "auditor_blue",
+    "professional_teal",
+    "royal_purple",
+    "graphite",
 }
 
 SUPPORTED_APPEARANCE_MODES = {
@@ -20,9 +24,13 @@ SUPPORTED_APPEARANCE_MODES = {
 class UserProfile:
     """Locally stored auditor profile."""
 
-    display_name: str = ""
+    preferred_name: str = ""
+    full_name: str = ""
+    job_title: str = "Auditor"
     organization: str = ""
-    role: str = "Auditor"
+    directorate: str = ""
+    email_address: str = ""
+    phone_number: str = ""
     default_currency: str = "LSL"
 
 
@@ -52,20 +60,54 @@ class SettingsService:
         return Path(self._settings.fileName())
 
     def get_user_profile(self) -> UserProfile:
-        """Return the locally stored user profile."""
+        """Return the locally stored user profile.
+
+        Older display-name and role settings are retained as migration
+        fallbacks so existing profiles continue to work after an update.
+        """
+
+        legacy_display_name = self._read_string(
+            "profile/display_name",
+            "",
+        )
+
+        full_name = self._read_string(
+            "profile/full_name",
+            legacy_display_name,
+        )
+
+        preferred_name = self._read_string(
+            "profile/preferred_name",
+            self._derive_preferred_name(full_name),
+        )
+
+        legacy_role = self._read_string(
+            "profile/role",
+            "Auditor",
+        )
 
         return UserProfile(
-            display_name=self._read_string(
-                "profile/display_name",
-                "",
+            preferred_name=preferred_name,
+            full_name=full_name,
+            job_title=self._read_string(
+                "profile/job_title",
+                legacy_role,
             ),
             organization=self._read_string(
                 "profile/organization",
                 "",
             ),
-            role=self._read_string(
-                "profile/role",
-                "Auditor",
+            directorate=self._read_string(
+                "profile/directorate",
+                "",
+            ),
+            email_address=self._read_string(
+                "profile/email_address",
+                "",
+            ),
+            phone_number=self._read_string(
+                "profile/phone_number",
+                "",
             ),
             default_currency=self._read_string(
                 "profile/default_currency",
@@ -76,31 +118,71 @@ class SettingsService:
     def save_user_profile(self, profile: UserProfile) -> None:
         """Save the local user profile."""
 
+        preferred_name = profile.preferred_name.strip()
+        full_name = profile.full_name.strip()
+        job_title = profile.job_title.strip()
+        organization = profile.organization.strip()
+        directorate = profile.directorate.strip()
+        email_address = profile.email_address.strip().lower()
+        phone_number = profile.phone_number.strip()
+        default_currency = profile.default_currency.strip().upper() or "LSL"
+
         self._settings.setValue(
-            "profile/display_name",
-            profile.display_name.strip(),
+            "profile/preferred_name",
+            preferred_name,
+        )
+        self._settings.setValue(
+            "profile/full_name",
+            full_name,
+        )
+        self._settings.setValue(
+            "profile/job_title",
+            job_title,
         )
         self._settings.setValue(
             "profile/organization",
-            profile.organization.strip(),
+            organization,
         )
         self._settings.setValue(
-            "profile/role",
-            profile.role.strip() or "Auditor",
+            "profile/directorate",
+            directorate,
+        )
+        self._settings.setValue(
+            "profile/email_address",
+            email_address,
+        )
+        self._settings.setValue(
+            "profile/phone_number",
+            phone_number,
         )
         self._settings.setValue(
             "profile/default_currency",
-            profile.default_currency.strip().upper() or "LSL",
+            default_currency,
+        )
+
+        # Preserve compatibility with an earlier application version.
+        self._settings.setValue(
+            "profile/display_name",
+            full_name,
+        )
+        self._settings.setValue(
+            "profile/role",
+            job_title,
         )
 
         self._settings.sync()
 
     def is_profile_complete(self) -> bool:
-        """Return whether the minimum user profile has been completed."""
+        """Return whether all mandatory profile fields are complete."""
 
         profile = self.get_user_profile()
 
-        return bool(profile.display_name.strip() and profile.organization.strip())
+        return bool(
+            profile.preferred_name.strip()
+            and profile.full_name.strip()
+            and profile.job_title.strip()
+            and profile.organization.strip()
+        )
 
     def get_appearance(self) -> AppearanceSettings:
         """Return the stored theme and appearance mode."""
@@ -189,3 +271,11 @@ class SettingsService:
         )
 
         return value if value is not None else default
+
+    @staticmethod
+    def _derive_preferred_name(full_name: str) -> str:
+        """Derive a preferred name from an older saved full name."""
+
+        parts = full_name.strip().split()
+
+        return parts[0] if parts else ""
