@@ -3,6 +3,15 @@
 APP_NAME = "Auditor Support Tool"
 APP_VERSION = "0.1.0"
 
+GITHUB_REPOSITORY_OWNER = "Tumisang-Liphoto"
+GITHUB_REPOSITORY_NAME = "Auditor_Support_Tool"
+GITHUB_API_VERSION = "2026-03-10"
+
+UPDATE_REQUEST_TIMEOUT_SECONDS = 15
+
+UPDATE_PACKAGE_ASSET_NAME = "Auditor-Support-Tool-Windows-x64.zip"
+UPDATE_CHECKSUM_ASSET_NAME = "Auditor-Support-Tool-Windows-x64.zip.sha256"
+
 ORGANIZATION_NAME = "Auditor Support Tool"
 ORGANIZATION_DOMAIN = "auditor-support-tool.local"
 
