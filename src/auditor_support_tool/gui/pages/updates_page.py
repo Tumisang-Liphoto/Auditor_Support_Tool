@@ -5,11 +5,13 @@ from datetime import datetime
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QScrollArea,
@@ -23,10 +25,14 @@ from auditor_support_tool.core.constants import APP_VERSION
 from auditor_support_tool.gui.workers.update_check_worker import (
     UpdateCheckWorker,
 )
+from auditor_support_tool.gui.workers.update_download_worker import (
+    UpdateDownloadWorker,
+)
 from auditor_support_tool.services.settings_service import (
     SettingsService,
 )
 from auditor_support_tool.services.update_service import (
+    PreparedUpdate,
     UpdateCheckResult,
     UpdateService,
     UpdateStatus,
@@ -48,11 +54,13 @@ class UpdatesPage(QWidget):
         self._update_service = update_service
 
         self._worker: UpdateCheckWorker | None = None
+        self._download_worker: UpdateDownloadWorker | None = None
         self._current_result: UpdateCheckResult | None = None
 
         self._channel_input = QComboBox()
         self._check_button = QPushButton()
         self._open_release_button = QPushButton()
+        self._install_button = QPushButton()
         self._progress_bar = QProgressBar()
 
         self._status_badge = QLabel()
@@ -183,12 +191,21 @@ class UpdatesPage(QWidget):
         self._open_release_button.setEnabled(False)
         self._open_release_button.clicked.connect(self.open_release_page)
 
+        self._install_button.setText("Download and Install")
+        self._install_button.setObjectName("primaryActionButton")
+        self._install_button.setFixedWidth(180)
+        self._install_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._install_button.setEnabled(False)
+        self._install_button.clicked.connect(self.download_and_install)
+
         actions_layout.addWidget(self._check_button)
         actions_layout.addWidget(self._open_release_button)
+        actions_layout.addWidget(self._install_button)
         actions_layout.addStretch()
 
         self._progress_bar.setObjectName("updateProgress")
-        self._progress_bar.setRange(0, 0)
+        self._progress_bar.setRange(0, 100)
+        self._progress_bar.setValue(0)
         self._progress_bar.setTextVisible(False)
         self._progress_bar.setFixedHeight(6)
         self._progress_bar.setVisible(False)
@@ -326,6 +343,7 @@ class UpdatesPage(QWidget):
         self._set_checking_state(True)
         self._current_result = None
         self._open_release_button.setEnabled(False)
+        self._install_button.setEnabled(False)
 
         self._set_status(
             badge="CHECKING",
@@ -397,6 +415,84 @@ class UpdatesPage(QWidget):
         self._release_notes.setPlainText(notes or "No release notes were provided.")
 
         self._open_release_button.setEnabled(bool(release.release_url))
+        self._install_button.setEnabled(
+            result.update_available
+            and result.package_asset is not None
+            and result.checksum_asset is not None
+        )
+
+    def download_and_install(self) -> None:
+        """Download, verify and launch the external updater."""
+
+        if self._current_result is None or not self._current_result.update_available:
+            return
+        if self._download_worker is not None and self._download_worker.isRunning():
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Install update",
+            "The update will be downloaded and verified. The application "
+            "will then close, update itself and restart. Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        self._set_installing_state(True)
+        self._set_status(
+            badge="DOWNLOADING",
+            message="Downloading and verifying the update package…",
+            status="checking",
+        )
+        self._progress_bar.setValue(0)
+
+        self._download_worker = UpdateDownloadWorker(
+            update_service=self._update_service,
+            result=self._current_result,
+        )
+        self._download_worker.progress_changed.connect(self._handle_download_progress)
+        self._download_worker.completed.connect(self._handle_update_prepared)
+        self._download_worker.failed.connect(self._handle_download_failure)
+        self._download_worker.finished.connect(self._handle_download_worker_finished)
+        self._download_worker.start()
+
+    def _handle_download_progress(self, downloaded: int, total: int) -> None:
+        if total > 0:
+            self._progress_bar.setRange(0, 100)
+            self._progress_bar.setValue(min(100, int(downloaded * 100 / total)))
+        else:
+            self._progress_bar.setRange(0, 0)
+
+    def _handle_update_prepared(self, prepared: PreparedUpdate) -> None:
+        try:
+            self._update_service.launch_prepared_update(prepared)
+        except Exception as error:
+            self._handle_download_failure(str(error))
+            return
+
+        self._set_status(
+            badge="RESTARTING",
+            message="The verified update is ready. Closing the application…",
+            status="available",
+        )
+        QApplication.instance().quit()
+
+    def _handle_download_failure(self, message: str) -> None:
+        self._set_status(
+            badge="INSTALL FAILED",
+            message=message,
+            status="error",
+        )
+        self._release_notes.setPlainText(message)
+
+    def _handle_download_worker_finished(self) -> None:
+        self._set_installing_state(False)
+        worker = self._download_worker
+        self._download_worker = None
+        if worker is not None:
+            worker.deleteLater()
 
     def _handle_check_failure(self, message: str) -> None:
         self._set_status(
@@ -434,6 +530,18 @@ class UpdatesPage(QWidget):
         self._channel_input.setEnabled(not checking)
         self._check_button.setEnabled(not checking)
         self._progress_bar.setVisible(checking)
+        if checking:
+            self._progress_bar.setRange(0, 0)
+        else:
+            self._progress_bar.setRange(0, 100)
+            self._progress_bar.setValue(0)
+
+    def _set_installing_state(self, installing: bool) -> None:
+        self._channel_input.setEnabled(not installing)
+        self._check_button.setEnabled(not installing)
+        self._open_release_button.setEnabled(not installing)
+        self._install_button.setEnabled(not installing)
+        self._progress_bar.setVisible(installing)
 
     def _set_status(
         self,
