@@ -6,6 +6,10 @@
   #define MyAppVersion "0.0.0"
 #endif
 
+#ifndef MyWindowsVersion
+  #define MyWindowsVersion "0.0.0.0"
+#endif
+
 #ifndef SourceDirectory
   #define SourceDirectory "..\dist\Auditor Support Tool"
 #endif
@@ -37,11 +41,11 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 CloseApplications=yes
 RestartApplications=no
 SetupLogging=yes
-VersionInfoVersion={#MyAppVersion}
+VersionInfoVersion={#MyWindowsVersion}
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} Setup
 VersionInfoProductName={#MyAppName}
-VersionInfoProductVersion={#MyAppVersion}
+VersionInfoProductVersion={#MyWindowsVersion}
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

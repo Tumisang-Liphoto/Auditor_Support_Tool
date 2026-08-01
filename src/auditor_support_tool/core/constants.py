@@ -1,7 +1,7 @@
 ﻿"""Application-wide constants."""
 
 APP_NAME = "Auditor Support Tool"
-APP_VERSION = "0.1.1-beta.1"
+APP_VERSION = "0.1.1-beta.2"
 APP_EXECUTABLE_NAME = "Auditor Support Tool.exe"
 UPDATER_EXECUTABLE_NAME = "Auditor Support Tool Updater.exe"
 UPDATE_MANIFEST_NAME = "update-manifest.json"
@@ -25,4 +25,5 @@ DEFAULT_WINDOW_WIDTH = 1200
 DEFAULT_WINDOW_HEIGHT = 760
 MINIMUM_WINDOW_WIDTH = 950
 MINIMUM_WINDOW_HEIGHT = 620
+
 

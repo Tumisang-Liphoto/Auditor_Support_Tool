@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import shutil
+import ssl
 import subprocess
 import sys
 import uuid
@@ -15,6 +16,7 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+import certifi
 from packaging.version import InvalidVersion, Version
 
 from auditor_support_tool.core.constants import (
@@ -140,6 +142,7 @@ class UpdateService:
         self._owner = owner
         self._repository = repository
         self._timeout_seconds = timeout_seconds
+        self._ssl_context = ssl.create_default_context(cafile=certifi.where())
         self._releases_url = f"https://api.github.com/repos/{owner}/{repository}/releases"
 
     def check_for_updates(self, channel: str) -> UpdateCheckResult:
@@ -362,7 +365,11 @@ class UpdateService:
     def _request_json(self, url: str) -> object:
         request = self._request(url)
         try:
-            with urlopen(request, timeout=self._timeout_seconds) as response:
+            with urlopen(
+                request,
+                timeout=self._timeout_seconds,
+                context=self._ssl_context,
+            ) as response:
                 data = response.read()
         except HTTPError as error:
             if error.code == 404:
@@ -374,9 +381,15 @@ class UpdateService:
             raise UpdateServiceError(
                 f"GitHub returned HTTP {error.code} while checking for updates."
             ) from error
-        except (URLError, TimeoutError) as error:
+        except TimeoutError as error:
             raise UpdateServiceError(
-                "The application could not connect to GitHub. Check the internet connection."
+                "The GitHub update check timed out."
+            ) from error
+        except URLError as error:
+            reason = getattr(error, "reason", error)
+            raise UpdateServiceError(
+                "The application could not establish a secure connection "
+                f"to GitHub. Details: {reason}"
             ) from error
 
         try:
@@ -392,7 +405,11 @@ class UpdateService:
     ) -> None:
         request = self._request(asset.download_url)
         try:
-            with urlopen(request, timeout=self._timeout_seconds) as response:
+            with urlopen(
+                request,
+                timeout=self._timeout_seconds,
+                context=self._ssl_context,
+            ) as response:
                 total = int(response.headers.get("Content-Length") or asset.size or 0)
                 downloaded = 0
                 with destination.open("wb") as output:
@@ -468,7 +485,14 @@ class UpdateService:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as error:
             raise UpdateServiceError("The update manifest is unreadable.") from error
-        if str(manifest.get("version", "")) != str(expected_version):
+        manifest_version_text = str(manifest.get("version", "")).strip()
+        try:
+            manifest_version = Version(manifest_version_text)
+        except InvalidVersion as error:
+            raise UpdateServiceError(
+                "The update manifest contains an invalid version."
+            ) from error
+        if manifest_version != expected_version:
             raise UpdateServiceError(
                 "The update manifest version does not match the GitHub release."
             )

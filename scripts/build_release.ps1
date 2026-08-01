@@ -6,14 +6,72 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $ProjectRoot
 
+function Invoke-CheckedCommand {
+    param(
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$Command,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Description
+    )
+
+    & $Command
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Description failed with exit code $LASTEXITCODE."
+    }
+}
+
 if (-not $SkipTests) {
-    python -m ruff check .\main.py .\updater_main.py .\src .\tests
-    python -m pytest -q
+    Invoke-CheckedCommand `
+        -Description "Ruff checks" `
+        -Command {
+            python -m ruff check `
+                .\main.py `
+                .\updater_main.py `
+                .\src `
+                .\tests
+        }
+
+    Invoke-CheckedCommand `
+        -Description "Pytest" `
+        -Command {
+            python -m pytest -q
+        }
 }
 
 $Version = (
     python -c "from auditor_support_tool.core.constants import APP_VERSION; print(APP_VERSION)"
 ).Trim()
+
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($Version)) {
+    throw "Could not determine the application version."
+}
+
+# Windows executable version fields must contain four numeric components.
+# Examples:
+#   0.1.0          -> 0.1.0.0
+#   0.1.1-beta.1   -> 0.1.1.1
+$VersionPattern = '^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)(?:-(?:alpha|beta|rc)\.(?<pre>\d+))?$'
+
+if ($Version -notmatch $VersionPattern) {
+    throw "Unsupported version format: $Version"
+}
+
+$PreReleaseNumber = if ($Matches.pre) {
+    [int]$Matches.pre
+}
+else {
+    0
+}
+
+$WindowsVersion = (
+    "{0}.{1}.{2}.{3}" -f `
+        $Matches.major, `
+        $Matches.minor, `
+        $Matches.patch, `
+        $PreReleaseNumber
+)
 
 $PackageName = "Auditor-Support-Tool-Windows-x64.zip"
 $InstallerName = "Auditor-Support-Tool-Setup.exe"
@@ -60,24 +118,33 @@ New-Item `
     -Path $ReleaseDirectory |
     Out-Null
 
-python -m PyInstaller `
-    --noconfirm `
-    --clean `
-    --windowed `
-    --onedir `
-    --name "Auditor Support Tool" `
-    --paths .\src `
-    --add-data ".\src\auditor_support_tool\resources;auditor_support_tool\resources" `
-    .\main.py
+Invoke-CheckedCommand `
+    -Description "Main application build" `
+    -Command {
+        python -m PyInstaller `
+            --noconfirm `
+            --clean `
+            --windowed `
+            --onedir `
+            --name "Auditor Support Tool" `
+            --paths .\src `
+            --add-data ".\src\auditor_support_tool\resources;auditor_support_tool\resources" `
+            --collect-data certifi `
+            .\main.py
+    }
 
-python -m PyInstaller `
-    --noconfirm `
-    --clean `
-    --console `
-    --onefile `
-    --name "Auditor Support Tool Updater" `
-    --paths .\src `
-    .\updater_main.py
+Invoke-CheckedCommand `
+    -Description "Updater build" `
+    -Command {
+        python -m PyInstaller `
+            --noconfirm `
+            --clean `
+            --console `
+            --onefile `
+            --name "Auditor Support Tool Updater" `
+            --paths .\src `
+            .\updater_main.py
+    }
 
 Copy-Item `
     $UpdaterExecutable `
@@ -124,6 +191,7 @@ Set-Content `
 
 & $InnoCompiler `
     "/DMyAppVersion=$Version" `
+    "/DMyWindowsVersion=$WindowsVersion" `
     "/DSourceDirectory=$ApplicationDirectory" `
     "/DOutputDirectory=$ReleaseDirectory" `
     $InstallerScript
@@ -146,3 +214,4 @@ Write-Host "  Installer: $InstallerPath"
 Write-Host "  Update package: $PackagePath"
 Write-Host "  Update checksum: $ChecksumPath"
 Write-Host "  Version: $Version"
+Write-Host "  Windows version: $WindowsVersion"
