@@ -44,6 +44,17 @@ $Version = (
     python -c "from auditor_support_tool.core.constants import APP_VERSION; print(APP_VERSION)"
 ).Trim()
 
+$NormalizedVersion = (
+    python -c "from packaging.version import Version; print(Version('$Version'))"
+).Trim()
+
+if (
+    $LASTEXITCODE -ne 0 -or
+    [string]::IsNullOrWhiteSpace($NormalizedVersion)
+) {
+    throw "Could not normalise the application version."
+}
+
 if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($Version)) {
     throw "Could not determine the application version."
 }
@@ -153,7 +164,7 @@ Copy-Item `
 
 $Manifest = @{
     format_version = 1
-    version = $Version
+    version = $NormalizedVersion
     application_executable = "Auditor Support Tool.exe"
     updater_executable = "Auditor Support Tool Updater.exe"
 } | ConvertTo-Json
@@ -216,3 +227,4 @@ Write-Host "  Update package: $PackagePath"
 Write-Host "  Update checksum: $ChecksumPath"
 Write-Host "  Version: $Version"
 Write-Host "  Windows version: $WindowsVersion"
+Write-Host "  Manifest version: $NormalizedVersion"
