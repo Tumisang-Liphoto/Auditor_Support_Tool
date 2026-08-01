@@ -454,10 +454,39 @@ class MainWindow(QMainWindow):
         subtitle: str,
         return_route: str,
     ) -> None:
-        """Open a test-description PDF inside the application."""
+        """Open a PDF using the user's saved viewing preference."""
+
+        document_path = Path(path)
+
+        if not document_path.is_file():
+            self.statusBar().showMessage(
+                f"PDF document not found: {document_path.name} "
+                f"| Version {APP_VERSION}"
+            )
+            return
+
+        if not self._settings_service.get_open_pdfs_in_application():
+            opened = QDesktopServices.openUrl(
+                QUrl.fromLocalFile(
+                    str(document_path.resolve())
+                )
+            )
+
+            if opened:
+                self.statusBar().showMessage(
+                    f"Opened {title} in the default Windows PDF reader "
+                    f"| Version {APP_VERSION}"
+                )
+            else:
+                self.statusBar().showMessage(
+                    f"Windows could not open {title} "
+                    f"| Version {APP_VERSION}"
+                )
+
+            return
 
         loaded = self._pdf_viewer_page.open_document(
-            path=Path(path),
+            path=document_path,
             title=title,
             subtitle=subtitle,
             return_route=return_route,

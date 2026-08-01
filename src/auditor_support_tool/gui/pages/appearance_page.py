@@ -5,6 +5,7 @@ from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
+    QComboBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -53,8 +54,9 @@ class AppearancePage(QWidget):
         self._mode_buttons: dict[str, QPushButton] = {}
 
         self._status_label = QLabel()
+        self._pdf_viewing_combo = QComboBox()
         self._preview_selection_label = QLabel()
-
+        
         self._preview_canvas = QFrame()
         self._preview_sidebar = QFrame()
         self._preview_title = QLabel()
@@ -143,6 +145,7 @@ class AppearancePage(QWidget):
         mode_description.setWordWrap(True)
 
         mode_layout = self._build_mode_layout()
+        document_viewing_panel = self._build_document_viewing_panel()
         preview_panel = self._build_preview_panel()
         action_layout = self._build_action_layout()
 
@@ -161,8 +164,13 @@ class AppearancePage(QWidget):
         panel_layout.addLayout(mode_layout)
 
         panel_layout.addSpacing(4)
+        panel_layout.addWidget(document_viewing_panel)
+
+        panel_layout.addSpacing(4)
         panel_layout.addWidget(preview_panel)
         panel_layout.addWidget(bottom_divider)
+
+
         panel_layout.addLayout(action_layout)
 
         page_layout.addWidget(page_title)
@@ -257,6 +265,61 @@ class AppearancePage(QWidget):
 
         return layout
 
+    def _build_document_viewing_panel(self) -> QFrame:
+        """Build the PDF viewing preference section."""
+
+        panel = QFrame()
+        panel.setObjectName("appearancePreviewPanel")
+
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(20, 18, 20, 20)
+        layout.setSpacing(10)
+
+        title = QLabel("Document viewing")
+        title.setObjectName("settingsSectionTitle")
+
+        description = QLabel(
+            "Choose whether PDF manuals and test descriptions open "
+            "inside the Auditor Support Tool or in the default Windows PDF reader."
+        )
+        description.setObjectName("settingsSectionDescription")
+        description.setWordWrap(True)
+
+        field_label = QLabel("Open PDF documents")
+        field_label.setObjectName("fieldLabel")
+
+        self._pdf_viewing_combo.setObjectName("formComboBox")
+        self._pdf_viewing_combo.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
+
+        self._pdf_viewing_combo.addItem(
+            "Inside the application",
+            True,
+        )
+        self._pdf_viewing_combo.addItem(
+            "Default Windows PDF reader",
+            False,
+        )
+
+        memory_note = QLabel(
+            "The embedded viewer provides a consistent experience and keeps "
+            "only one PDF open at a time. The Windows PDF reader may reduce "
+            "memory used inside the Auditor Support Tool."
+        )
+        memory_note.setObjectName("fieldHint")
+        memory_note.setWordWrap(True)
+
+        layout.addWidget(title)
+        layout.addWidget(description)
+        layout.addSpacing(2)
+        layout.addWidget(field_label)
+        layout.addWidget(self._pdf_viewing_combo)
+        layout.addWidget(memory_note)
+
+        return panel
+    
     def _build_preview_panel(self) -> QFrame:
         """Build the live theme preview."""
 
@@ -399,9 +462,9 @@ class AppearancePage(QWidget):
         self._status_label.setWordWrap(True)
         self._status_label.setVisible(False)
 
-        apply_button = QPushButton("Apply Appearance")
+        apply_button = QPushButton("Apply Preferences")
         apply_button.setObjectName("primaryActionButton")
-        apply_button.setFixedWidth(170)
+        apply_button.setFixedWidth(180)
         apply_button.setCursor(Qt.CursorShape.PointingHandCursor)
         apply_button.clicked.connect(self.apply_appearance)
 
@@ -428,6 +491,19 @@ class AppearancePage(QWidget):
         self._mode_buttons[mode_key].setChecked(True)
         self._theme_buttons[theme_key].setChecked(True)
 
+        open_in_application = (
+            self._settings_service.get_open_pdfs_in_application()
+        )
+
+        pdf_index = self._pdf_viewing_combo.findData(
+            open_in_application
+        )
+
+        if pdf_index < 0:
+            pdf_index = 0
+
+        self._pdf_viewing_combo.setCurrentIndex(pdf_index)
+
         self._update_preview()
 
     def apply_appearance(self) -> None:
@@ -439,6 +515,10 @@ class AppearancePage(QWidget):
         appearance = AppearanceSettings(
             theme=theme_key,
             mode=mode_key,
+        )
+
+        open_pdfs_in_application = bool(
+            self._pdf_viewing_combo.currentData()
         )
 
         try:
@@ -453,13 +533,29 @@ class AppearancePage(QWidget):
             )
             return
 
+        self._settings_service.save_open_pdfs_in_application(
+            open_pdfs_in_application
+        )
+
         definition = get_theme_definition(theme_key)
+
+        pdf_viewing_method = (
+            "inside the application"
+            if open_pdfs_in_application
+            else "int the default Windowa PDF reader"
+        )
+
+        pdf_viewing_method = (
+            "inside the application"
+            if open_pdfs_in_application
+            else "in the default Windows PDF reader"
+        )
 
         self._show_status(
             (
                 f"{definition['display_name']} using "
-                f"{MODE_DISPLAY_NAMES[mode_key]} mode "
-                "has been applied."
+                f"{MODE_DISPLAY_NAMES[mode_key]} mode has been applied. "
+                f"PDF documents will open {pdf_viewing_method}."
             ),
             "success",
         )
