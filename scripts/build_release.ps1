@@ -162,10 +162,11 @@ $ManifestPath = Join-Path `
     $ApplicationDirectory `
     "update-manifest.json"
 
-Set-Content `
-    -Path $ManifestPath `
-    -Value $Manifest `
-    -Encoding UTF8
+[System.IO.File]::WriteAllText(
+    $ManifestPath,
+    $Manifest,
+    [System.Text.UTF8Encoding]::new($false)
+)
 
 $PackagePath = Join-Path `
     $ReleaseDirectory `

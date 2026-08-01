@@ -482,9 +482,12 @@ class UpdateService:
                 "The update package is incomplete or has an unexpected layout."
             )
         try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest = json.loads(
+                manifest_path.read_text(encoding="utf-8-sig")
+                )
         except (OSError, json.JSONDecodeError) as error:
-            raise UpdateServiceError("The update manifest is unreadable.") from error
+            raise UpdateServiceError("The update manifest is unreadable."
+                                     ) from error
         manifest_version_text = str(manifest.get("version", "")).strip()
         try:
             manifest_version = Version(manifest_version_text)
