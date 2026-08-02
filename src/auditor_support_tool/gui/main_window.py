@@ -1,6 +1,7 @@
 """Primary application window and page routing."""
 
 from pathlib import Path
+
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QAction, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
@@ -24,26 +25,24 @@ from auditor_support_tool.gui.pages.about_page import AboutPage
 from auditor_support_tool.gui.pages.appearance_page import AppearancePage
 from auditor_support_tool.gui.pages.dashboard_page import DashboardPage
 from auditor_support_tool.gui.pages.manuals_page import ManualsPage
+from auditor_support_tool.gui.pages.pdf_viewer_page import (
+    PdfViewerPage,
+)
 from auditor_support_tool.gui.pages.placeholder_page import PlaceholderPage
+from auditor_support_tool.gui.pages.test_description_page import (
+    TestDescriptionPage,
+)
 from auditor_support_tool.gui.pages.updates_page import UpdatesPage
-from auditor_support_tool.gui.widgets.sidebar import Sidebar
-from auditor_support_tool.services.theme_service import ThemeService
-from auditor_support_tool.services.update_service import UpdateService
-
 from auditor_support_tool.gui.pages.user_profile_page import (
     UserProfilePage,
 )
+from auditor_support_tool.gui.widgets.sidebar import Sidebar
 from auditor_support_tool.services.settings_service import (
     SettingsService,
     UserProfile,
 )
-from auditor_support_tool.gui.pages.test_description_page import (
-    TestDescriptionPage,
-)
-from auditor_support_tool.gui.pages.pdf_viewer_page import (
-    PdfViewerPage,
-)
-
+from auditor_support_tool.services.theme_service import ThemeService
+from auditor_support_tool.services.update_service import UpdateService
 
 PageDefinition = tuple[str, str, str]
 
