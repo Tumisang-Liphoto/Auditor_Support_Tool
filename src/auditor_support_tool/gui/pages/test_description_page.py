@@ -39,6 +39,16 @@ TEST_DESCRIPTIONS: tuple[TestDescriptionDefinition, ...] = (
         ),
         file_name="GL-001-Duplicate-Invoice-Detection.pdf",
     ),
+    TestDescriptionDefinition(
+        test_code="GL-003",
+        title="Weekend Postings",
+        category="General Ledger",
+        description=(
+            "Identifies general ledger transactions dated on Saturdays "
+            "or Sundays for further audit scrutiny."
+        ),
+        file_name="GL-003-Weekend-Postings.pdf",
+    ),
 )
 
 
