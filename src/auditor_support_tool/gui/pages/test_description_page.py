@@ -1,4 +1,4 @@
-"""Bundled application manuals page."""
+"""Bundled audit test-description catalogue."""
 
 import sys
 from dataclasses import dataclass
@@ -18,48 +18,32 @@ from PySide6.QtWidgets import (
 
 
 @dataclass(frozen=True, slots=True)
-class ManualDefinition:
-    """Description of a bundled application manual."""
+class TestDescriptionDefinition:
+    """Description of a bundled audit-test document."""
 
+    test_code: str
     title: str
+    category: str
     description: str
     file_name: str
 
 
-MANUALS: tuple[ManualDefinition, ...] = (
-    ManualDefinition(
-        "PDF Viewer Test Manual",
-        (
-            "Temporary two-page manual used to test scrolling, zooming, "
-            "fit-to-width and navigation inside the application."
+TEST_DESCRIPTIONS: tuple[TestDescriptionDefinition, ...] = (
+    TestDescriptionDefinition(
+        test_code="GL-001",
+        title="Duplicate Invoice Detection",
+        category="General Ledger",
+        description=(
+            "Identifies repeated invoice numbers that may require "
+            "further audit scrutiny."
         ),
-        "pdf-viewer-test-manual.pdf",
-    ),
-    ManualDefinition(
-        "User Manual",
-        "Guidance for everyday use of the Auditor Support Tool.",
-        "user-manual.pdf",
-    ),
-    ManualDefinition(
-        "Installation Guide",
-        "Instructions for installing the application for a Windows user.",
-        "installation-guide.pdf",
-    ),
-    ManualDefinition(
-        "Update Guide",
-        "Guidance on update channels, downloads and recovery.",
-        "update-guide.pdf",
-    ),
-    ManualDefinition(
-        "Administrator Guide",
-        "Configuration, support and deployment guidance.",
-        "administrator-guide.pdf",
+        file_name="GL-001-Duplicate-Invoice-Detection.pdf",
     ),
 )
 
 
-class ManualsPage(QWidget):
-    """List and open manuals bundled with the application."""
+class TestDescriptionPage(QWidget):
+    """List and open bundled audit-test descriptions."""
 
     document_requested = Signal(
         str,
@@ -92,11 +76,12 @@ class ManualsPage(QWidget):
         layout.setSpacing(18)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        title = QLabel("Manuals")
+        title = QLabel("Test Descriptions")
         title.setObjectName("pageTitle")
 
         subtitle = QLabel(
-            "Open guidance documents supplied with the Auditor Support Tool."
+            "Review the purpose, data requirements, risks and limitations "
+            "of available audit tests."
         )
         subtitle.setObjectName("pageSubtitle")
         subtitle.setWordWrap(True)
@@ -104,15 +89,17 @@ class ManualsPage(QWidget):
         layout.addWidget(title)
         layout.addWidget(subtitle)
 
-        for manual in MANUALS:
-            layout.addWidget(self._build_manual_card(manual))
+        for definition in TEST_DESCRIPTIONS:
+            layout.addWidget(
+                self._build_description_card(definition)
+            )
 
         scroll_area.setWidget(content)
         root_layout.addWidget(scroll_area)
 
-    def _build_manual_card(
+    def _build_description_card(
         self,
-        manual: ManualDefinition,
+        definition: TestDescriptionDefinition,
     ) -> QFrame:
         card = QFrame()
         card.setObjectName("profileSectionCard")
@@ -128,19 +115,27 @@ class ManualsPage(QWidget):
         text_layout = QVBoxLayout()
         text_layout.setSpacing(6)
 
-        title = QLabel(manual.title)
+        title = QLabel(
+            f"{definition.test_code} — {definition.title}"
+        )
         title.setObjectName("profileSectionTitle")
 
-        description = QLabel(manual.description)
+        category = QLabel(definition.category)
+        category.setObjectName("fieldHint")
+
+        description = QLabel(definition.description)
         description.setObjectName("profileSectionDescription")
         description.setWordWrap(True)
 
-        path = self._manuals_directory() / manual.file_name
+        path = (
+            self._test_descriptions_directory()
+            / definition.file_name
+        )
 
         status = QLabel(
             "Available"
             if path.is_file()
-            else "Manual not yet available"
+            else "Test description not yet available"
         )
         status.setObjectName("formStatus")
         status.setProperty(
@@ -148,20 +143,21 @@ class ManualsPage(QWidget):
             "success" if path.is_file() else "neutral",
         )
 
-        button = QPushButton("Open Manual")
+        button = QPushButton("Open Description")
         button.setObjectName("primaryActionButton")
         button.setEnabled(path.is_file())
 
         button.clicked.connect(
             lambda checked=False,
-            selected_manual=manual,
-            manual_path=path: self._request_document(
-                selected_manual,
-                manual_path,
+            selected_definition=definition,
+            document_path=path: self._request_document(
+                selected_definition,
+                document_path,
             )
         )
 
         text_layout.addWidget(title)
+        text_layout.addWidget(category)
         text_layout.addWidget(description)
         text_layout.addWidget(status)
 
@@ -176,24 +172,24 @@ class ManualsPage(QWidget):
 
     def _request_document(
         self,
-        manual: ManualDefinition,
+        definition: TestDescriptionDefinition,
         path: Path,
     ) -> None:
-        """Request that the main window open a manual."""
+        """Request that the main window open the PDF viewer."""
 
         if not path.is_file():
             return
 
         self.document_requested.emit(
             str(path.resolve()),
-            manual.title,
-            "Application Manual",
-            "about.manuals",
+            definition.title,
+            f"{definition.test_code} | {definition.category}",
+            "about.test_descriptions",
         )
 
     @staticmethod
-    def _manuals_directory() -> Path:
-        """Return the bundled manuals directory."""
+    def _test_descriptions_directory() -> Path:
+        """Return the bundled General Ledger description directory."""
 
         if (
             getattr(sys, "frozen", False)
@@ -203,11 +199,13 @@ class ManualsPage(QWidget):
                 Path(sys._MEIPASS)
                 / "auditor_support_tool"
                 / "resources"
-                / "manuals"
+                / "test_descriptions"
+                / "general_ledger"
             )
 
         return (
             Path(__file__).resolve().parents[2]
             / "resources"
-            / "manuals"
+            / "test_descriptions"
+            / "general_ledger"
         )

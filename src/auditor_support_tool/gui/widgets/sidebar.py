@@ -185,6 +185,7 @@ class Sidebar(QFrame):
                     ("Overview", "about.overview"),
                     ("Updates", "settings.updates"),
                     ("Manuals", "about.manuals"),
+                    ("Test Descriptions", "about.test_descriptions"),
                 ),
             ),
         )

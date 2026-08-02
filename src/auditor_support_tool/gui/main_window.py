@@ -1,5 +1,7 @@
 """Primary application window and page routing."""
 
+from pathlib import Path
+
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QAction, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
@@ -23,7 +25,13 @@ from auditor_support_tool.gui.pages.about_page import AboutPage
 from auditor_support_tool.gui.pages.appearance_page import AppearancePage
 from auditor_support_tool.gui.pages.dashboard_page import DashboardPage
 from auditor_support_tool.gui.pages.manuals_page import ManualsPage
+from auditor_support_tool.gui.pages.pdf_viewer_page import (
+    PdfViewerPage,
+)
 from auditor_support_tool.gui.pages.placeholder_page import PlaceholderPage
+from auditor_support_tool.gui.pages.test_description_page import (
+    TestDescriptionPage,
+)
 from auditor_support_tool.gui.pages.updates_page import UpdatesPage
 from auditor_support_tool.gui.pages.user_profile_page import (
     UserProfilePage,
@@ -290,10 +298,37 @@ class MainWindow(QMainWindow):
             page=AboutPage(),
         )
 
+        manuals_page = ManualsPage()
+        manuals_page.document_requested.connect(
+            self._open_pdf_description
+        )
+
         self._register_page(
             route="about.manuals",
             title="Manuals",
-            page=ManualsPage(),
+            page=manuals_page,
+        )
+
+        test_description_page = TestDescriptionPage()
+        test_description_page.document_requested.connect(
+            self._open_pdf_description
+        )
+
+        self._register_page(
+            route="about.test_descriptions",
+            title="Test Descriptions",
+            page=test_description_page,
+        )
+
+        self._pdf_viewer_page = PdfViewerPage()
+        self._pdf_viewer_page.back_requested.connect(
+            self.show_route
+        )
+
+        self._register_page(
+            route="about.pdf_viewer",
+            title="PDF Viewer",
+            page=self._pdf_viewer_page,
         )
 
         page_definitions: tuple[PageDefinition, ...] = (
@@ -411,8 +446,69 @@ class MainWindow(QMainWindow):
         self._page_titles[route] = title
         self._page_stack.addWidget(page)
 
+    def _open_pdf_description(
+        self,
+        path: str,
+        title: str,
+        subtitle: str,
+        return_route: str,
+    ) -> None:
+        """Open a PDF using the user's saved viewing preference."""
+
+        document_path = Path(path)
+
+        if not document_path.is_file():
+            self.statusBar().showMessage(
+                f"PDF document not found: {document_path.name} "
+                f"| Version {APP_VERSION}"
+            )
+            return
+
+        if not self._settings_service.get_open_pdfs_in_application():
+            opened = QDesktopServices.openUrl(
+                QUrl.fromLocalFile(
+                    str(document_path.resolve())
+                )
+            )
+
+            if opened:
+                self.statusBar().showMessage(
+                    f"Opened {title} in the default Windows PDF reader "
+                    f"| Version {APP_VERSION}"
+                )
+            else:
+                self.statusBar().showMessage(
+                    f"Windows could not open {title} "
+                    f"| Version {APP_VERSION}"
+                )
+
+            return
+
+        loaded = self._pdf_viewer_page.open_document(
+            path=document_path,
+            title=title,
+            subtitle=subtitle,
+            return_route=return_route,
+        )
+
+        if loaded:
+            self.show_route("about.pdf_viewer")
+            return
+
+        self.statusBar().showMessage(
+            f"Unable to open PDF document | Version {APP_VERSION}"
+        )
+
     def show_route(self, route: str) -> None:
         """Display the page registered for a route."""
+
+        current_page = self._page_stack.currentWidget()
+
+        if (
+            current_page is self._pdf_viewer_page
+            and route != "about.pdf_viewer"
+        ):
+            self._pdf_viewer_page.close_document()
 
         if self._profile_required and route != "settings.user_profile":
             route = "settings.user_profile"

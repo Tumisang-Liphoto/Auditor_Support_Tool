@@ -246,6 +246,26 @@ class SettingsService:
         )
         self._settings.sync()
 
+    def get_open_pdfs_in_application(self) -> bool:
+        """Return whether PDFs should open inside the application."""
+
+        return self._read_bool(
+            "documents/open_pdfs_in_application",
+            True,
+        )
+
+    def save_open_pdfs_in_application(
+        self,
+        enabled: bool,
+    ) -> None:
+        """Save the selected PDF viewing method."""
+
+        self._settings.setValue(
+            "documents/open_pdfs_in_application",
+            bool(enabled),
+        )
+        self._settings.sync()
+
     def reset_all_settings(self) -> None:
         """Remove all application preferences from the settings file."""
 
@@ -271,6 +291,28 @@ class SettingsService:
         )
 
         return value if value is not None else default
+
+    def _read_bool(
+        self,
+        key: str,
+        default: bool,
+    ) -> bool:
+        """Read a stored Boolean setting."""
+
+        value = self._settings.value(
+            key,
+            default,
+        )
+
+        if isinstance(value, bool):
+            return value
+
+        return str(value).strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
 
     @staticmethod
     def _derive_preferred_name(full_name: str) -> str:
