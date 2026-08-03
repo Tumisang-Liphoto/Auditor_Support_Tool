@@ -25,6 +25,7 @@ from auditor_support_tool.core.workspace_state import WorkspaceState
 from auditor_support_tool.gui.pages.about_page import AboutPage
 from auditor_support_tool.gui.pages.appearance_page import AppearancePage
 from auditor_support_tool.gui.pages.dashboard_page import DashboardPage
+from auditor_support_tool.gui.pages.data_profile_page import DataProfilePage
 from auditor_support_tool.gui.pages.data_sources_page import DataSourcesPage
 from auditor_support_tool.gui.pages.manuals_page import ManualsPage
 from auditor_support_tool.gui.pages.pdf_viewer_page import (
@@ -330,6 +331,16 @@ class MainWindow(QMainWindow):
 
         data_sources_page = DataSourcesPage(
             workspace_state=self._workspace_state,
+        )
+
+        data_profile_page = DataProfilePage(
+            workspace_state=self._workspace_state,
+        )
+
+        self._register_page(
+            route="workspace.data_profile",
+            title="Data Profile",
+            page=data_profile_page,
         )
 
         self._register_page(

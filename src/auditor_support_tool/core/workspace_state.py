@@ -4,6 +4,9 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 
+from auditor_support_tool.domains.financial_audit.general_ledger.data_profile_models import (
+    DataProfile,
+)
 from auditor_support_tool.domains.financial_audit.general_ledger.models import (
     LoadedTable,
     SourceFileInfo,
@@ -15,6 +18,7 @@ class WorkspaceState(QObject):
 
     source_changed = Signal()
     population_loaded = Signal()
+    profile_created = Signal()
     workspace_cleared = Signal()
 
     def __init__(self, parent: QObject | None = None) -> None:
@@ -24,6 +28,7 @@ class WorkspaceState(QObject):
         self._source_info: SourceFileInfo | None = None
         self._selected_worksheet: str | None = None
         self._loaded_table: LoadedTable | None = None
+        self._data_profile: DataProfile | None = None
 
     @property
     def source_path(self) -> Path | None:
@@ -45,9 +50,15 @@ class WorkspaceState(QObject):
 
     @property
     def loaded_table(self) -> LoadedTable | None:
-        """Return the population loaded for audit testing."""
+        """Return the population loaded for data preparation."""
 
         return self._loaded_table
+
+    @property
+    def data_profile(self) -> DataProfile | None:
+        """Return the profile created for the loaded population."""
+
+        return self._data_profile
 
     @property
     def has_source(self) -> bool:
@@ -61,16 +72,23 @@ class WorkspaceState(QObject):
 
         return self._loaded_table is not None
 
+    @property
+    def has_data_profile(self) -> bool:
+        """Return whether the loaded population has been profiled."""
+
+        return self._data_profile is not None
+
     def set_source(
         self,
         source_info: SourceFileInfo,
     ) -> None:
-        """Register a source file and clear any prior loaded population."""
+        """Register a source file and clear later-stage data."""
 
         self._source_path = source_info.path
         self._source_info = source_info
         self._selected_worksheet = None
         self._loaded_table = None
+        self._data_profile = None
 
         self.source_changed.emit()
 
@@ -78,13 +96,23 @@ class WorkspaceState(QObject):
         self,
         loaded_table: LoadedTable,
     ) -> None:
-        """Store the selected and loaded source population."""
+        """Store the selected source population."""
 
         self._source_path = loaded_table.source_path
         self._selected_worksheet = loaded_table.worksheet_name
         self._loaded_table = loaded_table
+        self._data_profile = None
 
         self.population_loaded.emit()
+
+    def set_data_profile(
+        self,
+        data_profile: DataProfile,
+    ) -> None:
+        """Store the profile created for the loaded population."""
+
+        self._data_profile = data_profile
+        self.profile_created.emit()
 
     def clear(self) -> None:
         """Clear all active workspace source data."""
@@ -93,5 +121,6 @@ class WorkspaceState(QObject):
         self._source_info = None
         self._selected_worksheet = None
         self._loaded_table = None
+        self._data_profile = None
 
         self.workspace_cleared.emit()
