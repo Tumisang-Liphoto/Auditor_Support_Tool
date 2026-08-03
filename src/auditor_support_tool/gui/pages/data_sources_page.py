@@ -1,32 +1,52 @@
-"""Data-source selection and population loading page."""
+"""Power BI-style navigator for workbook audit data sources."""
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QComboBox,
     QFileDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
+from auditor_support_tool.core.workbook_package import (
+    DatasetType,
+    PreparationStatus,
+    WorksheetDataset,
+)
+from auditor_support_tool.core.workbook_package_service import (
+    WorkbookPackageService,
+)
+from auditor_support_tool.core.workbook_suggestion_service import (
+    WorkbookSuggestionService,
+)
 from auditor_support_tool.core.workspace_state import WorkspaceState
 from auditor_support_tool.domains.financial_audit.general_ledger.data_import_service import (
     DataImportError,
     DataImportService,
 )
+from auditor_support_tool.domains.financial_audit.general_ledger.models import (
+    SourceFileInfo,
+)
 
 
 class DataSourcesPage(QWidget):
-    """Select, inspect and load Excel or CSV audit data."""
+    """Inspect a source file and select its worksheet datasets."""
+
+    continue_requested = Signal(str)
 
     def __init__(
         self,
@@ -37,8 +57,11 @@ class DataSourcesPage(QWidget):
 
         self._workspace_state = workspace_state
         self._import_service = DataImportService()
+        self._package_service = WorkbookPackageService()
+        self._suggestion_service = WorkbookSuggestionService()
 
         self._source_path: Path | None = None
+        self._updating_navigator = False
 
         self._build_interface()
         self._connect_signals()
@@ -52,7 +75,9 @@ class DataSourcesPage(QWidget):
         scroll_area.setObjectName("pageScrollArea")
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll_area.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
 
         content = QWidget()
         content.setObjectName("pageContent")
@@ -66,8 +91,8 @@ class DataSourcesPage(QWidget):
         title.setObjectName("pageTitle")
 
         subtitle = QLabel(
-            "Select an Excel or CSV source file, review its available "
-            "worksheets and load the required audit population."
+            "Select a workbook, load its available worksheets and choose "
+            "the datasets that will form part of the audit workspace."
         )
         subtitle.setObjectName("pageSubtitle")
         subtitle.setWordWrap(True)
@@ -75,7 +100,7 @@ class DataSourcesPage(QWidget):
         layout.addWidget(title)
         layout.addWidget(subtitle)
         layout.addWidget(self._build_source_card())
-        layout.addWidget(self._build_population_card())
+        layout.addWidget(self._build_navigator_card())
         layout.addStretch(1)
 
         scroll_area.setWidget(content)
@@ -93,34 +118,49 @@ class DataSourcesPage(QWidget):
         layout.setContentsMargins(30, 24, 30, 24)
         layout.setSpacing(14)
 
-        heading = QLabel("Source File")
+        heading = QLabel("Get Data")
         heading.setObjectName("profileSectionTitle")
 
         description = QLabel(
-            "Supported file types are Excel workbooks (.xlsx and .xlsm) "
-            "and comma-separated value files (.csv)."
+            "Select an Excel workbook or CSV file, then load and analyse "
+            "its available worksheets before reviewing them in Navigator."
         )
         description.setObjectName("profileSectionDescription")
         description.setWordWrap(True)
 
-        path_label = QLabel("Selected file")
+        path_label = QLabel("Selected source")
         path_label.setObjectName("fieldLabel")
 
         self._path_field = QLineEdit()
         self._path_field.setReadOnly(True)
-        self._path_field.setPlaceholderText("No source file selected")
+        self._path_field.setPlaceholderText(
+            "No source file selected"
+        )
 
         button_layout = QHBoxLayout()
         button_layout.setSpacing(10)
 
-        self._browse_button = QPushButton("Select Source File")
-        self._browse_button.setObjectName("primaryActionButton")
+        self._browse_button = QPushButton("Get Data")
+        self._browse_button.setObjectName(
+            "primaryActionButton"
+        )
 
-        self._clear_button = QPushButton("Clear")
-        self._clear_button.setObjectName("secondaryActionButton")
+        self._load_package_button = QPushButton(
+            "Load and Analyse Workbook"
+        )
+        self._load_package_button.setObjectName(
+            "primaryActionButton"
+        )
+        self._load_package_button.setEnabled(False)
+
+        self._clear_button = QPushButton("Clear Workspace")
+        self._clear_button.setObjectName(
+            "secondaryActionButton"
+        )
         self._clear_button.setEnabled(False)
 
         button_layout.addWidget(self._browse_button)
+        button_layout.addWidget(self._load_package_button)
         button_layout.addWidget(self._clear_button)
         button_layout.addStretch(1)
 
@@ -128,39 +168,54 @@ class DataSourcesPage(QWidget):
         metadata_layout.setHorizontalSpacing(24)
         metadata_layout.setVerticalSpacing(8)
 
-        file_type_title = QLabel("File type")
-        file_type_title.setObjectName("fieldLabel")
-
-        file_size_title = QLabel("File size")
-        file_size_title.setObjectName("fieldLabel")
-
-        worksheet_count_title = QLabel("Worksheets")
-        worksheet_count_title.setObjectName("fieldLabel")
-
-        self._file_type_value = QLabel("—")
-        self._file_type_value.setObjectName("fieldHint")
-
-        self._file_size_value = QLabel("—")
-        self._file_size_value.setObjectName("fieldHint")
-
-        self._worksheet_count_value = QLabel("—")
-        self._worksheet_count_value.setObjectName("fieldHint")
-
-        metadata_layout.addWidget(file_type_title, 0, 0)
-        metadata_layout.addWidget(self._file_type_value, 0, 1)
-        metadata_layout.addWidget(file_size_title, 1, 0)
-        metadata_layout.addWidget(self._file_size_value, 1, 1)
-        metadata_layout.addWidget(worksheet_count_title, 2, 0)
-        metadata_layout.addWidget(
-            self._worksheet_count_value,
-            2,
-            1,
+        self._file_type_value = self._metadata_value()
+        self._file_size_value = self._metadata_value()
+        self._worksheet_count_value = self._metadata_value()
+        self._loaded_dataset_count_value = (
+            self._metadata_value()
         )
+
+        metadata_items = (
+            ("File type", self._file_type_value),
+            ("File size", self._file_size_value),
+            (
+                "Available worksheets",
+                self._worksheet_count_value,
+            ),
+            (
+                "Loaded datasets",
+                self._loaded_dataset_count_value,
+            ),
+        )
+
+        for row_number, (
+            label_text,
+            value_label,
+        ) in enumerate(metadata_items):
+            label = QLabel(label_text)
+            label.setObjectName("fieldLabel")
+
+            metadata_layout.addWidget(
+                label,
+                row_number,
+                0,
+            )
+            metadata_layout.addWidget(
+                value_label,
+                row_number,
+                1,
+            )
+
         metadata_layout.setColumnStretch(2, 1)
 
-        self._source_status = QLabel("Select a source file to begin.")
+        self._source_status = QLabel(
+            "Select a source file to begin."
+        )
         self._source_status.setObjectName("formStatus")
-        self._source_status.setProperty("status", "neutral")
+        self._source_status.setProperty(
+            "status",
+            "neutral",
+        )
         self._source_status.setWordWrap(True)
 
         layout.addWidget(heading)
@@ -173,7 +228,7 @@ class DataSourcesPage(QWidget):
 
         return card
 
-    def _build_population_card(self) -> QFrame:
+    def _build_navigator_card(self) -> QFrame:
         card = QFrame()
         card.setObjectName("profileSectionCard")
         card.setSizePolicy(
@@ -185,106 +240,150 @@ class DataSourcesPage(QWidget):
         layout.setContentsMargins(30, 24, 30, 24)
         layout.setSpacing(14)
 
-        heading = QLabel("Population")
+        heading = QLabel("Navigator")
         heading.setObjectName("profileSectionTitle")
 
         description = QLabel(
-            "Choose the worksheet containing the audit population and "
-            "load it into the active workspace."
+            "Select the worksheets to include, review their suggested "
+            "names and dataset types, then confirm the completed selection."
         )
-        description.setObjectName("profileSectionDescription")
+        description.setObjectName(
+            "profileSectionDescription"
+        )
         description.setWordWrap(True)
 
-        worksheet_label = QLabel("Worksheet")
-        worksheet_label.setObjectName("fieldLabel")
-
-        self._worksheet_combo = QComboBox()
-        self._worksheet_combo.setEnabled(False)
-
-        self._worksheet_hint = QLabel(
-            "Worksheet information will appear after a source file is selected."
+        self._navigator_table = QTableWidget()
+        self._navigator_table.setColumnCount(8)
+        self._navigator_table.setHorizontalHeaderLabels(
+            (
+                "Include",
+                "Original Worksheet",
+                "Dataset Name",
+                "Dataset Type",
+                "Records",
+                "Columns",
+                "Suggestion Confidence",
+                "Status",
+            )
         )
-        self._worksheet_hint.setObjectName("fieldHint")
-        self._worksheet_hint.setWordWrap(True)
+        self._navigator_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+        self._navigator_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self._navigator_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self._navigator_table.setAlternatingRowColors(True)
+        self._navigator_table.verticalHeader().setVisible(
+            False
+        )
+        self._navigator_table.setMinimumHeight(330)
 
-        self._load_button = QPushButton("Load Population")
-        self._load_button.setObjectName("primaryActionButton")
-        self._load_button.setEnabled(False)
-
-        summary_layout = QGridLayout()
-        summary_layout.setHorizontalSpacing(24)
-        summary_layout.setVerticalSpacing(8)
-
-        records_title = QLabel("Records loaded")
-        records_title.setObjectName("fieldLabel")
-
-        columns_title = QLabel("Source columns")
-        columns_title.setObjectName("fieldLabel")
-
-        blank_rows_title = QLabel("Blank rows skipped")
-        blank_rows_title.setObjectName("fieldLabel")
-
-        source_rows_title = QLabel("Source records read")
-        source_rows_title.setObjectName("fieldLabel")
-
-        self._records_value = QLabel("—")
-        self._records_value.setObjectName("fieldHint")
-
-        self._columns_value = QLabel("—")
-        self._columns_value.setObjectName("fieldHint")
-
-        self._blank_rows_value = QLabel("—")
-        self._blank_rows_value.setObjectName("fieldHint")
-
-        self._source_rows_value = QLabel("—")
-        self._source_rows_value.setObjectName("fieldHint")
-
-        summary_layout.addWidget(records_title, 0, 0)
-        summary_layout.addWidget(self._records_value, 0, 1)
-        summary_layout.addWidget(columns_title, 1, 0)
-        summary_layout.addWidget(self._columns_value, 1, 1)
-        summary_layout.addWidget(blank_rows_title, 2, 0)
-        summary_layout.addWidget(
-            self._blank_rows_value,
+        header = self._navigator_table.horizontalHeader()
+        header.setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents
+        )
+        header.setSectionResizeMode(
+            1,
+            QHeaderView.ResizeMode.Stretch,
+        )
+        header.setSectionResizeMode(
             2,
-            1,
+            QHeaderView.ResizeMode.Stretch,
         )
-        summary_layout.addWidget(source_rows_title, 3, 0)
-        summary_layout.addWidget(
-            self._source_rows_value,
-            3,
-            1,
-        )
-        summary_layout.setColumnStretch(2, 1)
 
-        self._population_status = QLabel("No population is loaded.")
-        self._population_status.setObjectName("formStatus")
-        self._population_status.setProperty(
+        actions_layout = QHBoxLayout()
+        actions_layout.setSpacing(10)
+
+        self._select_all_button = QPushButton(
+            "Include All"
+        )
+        self._select_all_button.setObjectName(
+            "secondaryActionButton"
+        )
+        self._select_all_button.setEnabled(False)
+
+        self._exclude_all_button = QPushButton(
+            "Exclude All"
+        )
+        self._exclude_all_button.setObjectName(
+            "secondaryActionButton"
+        )
+        self._exclude_all_button.setEnabled(False)
+
+        self._confirm_button = QPushButton(
+            "Confirm and Continue"
+        )
+        self._confirm_button.setObjectName(
+            "primaryActionButton"
+        )
+        self._confirm_button.setEnabled(False)
+
+        actions_layout.addWidget(
+            self._select_all_button
+        )
+        actions_layout.addWidget(
+            self._exclude_all_button
+        )
+        actions_layout.addStretch(1)
+        actions_layout.addWidget(self._confirm_button)
+
+        self._navigator_status = QLabel(
+            "Select a source file to view its worksheets."
+        )
+        self._navigator_status.setObjectName("formStatus")
+        self._navigator_status.setProperty(
             "status",
             "neutral",
         )
-        self._population_status.setWordWrap(True)
+        self._navigator_status.setWordWrap(True)
 
         layout.addWidget(heading)
         layout.addWidget(description)
-        layout.addWidget(worksheet_label)
-        layout.addWidget(self._worksheet_combo)
-        layout.addWidget(self._worksheet_hint)
-        layout.addWidget(
-            self._load_button,
-            0,
-            Qt.AlignmentFlag.AlignLeft,
-        )
-        layout.addLayout(summary_layout)
-        layout.addWidget(self._population_status)
+        layout.addWidget(self._navigator_table)
+        layout.addLayout(actions_layout)
+        layout.addWidget(self._navigator_status)
 
         return card
 
     def _connect_signals(self) -> None:
-        self._browse_button.clicked.connect(self._select_source_file)
-        self._clear_button.clicked.connect(self._clear_workspace)
-        self._load_button.clicked.connect(self._load_population)
-        self._worksheet_combo.currentIndexChanged.connect(self._update_worksheet_hint)
+        self._browse_button.clicked.connect(
+            self._select_source_file
+        )
+        self._load_package_button.clicked.connect(
+            self._load_workbook_package
+        )
+        self._clear_button.clicked.connect(
+            self._clear_workspace
+        )
+        self._select_all_button.clicked.connect(
+            self._include_all_datasets
+        )
+        self._exclude_all_button.clicked.connect(
+            self._exclude_all_datasets
+        )
+        self._confirm_button.clicked.connect(
+            self._confirm_and_continue
+        )
+
+        self._navigator_table.itemChanged.connect(
+            self._navigator_item_changed
+        )
+        self._navigator_table.itemSelectionChanged.connect(
+            self._navigator_selection_changed
+        )
+
+        self._workspace_state.workbook_package_changed.connect(
+            self._refresh_loaded_package
+        )
+        self._workspace_state.active_dataset_changed.connect(
+            self._select_active_dataset_row
+        )
+        self._workspace_state.workspace_cleared.connect(
+            self._reset_page
+        )
 
     def _select_source_file(self) -> None:
         selected_path, _ = QFileDialog.getOpenFileName(
@@ -292,7 +391,8 @@ class DataSourcesPage(QWidget):
             "Select Audit Data Source",
             str(Path.home()),
             (
-                "Supported Data Files (*.xlsx *.xlsm *.csv);;"
+                "Supported Data Files "
+                "(*.xlsx *.xlsm *.csv);;"
                 "Excel Workbooks (*.xlsx *.xlsm);;"
                 "CSV Files (*.csv)"
             ),
@@ -304,7 +404,9 @@ class DataSourcesPage(QWidget):
         path = Path(selected_path)
 
         try:
-            source_info = self._import_service.inspect_source(path)
+            source_info = (
+                self._import_service.inspect_source(path)
+            )
         except DataImportError as error:
             self._set_source_status(
                 str(error),
@@ -315,122 +417,751 @@ class DataSourcesPage(QWidget):
         self._source_path = source_info.path
         self._workspace_state.set_source(source_info)
 
-        self._path_field.setText(str(source_info.path))
-        self._file_type_value.setText(source_info.file_type.upper())
-        self._file_size_value.setText(self._format_file_size(source_info.file_size_bytes))
-        self._worksheet_count_value.setText(str(len(source_info.worksheets)))
+        self._display_source_metadata(source_info)
+        self._display_inspected_worksheets(source_info)
 
-        self._worksheet_combo.clear()
-
-        for worksheet in source_info.worksheets:
-            self._worksheet_combo.addItem(
-                worksheet.name,
-                worksheet,
-            )
-
-        self._worksheet_combo.setEnabled(True)
-        self._load_button.setEnabled(True)
+        self._load_package_button.setText(
+            "Load and Analyse Workbook"
+        )
+        self._load_package_button.setEnabled(True)
         self._clear_button.setEnabled(True)
-
-        self._reset_population_summary()
-        self._update_worksheet_hint()
+        self._select_all_button.setEnabled(False)
+        self._exclude_all_button.setEnabled(False)
+        self._confirm_button.setEnabled(False)
 
         self._set_source_status(
             "Source file inspected successfully.",
             "success",
         )
-        self._set_population_status(
-            "Select a worksheet and load the population.",
+        self._set_navigator_status(
+            (
+                f"{len(source_info.worksheets):,} source "
+                "item(s) found. Load and analyse the workbook "
+                "before making final selections."
+            ),
             "neutral",
         )
 
-    def _load_population(self) -> None:
-        if self._source_path is None:
-            self._set_population_status(
-                "Select a source file before loading a population.",
-                "error",
-            )
-            return
-
-        worksheet_name = self._worksheet_combo.currentText().strip()
-
-        if not worksheet_name:
-            self._set_population_status(
-                "Select a worksheet before loading the population.",
-                "error",
-            )
-            return
-
-        self._load_button.setEnabled(False)
-        self._load_button.setText("Loading…")
+    def _display_inspected_worksheets(
+        self,
+        source_info: SourceFileInfo,
+    ) -> None:
+        self._updating_navigator = True
 
         try:
-            table = self._import_service.load_table(
-                self._source_path,
-                worksheet_name=worksheet_name,
+            self._navigator_table.clearContents()
+            self._navigator_table.setRowCount(
+                len(source_info.worksheets)
             )
-        except DataImportError as error:
-            self._set_population_status(
-                str(error),
+
+            for row_number, worksheet in enumerate(
+                source_info.worksheets
+            ):
+                include_item = QTableWidgetItem()
+                include_item.setFlags(
+                    Qt.ItemFlag.ItemIsEnabled
+                    | Qt.ItemFlag.ItemIsUserCheckable
+                )
+                include_item.setCheckState(
+                    (
+                        Qt.CheckState.Checked
+                        if worksheet.estimated_data_rows > 0
+                        else Qt.CheckState.Unchecked
+                    )
+                )
+
+                include_item.setData(
+                    Qt.ItemDataRole.UserRole,
+                    worksheet.name,
+                )
+
+                worksheet_item = QTableWidgetItem(
+                    worksheet.name
+                )
+                suggested_name_item = QTableWidgetItem(
+                    "Not analysed"
+                )
+                dataset_type_item = QTableWidgetItem(
+                    "Not analysed"
+                )
+                records_item = self._centred_item(
+                    f"{worksheet.estimated_data_rows:,}"
+                )
+                columns_item = self._centred_item(
+                    f"{worksheet.maximum_column:,}"
+                )
+                confidence_item = self._centred_item("—")
+
+                status_text = (
+                    "Ready for analysis"
+                    if worksheet.estimated_data_rows > 0
+                    else "Empty"
+                )
+                status_item = self._centred_item(
+                    status_text
+                )
+
+                self._navigator_table.setItem(
+                    row_number,
+                    0,
+                    include_item,
+                )
+                self._navigator_table.setItem(
+                    row_number,
+                    1,
+                    worksheet_item,
+                )
+                self._navigator_table.setItem(
+                    row_number,
+                    2,
+                    suggested_name_item,
+                )
+                self._navigator_table.setItem(
+                    row_number,
+                    3,
+                    dataset_type_item,
+                )
+                self._navigator_table.setItem(
+                    row_number,
+                    4,
+                    records_item,
+                )
+                self._navigator_table.setItem(
+                    row_number,
+                    5,
+                    columns_item,
+                )
+                self._navigator_table.setItem(
+                    row_number,
+                    6,
+                    confidence_item,
+                )
+                self._navigator_table.setItem(
+                    row_number,
+                    7,
+                    status_item,
+                )
+        finally:
+            self._updating_navigator = False
+
+    def _load_workbook_package(self) -> None:
+        if self._source_path is None:
+            self._set_navigator_status(
+                (
+                    "Select a source file before loading "
+                    "the workbook."
+                ),
+                "error",
+            )
+            return
+
+        self._load_package_button.setEnabled(False)
+        self._load_package_button.setText(
+            "Loading and Analysing…"
+        )
+
+        try:
+            package = self._package_service.build_package(
+                self._source_path
+            )
+        except (
+            DataImportError,
+            OSError,
+            TypeError,
+            ValueError,
+        ) as error:
+            self._set_navigator_status(
+                (
+                    "Unable to load the workbook package: "
+                    f"{error}"
+                ),
                 "error",
             )
             return
         finally:
-            self._load_button.setText("Load Population")
-            self._load_button.setEnabled(True)
+            self._load_package_button.setText(
+                "Reload Workbook"
+            )
+            self._load_package_button.setEnabled(True)
 
-        self._workspace_state.set_loaded_table(table)
-
-        self._records_value.setText(f"{table.record_count:,}")
-        self._columns_value.setText(f"{table.column_count:,}")
-        self._blank_rows_value.setText(f"{table.summary.blank_rows_skipped:,}")
-        self._source_rows_value.setText(f"{table.summary.source_records_read:,}")
-
-        self._set_population_status(
-            (f"Population loaded successfully from '{table.worksheet_name}'."),
-            "success",
-        )
-
-    def _update_worksheet_hint(self) -> None:
-        worksheet = self._worksheet_combo.currentData()
-
-        if worksheet is None:
-            self._worksheet_hint.setText(
-                "Worksheet information will appear after a source file is selected."
+        if not package.datasets:
+            self._set_navigator_status(
+                (
+                    "No non-empty datasets were found in "
+                    "the selected source."
+                ),
+                "error",
             )
             return
 
-        self._worksheet_hint.setText(
-            
-                f"Estimated data rows: "
-                f"{worksheet.estimated_data_rows:,} | "
-                f"Maximum columns: {worksheet.maximum_column:,}"
-            
+        self._workspace_state.set_workbook_package(
+            package
         )
+
+        self._set_source_status(
+            "Workbook package loaded successfully.",
+            "success",
+        )
+        self._set_navigator_status(
+            (
+                f"{len(package.datasets):,} non-empty "
+                "dataset(s) were loaded and profiled. "
+                "Review the selections before continuing."
+            ),
+            "success",
+        )
+
+    def _refresh_loaded_package(self) -> None:
+        package = self._workspace_state.workbook_package
+
+        if package is None:
+            return
+
+        self._updating_navigator = True
+
+        try:
+            self._navigator_table.clearContents()
+            self._navigator_table.setRowCount(
+                len(package.datasets)
+            )
+
+            for row_number, dataset in enumerate(
+                package.datasets
+            ):
+                self._populate_dataset_row(
+                    row_number,
+                    dataset,
+                )
+        finally:
+            self._updating_navigator = False
+
+        self._loaded_dataset_count_value.setText(
+            f"{len(package.datasets):,}"
+        )
+
+        has_datasets = bool(package.datasets)
+
+        self._select_all_button.setEnabled(
+            has_datasets
+        )
+        self._exclude_all_button.setEnabled(
+            has_datasets
+        )
+        self._confirm_button.setEnabled(
+            has_datasets
+        )
+
+        self._select_active_dataset_row()
+
+    def _populate_dataset_row(
+        self,
+        row_number: int,
+        dataset: WorksheetDataset,
+    ) -> None:
+        include_item = QTableWidgetItem()
+        include_item.setFlags(
+            Qt.ItemFlag.ItemIsEnabled
+            | Qt.ItemFlag.ItemIsSelectable
+            | Qt.ItemFlag.ItemIsUserCheckable
+        )
+        include_item.setCheckState(
+            (
+                Qt.CheckState.Checked
+                if dataset.selected
+                else Qt.CheckState.Unchecked
+            )
+        )
+        include_item.setData(
+            Qt.ItemDataRole.UserRole,
+            dataset.dataset_id,
+        )
+
+        worksheet_item = QTableWidgetItem(
+            dataset.original_worksheet_name
+        )
+        worksheet_item.setData(
+            Qt.ItemDataRole.UserRole,
+            dataset.dataset_id,
+        )
+
+        name_editor = QLineEdit(
+            dataset.confirmed_display_name
+        )
+        name_editor.setProperty(
+            "dataset_id",
+            dataset.dataset_id,
+        )
+        name_editor.editingFinished.connect(
+            self._dataset_name_changed
+        )
+
+        type_combo = QComboBox()
+        type_combo.setProperty(
+            "dataset_id",
+            dataset.dataset_id,
+        )
+
+        for dataset_type in DatasetType:
+            type_combo.addItem(
+                self._suggestion_service.dataset_type_label(
+                    dataset_type
+                ),
+                dataset_type,
+            )
+
+        type_index = type_combo.findData(
+            dataset.confirmed_dataset_type
+        )
+
+        if type_index >= 0:
+            type_combo.setCurrentIndex(type_index)
+
+        type_combo.currentIndexChanged.connect(
+            self._dataset_type_changed
+        )
+
+        records_item = self._centred_item(
+            f"{dataset.record_count:,}"
+        )
+        columns_item = self._centred_item(
+            f"{dataset.column_count:,}"
+        )
+        confidence_item = self._centred_item(
+            dataset.suggestion_confidence.value.title()
+        )
+        status_item = self._centred_item(
+            self._status_label(dataset.status)
+        )
+
+        self._navigator_table.setItem(
+            row_number,
+            0,
+            include_item,
+        )
+        self._navigator_table.setItem(
+            row_number,
+            1,
+            worksheet_item,
+        )
+        self._navigator_table.setCellWidget(
+            row_number,
+            2,
+            name_editor,
+        )
+        self._navigator_table.setCellWidget(
+            row_number,
+            3,
+            type_combo,
+        )
+        self._navigator_table.setItem(
+            row_number,
+            4,
+            records_item,
+        )
+        self._navigator_table.setItem(
+            row_number,
+            5,
+            columns_item,
+        )
+        self._navigator_table.setItem(
+            row_number,
+            6,
+            confidence_item,
+        )
+        self._navigator_table.setItem(
+            row_number,
+            7,
+            status_item,
+        )
+
+    def _navigator_item_changed(
+        self,
+        item: QTableWidgetItem,
+    ) -> None:
+        if (
+            self._updating_navigator
+            or item.column() != 0
+        ):
+            return
+
+        dataset_id = item.data(
+            Qt.ItemDataRole.UserRole
+        )
+
+        if not isinstance(dataset_id, str):
+            return
+
+        package = self._workspace_state.workbook_package
+
+        if package is None:
+            return
+
+        dataset = package.get_dataset(dataset_id)
+
+        if dataset is None:
+            return
+
+        selected = (
+            item.checkState()
+            == Qt.CheckState.Checked
+        )
+
+        dataset.selected = selected
+        dataset.status = (
+            PreparationStatus.NOT_REVIEWED
+            if selected
+            else PreparationStatus.EXCLUDED
+        )
+
+        self._workspace_state.workbook_package_changed.emit()
+
+    def _navigator_selection_changed(self) -> None:
+        selected_rows = (
+            self._navigator_table.selectionModel()
+            .selectedRows()
+        )
+
+        if not selected_rows:
+            return
+
+        row_number = selected_rows[0].row()
+        item = self._navigator_table.item(
+            row_number,
+            1,
+        )
+
+        if item is None:
+            return
+
+        dataset_id = item.data(
+            Qt.ItemDataRole.UserRole
+        )
+
+        if not isinstance(dataset_id, str):
+            return
+
+        try:
+            self._workspace_state.set_active_dataset(
+                dataset_id
+            )
+        except ValueError as error:
+            self._set_navigator_status(
+                str(error),
+                "error",
+            )
+
+    def _dataset_name_changed(self) -> None:
+        editor = self.sender()
+
+        if not isinstance(editor, QLineEdit):
+            return
+
+        dataset_id = editor.property("dataset_id")
+
+        if not isinstance(dataset_id, str):
+            return
+
+        package = self._workspace_state.workbook_package
+
+        if package is None:
+            return
+
+        dataset = package.get_dataset(dataset_id)
+
+        if dataset is None:
+            return
+
+        confirmed_name = editor.text().strip()
+
+        if not confirmed_name:
+            editor.setText(
+                dataset.confirmed_display_name
+            )
+            self._set_navigator_status(
+                "A dataset name cannot be blank.",
+                "error",
+            )
+            return
+
+        dataset.confirmed_display_name = (
+            confirmed_name
+        )
+
+        if dataset.selected:
+            dataset.status = (
+                PreparationStatus.NOT_REVIEWED
+            )
+
+        self._set_navigator_status(
+            (
+                f"Dataset name updated to "
+                f"'{dataset.confirmed_display_name}'."
+            ),
+            "success",
+        )
+
+    def _dataset_type_changed(self) -> None:
+        combo = self.sender()
+
+        if not isinstance(combo, QComboBox):
+            return
+
+        dataset_id = combo.property("dataset_id")
+        selected_type = combo.currentData()
+
+        if (
+            not isinstance(dataset_id, str)
+            or not isinstance(
+                selected_type,
+                DatasetType,
+            )
+        ):
+            return
+
+        package = self._workspace_state.workbook_package
+
+        if package is None:
+            return
+
+        dataset = package.get_dataset(dataset_id)
+
+        if dataset is None:
+            return
+
+        dataset.confirmed_dataset_type = selected_type
+
+        if dataset.selected:
+            dataset.status = (
+                PreparationStatus.NOT_REVIEWED
+            )
+
+        dataset_type_label = (
+            self._suggestion_service.dataset_type_label(
+                selected_type
+            )
+        )
+
+        self._set_navigator_status(
+            (
+                f"'{dataset.confirmed_display_name}' "
+                f"classified as {dataset_type_label}."
+            ),
+            "success",
+        )
+
+    def _include_all_datasets(self) -> None:
+        self._set_all_dataset_selection(True)
+
+    def _exclude_all_datasets(self) -> None:
+        self._set_all_dataset_selection(False)
+
+    def _set_all_dataset_selection(
+        self,
+        selected: bool,
+    ) -> None:
+        package = self._workspace_state.workbook_package
+
+        if package is None:
+            return
+
+        self._updating_navigator = True
+
+        try:
+            for dataset in package.datasets:
+                dataset.selected = selected
+                dataset.status = (
+                    PreparationStatus.NOT_REVIEWED
+                    if selected
+                    else PreparationStatus.EXCLUDED
+                )
+        finally:
+            self._updating_navigator = False
+
+        self._workspace_state.workbook_package_changed.emit()
+
+        action = (
+            "included"
+            if selected
+            else "excluded"
+        )
+
+        self._set_navigator_status(
+            f"All loaded datasets were {action}.",
+            "success",
+        )
+
+    def _confirm_and_continue(self) -> None:
+        package = self._workspace_state.workbook_package
+
+        if package is None:
+            self._set_navigator_status(
+                (
+                    "Load and analyse a workbook before "
+                    "continuing."
+                ),
+                "error",
+            )
+            return
+
+        selected_datasets = (
+            package.selected_datasets
+        )
+
+        if not selected_datasets:
+            self._set_navigator_status(
+                (
+                    "Include at least one dataset before "
+                    "continuing."
+                ),
+                "error",
+            )
+            return
+
+        unnamed_datasets = [
+            dataset.original_worksheet_name
+            for dataset in selected_datasets
+            if not dataset.confirmed_display_name.strip()
+        ]
+
+        if unnamed_datasets:
+            self._set_navigator_status(
+                (
+                    "Every included dataset must have a "
+                    "name. Review: "
+                    f"{', '.join(unnamed_datasets)}."
+                ),
+                "error",
+            )
+            return
+
+        unclassified_datasets = [
+            dataset.confirmed_display_name
+            for dataset in selected_datasets
+            if (
+                dataset.confirmed_dataset_type
+                == DatasetType.UNCLASSIFIED
+            )
+        ]
+
+        if unclassified_datasets:
+            self._set_navigator_status(
+                (
+                    "Every included dataset must have a "
+                    "confirmed dataset type. Select a type "
+                    "or choose Other for: "
+                    f"{', '.join(unclassified_datasets)}."
+                ),
+                "error",
+            )
+            return
+
+        for dataset in package.datasets:
+            dataset.status = (
+                PreparationStatus.CONFIRMED
+                if dataset.selected
+                else PreparationStatus.EXCLUDED
+            )
+
+        first_dataset = selected_datasets[0]
+
+        self._workspace_state.set_active_dataset(
+            first_dataset.dataset_id
+        )
+        self._workspace_state.workbook_package_changed.emit()
+
+        self._set_navigator_status(
+            (
+                f"{len(selected_datasets):,} dataset(s) "
+                "confirmed. Opening Data Profile."
+            ),
+            "success",
+        )
+
+        self.continue_requested.emit(
+            "workspace.data_profile"
+        )
+
+    def _select_active_dataset_row(self) -> None:
+        active_dataset_id = (
+            self._workspace_state.active_dataset_id
+        )
+
+        if active_dataset_id is None:
+            return
+
+        for row_number in range(
+            self._navigator_table.rowCount()
+        ):
+            item = self._navigator_table.item(
+                row_number,
+                1,
+            )
+
+            if item is None:
+                continue
+
+            if (
+                item.data(Qt.ItemDataRole.UserRole)
+                == active_dataset_id
+            ):
+                self._navigator_table.selectRow(
+                    row_number
+                )
+                return
+
+    def _display_source_metadata(
+        self,
+        source_info: SourceFileInfo,
+    ) -> None:
+        self._path_field.setText(
+            str(source_info.path)
+        )
+        self._file_type_value.setText(
+            source_info.file_type.upper()
+        )
+        self._file_size_value.setText(
+            self._format_file_size(
+                source_info.file_size_bytes
+            )
+        )
+        self._worksheet_count_value.setText(
+            f"{len(source_info.worksheets):,}"
+        )
+        self._loaded_dataset_count_value.setText("0")
 
     def _clear_workspace(self) -> None:
         self._workspace_state.clear()
+
+    def _reset_page(self) -> None:
         self._source_path = None
 
         self._path_field.clear()
         self._file_type_value.setText("—")
         self._file_size_value.setText("—")
         self._worksheet_count_value.setText("—")
+        self._loaded_dataset_count_value.setText("—")
 
-        self._worksheet_combo.clear()
-        self._worksheet_combo.setEnabled(False)
+        self._navigator_table.clearContents()
+        self._navigator_table.setRowCount(0)
 
-        self._load_button.setEnabled(False)
+        self._load_package_button.setText(
+            "Load and Analyse Workbook"
+        )
+        self._load_package_button.setEnabled(False)
+        self._select_all_button.setEnabled(False)
+        self._exclude_all_button.setEnabled(False)
+        self._confirm_button.setEnabled(False)
         self._clear_button.setEnabled(False)
-
-        self._reset_population_summary()
 
         self._set_source_status(
             "Select a source file to begin.",
             "neutral",
         )
-        self._set_population_status(
-            "No population is loaded.",
+        self._set_navigator_status(
+            (
+                "Select a source file to view its "
+                "worksheets."
+            ),
             "neutral",
         )
 
@@ -441,48 +1172,39 @@ class DataSourcesPage(QWidget):
             return
 
         self._source_path = source_info.path
-        self._path_field.setText(str(source_info.path))
-        self._file_type_value.setText(source_info.file_type.upper())
-        self._file_size_value.setText(self._format_file_size(source_info.file_size_bytes))
-        self._worksheet_count_value.setText(str(len(source_info.worksheets)))
+        self._display_source_metadata(source_info)
 
-        self._worksheet_combo.clear()
-
-        for worksheet in source_info.worksheets:
-            self._worksheet_combo.addItem(
-                worksheet.name,
-                worksheet,
-            )
-
-        self._worksheet_combo.setEnabled(True)
-        self._load_button.setEnabled(True)
         self._clear_button.setEnabled(True)
+        self._load_package_button.setEnabled(True)
 
-        loaded_table = self._workspace_state.loaded_table
+        package = self._workspace_state.workbook_package
 
-        if loaded_table is not None:
-            worksheet_index = self._worksheet_combo.findText(loaded_table.worksheet_name)
-
-            if worksheet_index >= 0:
-                self._worksheet_combo.setCurrentIndex(worksheet_index)
-
-            self._records_value.setText(f"{loaded_table.record_count:,}")
-            self._columns_value.setText(f"{loaded_table.column_count:,}")
-            self._blank_rows_value.setText(f"{loaded_table.summary.blank_rows_skipped:,}")
-            self._source_rows_value.setText(f"{loaded_table.summary.source_records_read:,}")
-
-            self._set_population_status(
-                (f"Population loaded from '{loaded_table.worksheet_name}'."),
+        if package is None:
+            self._display_inspected_worksheets(
+                source_info
+            )
+            self._set_source_status(
+                "Source file is ready for analysis.",
                 "success",
             )
+            return
 
-        self._update_worksheet_hint()
+        self._load_package_button.setText(
+            "Reload Workbook"
+        )
+        self._refresh_loaded_package()
 
-    def _reset_population_summary(self) -> None:
-        self._records_value.setText("—")
-        self._columns_value.setText("—")
-        self._blank_rows_value.setText("—")
-        self._source_rows_value.setText("—")
+        self._set_source_status(
+            "Workbook package is loaded.",
+            "success",
+        )
+        self._set_navigator_status(
+            (
+                f"{len(package.datasets):,} dataset(s) "
+                "are available in the workspace."
+            ),
+            "success",
+        )
 
     def _set_source_status(
         self,
@@ -490,25 +1212,75 @@ class DataSourcesPage(QWidget):
         status: str,
     ) -> None:
         self._source_status.setText(message)
-        self._source_status.setProperty("status", status)
-        self._refresh_status_style(self._source_status)
+        self._source_status.setProperty(
+            "status",
+            status,
+        )
+        self._refresh_status_style(
+            self._source_status
+        )
 
-    def _set_population_status(
+    def _set_navigator_status(
         self,
         message: str,
         status: str,
     ) -> None:
-        self._population_status.setText(message)
-        self._population_status.setProperty("status", status)
-        self._refresh_status_style(self._population_status)
+        self._navigator_status.setText(message)
+        self._navigator_status.setProperty(
+            "status",
+            status,
+        )
+        self._refresh_status_style(
+            self._navigator_status
+        )
 
     @staticmethod
-    def _refresh_status_style(label: QLabel) -> None:
+    def _metadata_value() -> QLabel:
+        label = QLabel("—")
+        label.setObjectName("fieldHint")
+        return label
+
+    @staticmethod
+    def _centred_item(
+        value: str,
+    ) -> QTableWidgetItem:
+        item = QTableWidgetItem(value)
+        item.setTextAlignment(
+            Qt.AlignmentFlag.AlignCenter
+        )
+        return item
+
+    @staticmethod
+    def _status_label(
+        status: PreparationStatus,
+    ) -> str:
+        labels = {
+            PreparationStatus.NOT_REVIEWED: (
+                "Review Required"
+            ),
+            PreparationStatus.CONFIRMED: "Confirmed",
+            PreparationStatus.CONFIRMED_WITH_WARNINGS: (
+                "Confirmed with Warnings"
+            ),
+            PreparationStatus.REVIEW_REQUIRED: (
+                "Review Required"
+            ),
+            PreparationStatus.EXCLUDED: "Excluded",
+        }
+
+        return labels[status]
+
+    @staticmethod
+    def _refresh_status_style(
+        label: QLabel,
+    ) -> None:
         label.style().unpolish(label)
         label.style().polish(label)
 
     @staticmethod
-    def _format_file_size(size_bytes: int) -> str:
+    def _format_file_size(
+        size_bytes: int,
+    ) -> str:
         size = float(size_bytes)
 
         for unit in (
