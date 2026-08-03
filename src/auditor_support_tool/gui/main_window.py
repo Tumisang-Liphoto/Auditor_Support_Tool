@@ -21,9 +21,11 @@ from auditor_support_tool.core.constants import (
     MINIMUM_WINDOW_HEIGHT,
     MINIMUM_WINDOW_WIDTH,
 )
+from auditor_support_tool.core.workspace_state import WorkspaceState
 from auditor_support_tool.gui.pages.about_page import AboutPage
 from auditor_support_tool.gui.pages.appearance_page import AppearancePage
 from auditor_support_tool.gui.pages.dashboard_page import DashboardPage
+from auditor_support_tool.gui.pages.data_sources_page import DataSourcesPage
 from auditor_support_tool.gui.pages.manuals_page import ManualsPage
 from auditor_support_tool.gui.pages.pdf_viewer_page import (
     PdfViewerPage,
@@ -61,6 +63,7 @@ class MainWindow(QMainWindow):
         self._settings_service = settings_service
         self._theme_service = theme_service
         self._update_service = update_service
+        self._workspace_state = WorkspaceState(self)
         self._profile_required = not self._settings_service.is_profile_complete()
 
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
@@ -299,9 +302,7 @@ class MainWindow(QMainWindow):
         )
 
         manuals_page = ManualsPage()
-        manuals_page.document_requested.connect(
-            self._open_pdf_description
-        )
+        manuals_page.document_requested.connect(self._open_pdf_description)
 
         self._register_page(
             route="about.manuals",
@@ -310,9 +311,7 @@ class MainWindow(QMainWindow):
         )
 
         test_description_page = TestDescriptionPage()
-        test_description_page.document_requested.connect(
-            self._open_pdf_description
-        )
+        test_description_page.document_requested.connect(self._open_pdf_description)
 
         self._register_page(
             route="about.test_descriptions",
@@ -321,14 +320,22 @@ class MainWindow(QMainWindow):
         )
 
         self._pdf_viewer_page = PdfViewerPage()
-        self._pdf_viewer_page.back_requested.connect(
-            self.show_route
-        )
+        self._pdf_viewer_page.back_requested.connect(self.show_route)
 
         self._register_page(
             route="about.pdf_viewer",
             title="PDF Viewer",
             page=self._pdf_viewer_page,
+        )
+
+        data_sources_page = DataSourcesPage(
+            workspace_state=self._workspace_state,
+        )
+
+        self._register_page(
+            route="workspace.data_sources",
+            title="Data Sources",
+            page=data_sources_page,
         )
 
         page_definitions: tuple[PageDefinition, ...] = (
@@ -427,6 +434,9 @@ class MainWindow(QMainWindow):
         )
 
         for route, title, description in page_definitions:
+            if route in self._pages:
+                continue
+
             self._register_page(
                 route=route,
                 title=title,
@@ -459,27 +469,20 @@ class MainWindow(QMainWindow):
 
         if not document_path.is_file():
             self.statusBar().showMessage(
-                f"PDF document not found: {document_path.name} "
-                f"| Version {APP_VERSION}"
+                f"PDF document not found: {document_path.name} | Version {APP_VERSION}"
             )
             return
 
         if not self._settings_service.get_open_pdfs_in_application():
-            opened = QDesktopServices.openUrl(
-                QUrl.fromLocalFile(
-                    str(document_path.resolve())
-                )
-            )
+            opened = QDesktopServices.openUrl(QUrl.fromLocalFile(str(document_path.resolve())))
 
             if opened:
                 self.statusBar().showMessage(
-                    f"Opened {title} in the default Windows PDF reader "
-                    f"| Version {APP_VERSION}"
+                    f"Opened {title} in the default Windows PDF reader | Version {APP_VERSION}"
                 )
             else:
                 self.statusBar().showMessage(
-                    f"Windows could not open {title} "
-                    f"| Version {APP_VERSION}"
+                    f"Windows could not open {title} | Version {APP_VERSION}"
                 )
 
             return
@@ -495,19 +498,14 @@ class MainWindow(QMainWindow):
             self.show_route("about.pdf_viewer")
             return
 
-        self.statusBar().showMessage(
-            f"Unable to open PDF document | Version {APP_VERSION}"
-        )
+        self.statusBar().showMessage(f"Unable to open PDF document | Version {APP_VERSION}")
 
     def show_route(self, route: str) -> None:
         """Display the page registered for a route."""
 
         current_page = self._page_stack.currentWidget()
 
-        if (
-            current_page is self._pdf_viewer_page
-            and route != "about.pdf_viewer"
-        ):
+        if current_page is self._pdf_viewer_page and route != "about.pdf_viewer":
             self._pdf_viewer_page.close_document()
 
         if self._profile_required and route != "settings.user_profile":
