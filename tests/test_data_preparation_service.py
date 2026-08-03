@@ -81,7 +81,7 @@ def test_column_name_can_be_changed(
     )
 
     assert column.confirmed_name == "Account Number"
-    assert dataset.status == PreparationStatus.NOT_REVIEWED
+    assert dataset.preparation_status == PreparationStatus.NOT_REVIEWED
 
 
 def test_blank_column_name_is_rejected(
@@ -265,7 +265,7 @@ def test_reset_restores_suggestions(
     assert account_column.confirmed_name == account_column.suggested_name
     assert account_column.confirmed_type == account_column.suggested_type
     assert all(column.included for column in dataset.columns)
-    assert dataset.status == PreparationStatus.NOT_REVIEWED
+    assert dataset.preparation_status == PreparationStatus.NOT_REVIEWED
 
 
 def test_unknown_column_is_rejected(

@@ -97,6 +97,8 @@ class WorksheetDataset:
     selected: bool
     loaded_table: LoadedTable
     data_profile: DataProfile
+
+    preparation_status: PreparationStatus = PreparationStatus.NOT_REVIEWED
     columns: list[PreparedColumn] = field(default_factory=list)
 
     @property

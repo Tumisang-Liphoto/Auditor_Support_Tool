@@ -5,6 +5,9 @@ from pathlib import Path
 import pytest
 from openpyxl import Workbook
 
+from auditor_support_tool.core.workbook_package import (
+    PreparationStatus,
+)
 from auditor_support_tool.core.workbook_package_service import (
     WorkbookPackageService,
 )
@@ -174,3 +177,21 @@ def test_clear_removes_complete_package(
     assert state.loaded_table is None
     assert state.data_profile is None
     assert not state.has_source
+
+
+def test_preparation_status_is_separate_from_navigator_status(
+    tmp_path: Path,
+) -> None:
+    """Preparation changes must not remove Navigator confirmation."""
+
+    package = create_workspace_package(tmp_path)
+    state = WorkspaceState()
+    state.set_workbook_package(package)
+
+    dataset = package.datasets[0]
+
+    dataset.status = PreparationStatus.CONFIRMED
+    dataset.preparation_status = PreparationStatus.NOT_REVIEWED
+
+    assert dataset.status == PreparationStatus.CONFIRMED
+    assert dataset.preparation_status == PreparationStatus.NOT_REVIEWED

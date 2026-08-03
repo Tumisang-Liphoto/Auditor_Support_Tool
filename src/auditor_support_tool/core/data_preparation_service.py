@@ -58,7 +58,7 @@ class DataPreparationService:
 
         column.confirmed_name = cleaned_name
         column.status = PreparationStatus.NOT_REVIEWED
-        dataset.status = PreparationStatus.NOT_REVIEWED
+        dataset.preparation_status = PreparationStatus.NOT_REVIEWED
 
         return column
 
@@ -83,7 +83,7 @@ class DataPreparationService:
             if column.validation_warning
             else PreparationStatus.NOT_REVIEWED
         )
-        dataset.status = PreparationStatus.NOT_REVIEWED
+        dataset.preparation_status = PreparationStatus.NOT_REVIEWED
 
         return column
 
@@ -102,7 +102,7 @@ class DataPreparationService:
 
         column.included = included
         column.status = PreparationStatus.NOT_REVIEWED if included else PreparationStatus.EXCLUDED
-        dataset.status = PreparationStatus.NOT_REVIEWED
+        dataset.preparation_status = PreparationStatus.NOT_REVIEWED
 
         return column
 
@@ -113,8 +113,8 @@ class DataPreparationService:
         """Validate and confirm preparation of one dataset."""
 
         if not dataset.selected:
-            dataset.status = PreparationStatus.EXCLUDED
-            return dataset.status
+            dataset.preparation_status = PreparationStatus.EXCLUDED
+            return dataset.preparation_status
 
         included_columns = dataset.included_columns
 
@@ -138,13 +138,13 @@ class DataPreparationService:
                 else PreparationStatus.CONFIRMED
             )
 
-        dataset.status = (
+        dataset.preparation_status = (
             PreparationStatus.CONFIRMED_WITH_WARNINGS
             if warning_columns
             else PreparationStatus.CONFIRMED
         )
 
-        return dataset.status
+        return dataset.preparation_status
 
     def reset_dataset(
         self,
@@ -159,7 +159,7 @@ class DataPreparationService:
             column.validation_warning = ""
             column.status = PreparationStatus.NOT_REVIEWED
 
-        dataset.status = PreparationStatus.NOT_REVIEWED
+        dataset.preparation_status = PreparationStatus.NOT_REVIEWED
 
     @staticmethod
     def _validate_unique_column_names(
