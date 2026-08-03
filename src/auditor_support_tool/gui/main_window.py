@@ -25,6 +25,9 @@ from auditor_support_tool.core.workspace_state import WorkspaceState
 from auditor_support_tool.gui.pages.about_page import AboutPage
 from auditor_support_tool.gui.pages.appearance_page import AppearancePage
 from auditor_support_tool.gui.pages.dashboard_page import DashboardPage
+from auditor_support_tool.gui.pages.data_preparation_page import (
+    DataPreparationPage,
+)
 from auditor_support_tool.gui.pages.data_profile_page import DataProfilePage
 from auditor_support_tool.gui.pages.data_sources_page import DataSourcesPage
 from auditor_support_tool.gui.pages.manuals_page import ManualsPage
@@ -365,11 +368,23 @@ class MainWindow(QMainWindow):
         data_profile_page = DataProfilePage(
             workspace_state=self._workspace_state,
         )
+        data_profile_page.continue_requested.connect(self.show_route)
 
         self._register_page(
             route="workspace.data_profile",
             title="Data Profile",
             page=data_profile_page,
+        )
+
+        data_preparation_page = DataPreparationPage(
+            workspace_state=self._workspace_state,
+        )
+        data_preparation_page.continue_requested.connect(self.show_route)
+
+        self._register_page(
+            route="workspace.data_preparation",
+            title="Data Preparation",
+            page=data_preparation_page,
         )
 
         page_definitions: tuple[
@@ -411,6 +426,14 @@ class MainWindow(QMainWindow):
                 "workspace.data_profile",
                 "Data Profile",
                 ("Review population statistics, detected types and data-quality information."),
+            ),
+            (
+                "workspace.data_preparation",
+                "Data Preparation",
+                (
+                    "Confirm prepared column names, data types "
+                    "and included columns before field mapping."
+                ),
             ),
             (
                 "workspace.field_mapping",

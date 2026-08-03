@@ -72,10 +72,22 @@ class PreparedColumn:
     validation_warning: str = ""
 
     @property
-    def type_was_changed(self) -> bool:
-        """Return whether the confirmed type differs from detection."""
+    def name_was_changed(self) -> bool:
+        """Return whether the prepared name differs from its suggestion."""
 
-        return self.confirmed_type != self.detected_type
+        return self.confirmed_name.strip() != self.suggested_name.strip()
+
+    @property
+    def type_was_changed(self) -> bool:
+        """Return whether the confirmed type differs from its suggestion."""
+
+        return self.confirmed_type != self.suggested_type
+
+    @property
+    def was_changed(self) -> bool:
+        """Return whether the prepared name or type was changed."""
+
+        return self.name_was_changed or self.type_was_changed
 
 
 @dataclass(slots=True)

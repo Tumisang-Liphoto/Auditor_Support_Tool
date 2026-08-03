@@ -23,6 +23,7 @@ class NavigationGroup(QWidget):
     """Expandable collection of related navigation buttons."""
 
     route_selected = Signal(str)
+    expansion_changed = Signal(bool)
 
     def __init__(
         self,
@@ -51,7 +52,7 @@ class NavigationGroup(QWidget):
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Fixed,
         )
-        self._header.clicked.connect(self.set_expanded)
+        self._header.clicked.connect(self._handle_header_clicked)
 
         self._content = QWidget()
         self._content.setObjectName("navigationGroupContent")
@@ -88,7 +89,19 @@ class NavigationGroup(QWidget):
 
         return self._route_buttons
 
-    def set_expanded(self, expanded: bool) -> None:
+    def _handle_header_clicked(
+        self,
+        expanded: bool,
+    ) -> None:
+        """Apply a user-requested expansion change."""
+
+        self.set_expanded(expanded)
+        self.expansion_changed.emit(expanded)
+
+    def set_expanded(
+        self,
+        expanded: bool,
+    ) -> None:
         """Expand or collapse the group's child navigation items."""
 
         self._header.setChecked(expanded)
@@ -112,6 +125,7 @@ class Sidebar(QFrame):
 
         self._route_buttons: dict[str, QPushButton] = {}
         self._route_groups: dict[str, NavigationGroup] = {}
+        self._navigation_groups: list[NavigationGroup] = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 20, 16, 16)
@@ -153,6 +167,10 @@ class Sidebar(QFrame):
                     ("Engagement Overview", "workspace.overview"),
                     ("Data Sources", "workspace.data_sources"),
                     ("Data Profile", "workspace.data_profile"),
+                    (
+                        "Data Preparation",
+                        "workspace.data_preparation",
+                    ),
                     ("Field Mapping", "workspace.field_mapping"),
                     ("Audit Procedures", "workspace.audit_procedures"),
                     ("Results", "workspace.results"),
@@ -197,6 +215,13 @@ class Sidebar(QFrame):
                 button_group=self._button_group,
             )
             group.route_selected.connect(self.route_selected.emit)
+            group.expansion_changed.connect(
+                lambda expanded, selected_group=group: self._handle_group_expansion(
+                    selected_group,
+                    expanded,
+                )
+            )
+            self._navigation_groups.append(group)
 
             for _, route in group_items:
                 self._route_buttons[route] = group.route_buttons[route]
@@ -233,6 +258,20 @@ class Sidebar(QFrame):
 
         return button
 
+    def _handle_group_expansion(
+        self,
+        selected_group: NavigationGroup,
+        expanded: bool,
+    ) -> None:
+        """Collapse other groups when one group is expanded."""
+
+        if not expanded:
+            return
+
+        for group in self._navigation_groups:
+            if group is not selected_group:
+                group.set_expanded(False)
+
     def set_active_route(self, route: str) -> None:
         """Highlight a route and reveal its parent group."""
 
@@ -244,6 +283,10 @@ class Sidebar(QFrame):
         parent_group = self._route_groups.get(route)
 
         if parent_group is not None:
+            self._handle_group_expansion(
+                parent_group,
+                True,
+            )
             parent_group.set_expanded(True)
 
         button.setChecked(True)
