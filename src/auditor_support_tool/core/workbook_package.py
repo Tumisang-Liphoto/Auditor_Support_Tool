@@ -51,6 +51,17 @@ class PreparationStatus(StrEnum):
     EXCLUDED = "excluded"
 
 
+class FieldMappingStatus(StrEnum):
+    """Field-mapping status for a prepared dataset."""
+
+    NOT_STARTED = "not_started"
+    IN_PROGRESS = "in_progress"
+    CONFIRMED = "confirmed"
+    CONFIRMED_WITH_WARNINGS = "confirmed_with_warnings"
+    REVIEW_REQUIRED = "review_required"
+    NOT_APPLICABLE = "not_applicable"
+
+
 @dataclass(slots=True)
 class PreparedColumn:
     """Preparation information for one source column."""
@@ -111,6 +122,9 @@ class WorksheetDataset:
     data_profile: DataProfile
 
     preparation_status: PreparationStatus = PreparationStatus.NOT_REVIEWED
+    mapping_status: FieldMappingStatus = FieldMappingStatus.NOT_STARTED
+
+    field_mappings: dict[str, str] = field(default_factory=dict)
     columns: list[PreparedColumn] = field(default_factory=list)
 
     @property
@@ -130,6 +144,18 @@ class WorksheetDataset:
         """Return columns included in the prepared dataset."""
 
         return tuple(column for column in self.columns if column.included)
+
+    @property
+    def included_source_columns(self) -> tuple[str, ...]:
+        """Return source-column names included in preparation."""
+
+        return tuple(column.source_column for column in self.columns if column.included)
+
+    @property
+    def mapped_standard_fields(self) -> tuple[str, ...]:
+        """Return standard-field keys already mapped."""
+
+        return tuple(self.field_mappings.values())
 
 
 @dataclass(slots=True)
