@@ -36,6 +36,7 @@ from auditor_support_tool.domains.financial_audit.general_ledger.data_profile_mo
 class DataProfilePage(QWidget):
     """Display structural and quality information for datasets."""
 
+    back_requested = Signal(str)
     continue_requested = Signal(str)
 
     def __init__(
@@ -70,6 +71,15 @@ class DataProfilePage(QWidget):
         layout.setSpacing(18)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
+        navigation_layout = QHBoxLayout()
+        navigation_layout.setSpacing(10)
+
+        self._back_button = QPushButton("Back to Data Sources")
+        self._back_button.setObjectName("secondaryActionButton")
+
+        navigation_layout.addWidget(self._back_button)
+        navigation_layout.addStretch(1)
+
         title = QLabel("Data Profile")
         title.setObjectName("pageTitle")
 
@@ -80,6 +90,7 @@ class DataProfilePage(QWidget):
         subtitle.setObjectName("pageSubtitle")
         subtitle.setWordWrap(True)
 
+        layout.addLayout(navigation_layout)
         layout.addWidget(title)
         layout.addWidget(subtitle)
         layout.addWidget(self._build_summary_card())
@@ -285,6 +296,9 @@ class DataProfilePage(QWidget):
 
     def _connect_signals(self) -> None:
         self._dataset_selector.currentIndexChanged.connect(self._dataset_selection_changed)
+        self._back_button.clicked.connect(
+            lambda: self.back_requested.emit("workspace.data_sources")
+        )
         self._continue_button.clicked.connect(self._continue_to_data_preparation)
 
         self._workspace_state.source_changed.connect(self._refresh_page)
@@ -471,11 +485,9 @@ class DataProfilePage(QWidget):
         )
 
         self._table_status.setText(
-            
-                f"{len(profile.columns):,} source "
-                "column(s) were profiled. No audit "
-                "tests have been run."
-            
+            f"{len(profile.columns):,} source "
+            "column(s) were profiled. No audit "
+            "tests have been run."
         )
 
     def _populate_column_row(

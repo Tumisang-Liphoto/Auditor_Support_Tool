@@ -80,9 +80,7 @@ class ManualsPage(QWidget):
         scroll_area.setObjectName("pageScrollArea")
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        scroll_area.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         content = QWidget()
         content.setObjectName("pageContent")
@@ -95,9 +93,7 @@ class ManualsPage(QWidget):
         title = QLabel("Manuals")
         title.setObjectName("pageTitle")
 
-        subtitle = QLabel(
-            "Open guidance documents supplied with the Auditor Support Tool."
-        )
+        subtitle = QLabel("Open guidance documents supplied with the Auditor Support Tool.")
         subtitle.setObjectName("pageSubtitle")
         subtitle.setWordWrap(True)
 
@@ -137,11 +133,7 @@ class ManualsPage(QWidget):
 
         path = self._manuals_directory() / manual.file_name
 
-        status = QLabel(
-            "Available"
-            if path.is_file()
-            else "Manual not yet available"
-        )
+        status = QLabel("Available" if path.is_file() else "Manual not yet available")
         status.setObjectName("formStatus")
         status.setProperty(
             "status",
@@ -153,9 +145,7 @@ class ManualsPage(QWidget):
         button.setEnabled(path.is_file())
 
         button.clicked.connect(
-            lambda checked=False,
-            selected_manual=manual,
-            manual_path=path: self._request_document(
+            lambda checked=False, selected_manual=manual, manual_path=path: self._request_document(
                 selected_manual,
                 manual_path,
             )
@@ -195,19 +185,7 @@ class ManualsPage(QWidget):
     def _manuals_directory() -> Path:
         """Return the bundled manuals directory."""
 
-        if (
-            getattr(sys, "frozen", False)
-            and hasattr(sys, "_MEIPASS")
-        ):
-            return (
-                Path(sys._MEIPASS)
-                / "auditor_support_tool"
-                / "resources"
-                / "manuals"
-            )
+        if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+            return Path(sys._MEIPASS) / "auditor_support_tool" / "resources" / "manuals"
 
-        return (
-            Path(__file__).resolve().parents[2]
-            / "resources"
-            / "manuals"
-        )
+        return Path(__file__).resolve().parents[2] / "resources" / "manuals"

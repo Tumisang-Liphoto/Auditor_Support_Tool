@@ -36,7 +36,13 @@ from auditor_support_tool.domains.financial_audit.general_ledger.data_profile_mo
 class DataPreparationPage(QWidget):
     """Prepare confirmed worksheet datasets for field mapping."""
 
+    back_requested = Signal(str)
     continue_requested = Signal(str)
+
+    _CONFIRMED_STATUSES = {
+        PreparationStatus.CONFIRMED,
+        PreparationStatus.CONFIRMED_WITH_WARNINGS,
+    }
 
     def __init__(
         self,
@@ -73,6 +79,15 @@ class DataPreparationPage(QWidget):
         layout.setSpacing(18)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
+        navigation_layout = QHBoxLayout()
+        navigation_layout.setSpacing(10)
+
+        self._back_button = QPushButton("Back to Data Profile")
+        self._back_button.setObjectName("secondaryActionButton")
+
+        navigation_layout.addWidget(self._back_button)
+        navigation_layout.addStretch(1)
+
         title = QLabel("Data Preparation")
         title.setObjectName("pageTitle")
 
@@ -83,6 +98,7 @@ class DataPreparationPage(QWidget):
         subtitle.setObjectName("pageSubtitle")
         subtitle.setWordWrap(True)
 
+        layout.addLayout(navigation_layout)
         layout.addWidget(title)
         layout.addWidget(subtitle)
         layout.addWidget(self._build_dataset_card())
@@ -124,17 +140,22 @@ class DataPreparationPage(QWidget):
         self._dataset_summary.setObjectName("fieldHint")
         self._dataset_summary.setWordWrap(True)
 
-        self._dataset_status = QLabel("Confirm datasets in Data Sources before preparing columns.")
-        self._dataset_status.setObjectName("formStatus")
-        self._dataset_status.setProperty("status", "neutral")
-        self._dataset_status.setWordWrap(True)
+        status_heading = QLabel("Dataset preparation status")
+        status_heading.setObjectName("fieldLabel")
+
+        self._dataset_status_container = QFrame()
+        self._dataset_status_container.setObjectName("datasetPreparationStatusContainer")
+        self._dataset_status_layout = QVBoxLayout(self._dataset_status_container)
+        self._dataset_status_layout.setContentsMargins(0, 0, 0, 0)
+        self._dataset_status_layout.setSpacing(6)
 
         layout.addWidget(heading)
         layout.addWidget(description)
         layout.addWidget(dataset_label)
         layout.addWidget(self._dataset_selector)
         layout.addWidget(self._dataset_summary)
-        layout.addWidget(self._dataset_status)
+        layout.addWidget(status_heading)
+        layout.addWidget(self._dataset_status_container)
 
         return card
 
@@ -161,6 +182,10 @@ class DataPreparationPage(QWidget):
         description.setObjectName("profileSectionDescription")
         description.setWordWrap(True)
 
+        self._active_dataset_heading = QLabel("Preparing dataset: No dataset selected")
+        self._active_dataset_heading.setObjectName("profileSectionTitle")
+        self._active_dataset_heading.setWordWrap(True)
+
         self._columns_table = QTableWidget()
         self._columns_table.setColumnCount(8)
         self._columns_table.setHorizontalHeaderLabels(
@@ -180,7 +205,8 @@ class DataPreparationPage(QWidget):
         self._columns_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._columns_table.setAlternatingRowColors(True)
         self._columns_table.verticalHeader().setVisible(False)
-        self._columns_table.setMinimumHeight(390)
+        self._columns_table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._columns_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
         header = self._columns_table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
@@ -218,6 +244,7 @@ class DataPreparationPage(QWidget):
 
         self._continue_button = QPushButton("Continue to Field Mapping")
         self._continue_button.setObjectName("primaryActionButton")
+        self._continue_button.setVisible(False)
         self._continue_button.setEnabled(False)
 
         actions_layout.addWidget(self._include_all_button)
@@ -234,6 +261,7 @@ class DataPreparationPage(QWidget):
 
         layout.addWidget(heading)
         layout.addWidget(description)
+        layout.addWidget(self._active_dataset_heading)
         layout.addWidget(self._columns_table)
         layout.addLayout(actions_layout)
         layout.addWidget(self._preparation_status)
@@ -242,6 +270,9 @@ class DataPreparationPage(QWidget):
 
     def _connect_signals(self) -> None:
         self._dataset_selector.currentIndexChanged.connect(self._dataset_selection_changed)
+        self._back_button.clicked.connect(
+            lambda: self.back_requested.emit("workspace.data_profile")
+        )
 
         self._columns_table.itemChanged.connect(self._column_include_changed)
 
@@ -257,29 +288,30 @@ class DataPreparationPage(QWidget):
 
     def _refresh_page(self) -> None:
         self._refresh_dataset_selector()
+        self._refresh_dataset_status_list()
 
         dataset = self._active_preparation_dataset()
 
         if dataset is None:
             self._columns_table.clearContents()
             self._columns_table.setRowCount(0)
+            self._adjust_columns_table_height()
 
             self._dataset_summary.setText("No confirmed dataset is available.")
-            self._set_dataset_status(
-                ("Confirm datasets in Data Sources before preparing columns."),
-                "neutral",
-            )
+            self._active_dataset_heading.setText("Preparing dataset: No dataset selected")
             self._set_preparation_status(
                 "Select a confirmed dataset to begin.",
                 "neutral",
             )
             self._set_action_buttons_enabled(False)
+            self._continue_button.setVisible(False)
             self._continue_button.setEnabled(False)
             return
 
         self._display_dataset(dataset)
         self._populate_columns_table(dataset)
         self._set_action_buttons_enabled(True)
+        self._update_confirm_button(dataset)
         self._update_continue_button()
 
     def _refresh_dataset_selector(self) -> None:
@@ -313,6 +345,45 @@ class DataPreparationPage(QWidget):
         finally:
             self._updating_dataset_selector = False
 
+    def _refresh_dataset_status_list(self) -> None:
+        while self._dataset_status_layout.count():
+            item = self._dataset_status_layout.takeAt(0)
+            widget = item.widget()
+
+            if widget is not None:
+                widget.deleteLater()
+
+        datasets = self._confirmed_source_datasets()
+
+        if not datasets:
+            empty_label = QLabel("No datasets have been confirmed in Data Sources.")
+            empty_label.setObjectName("fieldHint")
+            empty_label.setWordWrap(True)
+            self._dataset_status_layout.addWidget(empty_label)
+            return
+
+        for dataset in datasets:
+            row = QFrame()
+            row.setObjectName("datasetPreparationStatusRow")
+
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(12)
+
+            name_label = QLabel(dataset.confirmed_display_name)
+            name_label.setObjectName("fieldHint")
+            name_label.setWordWrap(True)
+
+            status_label = QLabel(self._status_label(dataset.preparation_status))
+            status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            status_label.setMinimumWidth(180)
+            status_label.setStyleSheet(self._status_badge_style(dataset.preparation_status))
+
+            row_layout.addWidget(name_label, 1)
+            row_layout.addWidget(status_label)
+
+            self._dataset_status_layout.addWidget(row)
+
     def _dataset_selection_changed(
         self,
         index: int,
@@ -345,23 +416,7 @@ class DataPreparationPage(QWidget):
             f"Records: {dataset.record_count:,} | "
             f"Columns: {dataset.column_count:,}"
         )
-
-        status_label = self._status_label(dataset.preparation_status)
-
-        status_style = (
-            "success"
-            if dataset.preparation_status
-            in {
-                PreparationStatus.CONFIRMED,
-                PreparationStatus.CONFIRMED_WITH_WARNINGS,
-            }
-            else "neutral"
-        )
-
-        self._set_dataset_status(
-            f"Preparation status: {status_label}.",
-            status_style,
-        )
+        self._active_dataset_heading.setText(f"Preparing dataset: {dataset.confirmed_display_name}")
 
     def _populate_columns_table(
         self,
@@ -379,8 +434,39 @@ class DataPreparationPage(QWidget):
                     dataset,
                     column,
                 )
+
+            self._columns_table.resizeRowsToContents()
         finally:
             self._updating_columns_table = False
+
+        self._adjust_columns_table_height()
+
+    def _adjust_columns_table_height(self) -> None:
+        header_height = self._columns_table.horizontalHeader().height()
+        frame_height = self._columns_table.frameWidth() * 2
+
+        rows_height = sum(
+            self._columns_table.rowHeight(row) for row in range(self._columns_table.rowCount())
+        )
+
+        if self._columns_table.rowCount() == 0:
+            rows_height = self._columns_table.verticalHeader().defaultSectionSize()
+
+        target_height = header_height + rows_height + frame_height + 4
+        maximum_height = 520
+        minimum_height = (
+            header_height
+            + self._columns_table.verticalHeader().defaultSectionSize()
+            + frame_height
+            + 4
+        )
+
+        self._columns_table.setFixedHeight(
+            max(
+                minimum_height,
+                min(target_height, maximum_height),
+            )
+        )
 
     def _populate_column_row(
         self,
@@ -678,17 +764,60 @@ class DataPreparationPage(QWidget):
             return
 
         if status == PreparationStatus.CONFIRMED_WITH_WARNINGS:
-            self._set_preparation_status(
-                (f"'{dataset.confirmed_display_name}' was confirmed with data-type warnings."),
-                "neutral",
+            confirmation_message = (
+                f"'{dataset.confirmed_display_name}' was confirmed with data-type warnings."
             )
+            confirmation_style = "neutral"
         else:
-            self._set_preparation_status(
-                (f"'{dataset.confirmed_display_name}' preparation was confirmed."),
-                "success",
-            )
+            confirmation_message = f"'{dataset.confirmed_display_name}' preparation was confirmed."
+            confirmation_style = "success"
 
+        next_dataset = self._next_unreviewed_dataset(current_dataset_id=dataset.dataset_id)
+
+        if next_dataset is not None:
+            self._set_preparation_status(
+                (f"{confirmation_message} Moving to '{next_dataset.confirmed_display_name}'."),
+                confirmation_style,
+            )
+            self._workspace_state.set_active_dataset(next_dataset.dataset_id)
+            return
+
+        self._set_preparation_status(
+            confirmation_message,
+            confirmation_style,
+        )
         self._refresh_page()
+
+    def _next_unreviewed_dataset(
+        self,
+        current_dataset_id: str,
+    ) -> WorksheetDataset | None:
+        """Return the next dataset that still needs preparation."""
+
+        datasets = self._confirmed_source_datasets()
+
+        if not datasets:
+            return None
+
+        current_index = next(
+            (
+                index
+                for index, dataset in enumerate(datasets)
+                if dataset.dataset_id == current_dataset_id
+            ),
+            -1,
+        )
+
+        ordered_candidates = datasets[current_index + 1 :] + datasets[: current_index + 1]
+
+        return next(
+            (
+                dataset
+                for dataset in ordered_candidates
+                if dataset.preparation_status not in self._CONFIRMED_STATUSES
+            ),
+            None,
+        )
 
     def _continue_to_field_mapping(self) -> None:
         incomplete_datasets = tuple(
@@ -715,8 +844,65 @@ class DataPreparationPage(QWidget):
         self.continue_requested.emit("workspace.field_mapping")
 
     def _update_continue_button(self) -> None:
-        selected_datasets = self._workspace_state.selected_datasets
-        self._continue_button.setEnabled(bool(selected_datasets))
+        all_confirmed = self._all_datasets_confirmed()
+        self._continue_button.setVisible(all_confirmed)
+        self._continue_button.setEnabled(all_confirmed)
+
+    def _update_confirm_button(
+        self,
+        dataset: WorksheetDataset,
+    ) -> None:
+        status = dataset.preparation_status
+
+        if status == PreparationStatus.CONFIRMED:
+            background = "#198754"
+            hover = "#157347"
+            text = "Confirmed"
+        elif status == PreparationStatus.CONFIRMED_WITH_WARNINGS:
+            background = "#d18b00"
+            hover = "#b97800"
+            text = "Confirmed with Warnings"
+        else:
+            background = "#c62828"
+            hover = "#a91f1f"
+            text = "Confirm Dataset Preparation"
+
+        self._confirm_dataset_button.setText(text)
+        self._confirm_dataset_button.setStyleSheet(
+            f"""
+            QPushButton {{
+                background-color: {background};
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 8px 14px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background-color: {hover};
+            }}
+            QPushButton:disabled {{
+                background-color: #777777;
+                color: #dddddd;
+            }}
+            """
+        )
+
+    def _all_datasets_confirmed(self) -> bool:
+        datasets = self._confirmed_source_datasets()
+
+        return bool(datasets) and all(
+            dataset.preparation_status in self._CONFIRMED_STATUSES for dataset in datasets
+        )
+
+    def _confirmed_source_datasets(
+        self,
+    ) -> tuple[WorksheetDataset, ...]:
+        return tuple(
+            dataset
+            for dataset in self._workspace_state.selected_datasets
+            if dataset.status == PreparationStatus.CONFIRMED
+        )
 
     def _active_preparation_dataset(
         self,
@@ -763,18 +949,6 @@ class DataPreparationPage(QWidget):
         self._reset_button.setEnabled(enabled)
         self._confirm_dataset_button.setEnabled(enabled)
 
-    def _set_dataset_status(
-        self,
-        message: str,
-        status: str,
-    ) -> None:
-        self._dataset_status.setText(message)
-        self._dataset_status.setProperty(
-            "status",
-            status,
-        )
-        self._refresh_status_style(self._dataset_status)
-
     def _set_preparation_status(
         self,
         message: str,
@@ -786,6 +960,25 @@ class DataPreparationPage(QWidget):
             status,
         )
         self._refresh_status_style(self._preparation_status)
+
+    @staticmethod
+    def _status_badge_style(
+        status: PreparationStatus,
+    ) -> str:
+        if status == PreparationStatus.CONFIRMED:
+            background = "#198754"
+        elif status == PreparationStatus.CONFIRMED_WITH_WARNINGS:
+            background = "#d18b00"
+        else:
+            background = "#c62828"
+
+        return (
+            f"background-color: {background};"
+            "color: white;"
+            "border-radius: 5px;"
+            "padding: 5px 10px;"
+            "font-weight: 600;"
+        )
 
     @staticmethod
     def _centred_item(

@@ -34,8 +34,7 @@ TEST_DESCRIPTIONS: tuple[TestDescriptionDefinition, ...] = (
         title="Duplicate Invoice Detection",
         category="General Ledger",
         description=(
-            "Identifies repeated invoice numbers that may require "
-            "further audit scrutiny."
+            "Identifies repeated invoice numbers that may require further audit scrutiny."
         ),
         file_name="GL-001-Duplicate-Invoice-Detection.pdf",
     ),
@@ -74,9 +73,7 @@ class TestDescriptionPage(QWidget):
         scroll_area.setObjectName("pageScrollArea")
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        scroll_area.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         content = QWidget()
         content.setObjectName("pageContent")
@@ -90,8 +87,7 @@ class TestDescriptionPage(QWidget):
         title.setObjectName("pageTitle")
 
         subtitle = QLabel(
-            "Review the purpose, data requirements, risks and limitations "
-            "of available audit tests."
+            "Review the purpose, data requirements, risks and limitations of available audit tests."
         )
         subtitle.setObjectName("pageSubtitle")
         subtitle.setWordWrap(True)
@@ -100,9 +96,7 @@ class TestDescriptionPage(QWidget):
         layout.addWidget(subtitle)
 
         for definition in TEST_DESCRIPTIONS:
-            layout.addWidget(
-                self._build_description_card(definition)
-            )
+            layout.addWidget(self._build_description_card(definition))
 
         scroll_area.setWidget(content)
         root_layout.addWidget(scroll_area)
@@ -125,9 +119,7 @@ class TestDescriptionPage(QWidget):
         text_layout = QVBoxLayout()
         text_layout.setSpacing(6)
 
-        title = QLabel(
-            f"{definition.test_code} — {definition.title}"
-        )
+        title = QLabel(f"{definition.test_code} — {definition.title}")
         title.setObjectName("profileSectionTitle")
 
         category = QLabel(definition.category)
@@ -137,16 +129,9 @@ class TestDescriptionPage(QWidget):
         description.setObjectName("profileSectionDescription")
         description.setWordWrap(True)
 
-        path = (
-            self._test_descriptions_directory()
-            / definition.file_name
-        )
+        path = self._test_descriptions_directory() / definition.file_name
 
-        status = QLabel(
-            "Available"
-            if path.is_file()
-            else "Test description not yet available"
-        )
+        status = QLabel("Available" if path.is_file() else "Test description not yet available")
         status.setObjectName("formStatus")
         status.setProperty(
             "status",
@@ -158,11 +143,11 @@ class TestDescriptionPage(QWidget):
         button.setEnabled(path.is_file())
 
         button.clicked.connect(
-            lambda checked=False,
-            selected_definition=definition,
-            document_path=path: self._request_document(
-                selected_definition,
-                document_path,
+            lambda checked=False, selected_definition=definition, document_path=path: (
+                self._request_document(
+                    selected_definition,
+                    document_path,
+                )
             )
         )
 
@@ -201,10 +186,7 @@ class TestDescriptionPage(QWidget):
     def _test_descriptions_directory() -> Path:
         """Return the bundled General Ledger description directory."""
 
-        if (
-            getattr(sys, "frozen", False)
-            and hasattr(sys, "_MEIPASS")
-        ):
+        if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
             return (
                 Path(sys._MEIPASS)
                 / "auditor_support_tool"

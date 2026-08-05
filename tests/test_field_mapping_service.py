@@ -209,26 +209,23 @@ def test_mapping_can_be_removed(
     assert dataset.mapping_status == FieldMappingStatus.NOT_STARTED
 
 
-def test_required_fields_are_reported(
+def test_no_global_required_fields_are_reported(
     tmp_path: Path,
 ) -> None:
-    """Missing required fields should be identifiable."""
+    """Field mapping should not impose global required fields."""
 
     dataset = create_general_ledger_dataset(tmp_path)
     service = FieldMappingService()
 
-    missing_keys = {field.key for field in service.missing_required_fields(dataset)}
+    missing_fields = service.missing_required_fields(dataset)
 
-    assert missing_keys == {
-        "transaction_date",
-        "account_code",
-    }
+    assert missing_fields == ()
 
 
-def test_confirmation_requires_required_fields(
+def test_confirmation_does_not_require_specific_standard_fields(
     tmp_path: Path,
 ) -> None:
-    """A dataset cannot be confirmed with missing required fields."""
+    """A dataset may be confirmed without predefined required mappings."""
 
     dataset = create_general_ledger_dataset(tmp_path)
     service = FieldMappingService()
@@ -239,13 +236,10 @@ def test_confirmation_requires_required_fields(
         "transaction_date",
     )
 
-    with pytest.raises(
-        FieldMappingError,
-        match="Account Code",
-    ):
-        service.confirm_dataset(dataset)
+    status = service.confirm_dataset(dataset)
 
-    assert dataset.mapping_status == FieldMappingStatus.REVIEW_REQUIRED
+    assert status == FieldMappingStatus.CONFIRMED
+    assert dataset.mapping_status == FieldMappingStatus.CONFIRMED
 
 
 def test_dataset_can_be_confirmed(

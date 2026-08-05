@@ -56,7 +56,7 @@ class AppearancePage(QWidget):
         self._status_label = QLabel()
         self._pdf_viewing_combo = QComboBox()
         self._preview_selection_label = QLabel()
-        
+
         self._preview_canvas = QFrame()
         self._preview_sidebar = QFrame()
         self._preview_title = QLabel()
@@ -169,7 +169,6 @@ class AppearancePage(QWidget):
         panel_layout.addSpacing(4)
         panel_layout.addWidget(preview_panel)
         panel_layout.addWidget(bottom_divider)
-
 
         panel_layout.addLayout(action_layout)
 
@@ -319,7 +318,7 @@ class AppearancePage(QWidget):
         layout.addWidget(memory_note)
 
         return panel
-    
+
     def _build_preview_panel(self) -> QFrame:
         """Build the live theme preview."""
 
@@ -491,13 +490,9 @@ class AppearancePage(QWidget):
         self._mode_buttons[mode_key].setChecked(True)
         self._theme_buttons[theme_key].setChecked(True)
 
-        open_in_application = (
-            self._settings_service.get_open_pdfs_in_application()
-        )
+        open_in_application = self._settings_service.get_open_pdfs_in_application()
 
-        pdf_index = self._pdf_viewing_combo.findData(
-            open_in_application
-        )
+        pdf_index = self._pdf_viewing_combo.findData(open_in_application)
 
         if pdf_index < 0:
             pdf_index = 0
@@ -517,9 +512,7 @@ class AppearancePage(QWidget):
             mode=mode_key,
         )
 
-        open_pdfs_in_application = bool(
-            self._pdf_viewing_combo.currentData()
-        )
+        open_pdfs_in_application = bool(self._pdf_viewing_combo.currentData())
 
         try:
             self._theme_service.apply_appearance(
@@ -533,9 +526,7 @@ class AppearancePage(QWidget):
             )
             return
 
-        self._settings_service.save_open_pdfs_in_application(
-            open_pdfs_in_application
-        )
+        self._settings_service.save_open_pdfs_in_application(open_pdfs_in_application)
 
         definition = get_theme_definition(theme_key)
 

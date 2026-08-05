@@ -4,8 +4,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QEvent, QObject, QTimer
+from PySide6.QtWidgets import QApplication, QComboBox
 
 from auditor_support_tool.core.constants import (
     APP_NAME,
@@ -18,6 +18,21 @@ from auditor_support_tool.gui.main_window import MainWindow
 from auditor_support_tool.services.settings_service import SettingsService
 from auditor_support_tool.services.theme_service import ThemeService
 from auditor_support_tool.services.update_service import UpdateService
+
+
+class ComboBoxWheelGuard(QObject):
+    """Prevent mouse-wheel changes on closed combo boxes."""
+
+    def eventFilter(
+        self,
+        watched: QObject,
+        event: QEvent,
+    ) -> bool:
+        if event.type() == QEvent.Type.Wheel and isinstance(watched, QComboBox):
+            event.ignore()
+            return True
+
+        return super().eventFilter(watched, event)
 
 
 def _parse_startup_arguments(arguments: list[str]) -> argparse.Namespace:
@@ -48,6 +63,9 @@ def main() -> int:
     application.setOrganizationName(ORGANIZATION_NAME)
     application.setOrganizationDomain(ORGANIZATION_DOMAIN)
     application.setStyle("Fusion")
+
+    combo_box_wheel_guard = ComboBoxWheelGuard(application)
+    application.installEventFilter(combo_box_wheel_guard)
 
     settings_service = SettingsService(paths.config / "settings.ini")
     theme_service = ThemeService(application, settings_service)

@@ -1,4 +1,7 @@
-"""Apply and validate source-to-standard field mappings."""
+"""Apply, suggest and validate source-to-standard field mappings."""
+
+import re
+from difflib import SequenceMatcher
 
 from auditor_support_tool.core.field_mapping_models import (
     StandardAuditField,
@@ -22,9 +25,76 @@ class FieldMappingService:
         self,
         dataset: WorksheetDataset,
     ) -> tuple[StandardAuditField, ...]:
-        """Return standard fields for the dataset's confirmed type."""
-
         return fields_for_dataset_type(dataset.confirmed_dataset_type)
+
+    def suggest_mappings(
+        self,
+        dataset: WorksheetDataset,
+        *,
+        minimum_score: float = 0.45,
+    ) -> dict[str, str]:
+        """Apply unique closest-match suggestions to unmapped columns."""
+
+        self._require_prepared_dataset(dataset)
+        suggestions: dict[str, str] = {}
+        used_keys = {key for key in dataset.field_mappings.values() if key}
+
+        for column in dataset.included_columns:
+            if dataset.field_mappings.get(column.source_column):
+                continue
+
+            candidates = tuple(
+                field for field in self.available_fields(dataset) if field.key not in used_keys
+            )
+            if not candidates:
+                break
+
+            best_field = max(
+                candidates,
+                key=lambda field: self.match_score(
+                    column.confirmed_name,
+                    field,
+                ),
+            )
+            score = self.match_score(
+                column.confirmed_name,
+                best_field,
+            )
+            if score < minimum_score:
+                continue
+
+            dataset.field_mappings[column.source_column] = best_field.key
+            used_keys.add(best_field.key)
+            suggestions[column.source_column] = best_field.key
+
+        if suggestions:
+            dataset.mapping_status = FieldMappingStatus.IN_PROGRESS
+
+        return suggestions
+
+    @classmethod
+    def match_score(
+        cls,
+        prepared_name: str,
+        field: StandardAuditField,
+    ) -> float:
+        prepared = cls._normalise(prepared_name)
+        if not prepared:
+            return 0.0
+
+        candidates = (
+            field.display_name,
+            field.key,
+            *field.aliases,
+        )
+        return max(
+            cls._text_similarity(
+                prepared,
+                cls._normalise(candidate),
+            )
+            for candidate in candidates
+            if candidate
+        )
 
     def assign_mapping(
         self,
@@ -32,32 +102,19 @@ class FieldMappingService:
         source_column: str,
         standard_field_key: str,
     ) -> None:
-        """Map an included source column to one standard field."""
-
         self._require_prepared_dataset(dataset)
-        self._require_included_column(
-            dataset,
-            source_column,
-        )
+        self._require_included_column(dataset, source_column)
 
         cleaned_key = standard_field_key.strip()
-
         if not cleaned_key:
-            self.remove_mapping(
-                dataset,
-                source_column,
-            )
+            self.remove_mapping(dataset, source_column)
             return
 
-        catalogue = self.available_fields(dataset)
-        valid_keys = {field.key for field in catalogue}
-
+        valid_keys = {field.key for field in self.available_fields(dataset)}
         if cleaned_key not in valid_keys:
             raise FieldMappingError(
-                
-                    f"'{cleaned_key}' is not a recognised standard "
-                    f"field for '{dataset.confirmed_display_name}'."
-                
+                f"'{cleaned_key}' is not a recognised standard "
+                f"field for '{dataset.confirmed_display_name}'."
             )
 
         duplicate_source = next(
@@ -68,14 +125,11 @@ class FieldMappingService:
             ),
             None,
         )
-
         if duplicate_source is not None:
             raise FieldMappingError(
-                
-                    f"'{cleaned_key}' is already mapped from "
-                    f"'{duplicate_source}'. A standard field may "
-                    "only be mapped once within a dataset."
-                
+                f"'{cleaned_key}' is already mapped from "
+                f"'{duplicate_source}'. A standard field may "
+                "only be mapped once within a dataset."
             )
 
         dataset.field_mappings[source_column] = cleaned_key
@@ -86,13 +140,7 @@ class FieldMappingService:
         dataset: WorksheetDataset,
         source_column: str,
     ) -> None:
-        """Remove a mapping from one source column."""
-
-        dataset.field_mappings.pop(
-            source_column,
-            None,
-        )
-
+        dataset.field_mappings.pop(source_column, None)
         dataset.mapping_status = (
             FieldMappingStatus.IN_PROGRESS
             if dataset.field_mappings
@@ -103,10 +151,7 @@ class FieldMappingService:
         self,
         dataset: WorksheetDataset,
     ) -> FieldMappingStatus:
-        """Validate and confirm mappings for one dataset."""
-
         self._require_prepared_dataset(dataset)
-
         catalogue = self.available_fields(dataset)
 
         if not catalogue:
@@ -115,31 +160,13 @@ class FieldMappingService:
 
         self._remove_invalid_source_mappings(dataset)
 
-        required_fields = {field.key for field in catalogue if field.required}
-        mapped_fields = set(dataset.field_mappings.values())
-        missing_required = required_fields - mapped_fields
-
-        if missing_required:
-            dataset.mapping_status = FieldMappingStatus.REVIEW_REQUIRED
-
-            missing_labels = tuple(
-                field.display_name for field in catalogue if field.key in missing_required
-            )
-
-            raise FieldMappingError(
-                f"Required standard fields are not mapped: {', '.join(missing_labels)}."
-            )
-
         dataset.mapping_status = FieldMappingStatus.CONFIRMED
-
         return dataset.mapping_status
 
     def reset_dataset(
         self,
         dataset: WorksheetDataset,
     ) -> None:
-        """Remove all mappings for one dataset."""
-
         dataset.field_mappings.clear()
         dataset.mapping_status = FieldMappingStatus.NOT_STARTED
 
@@ -147,32 +174,55 @@ class FieldMappingService:
         self,
         dataset: WorksheetDataset,
     ) -> tuple[StandardAuditField, ...]:
-        """Return required standard fields not yet mapped."""
+        """Return no fields because mapping has no global requirements."""
 
-        mapped_fields = set(dataset.field_mappings.values())
-
-        return tuple(
-            field
-            for field in self.available_fields(dataset)
-            if (field.required and field.key not in mapped_fields)
-        )
+        return ()
 
     def mapped_field(
         self,
         dataset: WorksheetDataset,
         source_column: str,
     ) -> StandardAuditField | None:
-        """Return the standard field mapped to a source column."""
-
         mapped_key = dataset.field_mappings.get(source_column)
-
         if mapped_key is None:
             return None
-
         return next(
             (field for field in self.available_fields(dataset) if field.key == mapped_key),
             None,
         )
+
+    @classmethod
+    def _text_similarity(
+        cls,
+        left: str,
+        right: str,
+    ) -> float:
+        if not left or not right:
+            return 0.0
+        if left == right:
+            return 1.0
+
+        left_tokens = set(left.split())
+        right_tokens = set(right.split())
+        token_score = (
+            len(left_tokens & right_tokens) / len(left_tokens | right_tokens)
+            if left_tokens and right_tokens
+            else 0.0
+        )
+        containment_score = (
+            min(len(left), len(right)) / max(len(left), len(right))
+            if left in right or right in left
+            else 0.0
+        )
+        return max(
+            SequenceMatcher(None, left, right).ratio(),
+            token_score,
+            containment_score,
+        )
+
+    @staticmethod
+    def _normalise(value: str) -> str:
+        return " ".join(re.findall(r"[a-z0-9]+", value.casefold()))
 
     @staticmethod
     def _require_prepared_dataset(
@@ -183,11 +233,9 @@ class FieldMappingService:
             PreparationStatus.CONFIRMED_WITH_WARNINGS,
         }:
             raise FieldMappingError(
-                
-                    f"Complete Data Preparation for "
-                    f"'{dataset.confirmed_display_name}' before "
-                    "mapping fields."
-                
+                "Complete Data Preparation for "
+                f"'{dataset.confirmed_display_name}' before "
+                "mapping fields."
             )
 
     @staticmethod
@@ -203,13 +251,10 @@ class FieldMappingService:
             ),
             None,
         )
-
         if included_column is None:
             raise FieldMappingError(
-                
-                    f"'{source_column}' is not an included prepared "
-                    f"column in '{dataset.confirmed_display_name}'."
-                
+                f"'{source_column}' is not an included prepared "
+                f"column in '{dataset.confirmed_display_name}'."
             )
 
     @staticmethod
@@ -217,15 +262,10 @@ class FieldMappingService:
         dataset: WorksheetDataset,
     ) -> None:
         included_sources = set(dataset.included_source_columns)
-
         invalid_sources = tuple(
             source_column
             for source_column in dataset.field_mappings
             if source_column not in included_sources
         )
-
         for source_column in invalid_sources:
-            dataset.field_mappings.pop(
-                source_column,
-                None,
-            )
+            dataset.field_mappings.pop(source_column, None)

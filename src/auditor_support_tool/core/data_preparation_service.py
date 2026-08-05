@@ -50,10 +50,8 @@ class DataPreparationService:
 
         if duplicate_column is not None:
             raise DataPreparationError(
-                
-                    "Each included column must have a unique "
-                    f"prepared name. '{cleaned_name}' is already used."
-                
+                "Each included column must have a unique "
+                f"prepared name. '{cleaned_name}' is already used."
             )
 
         column.confirmed_name = cleaned_name
@@ -177,10 +175,8 @@ class DataPreparationService:
 
             if comparison_name in names_seen:
                 raise DataPreparationError(
-                    
-                        "Included columns must have unique "
-                        f"prepared names. Duplicate: '{cleaned_name}'."
-                    
+                    "Included columns must have unique "
+                    f"prepared names. Duplicate: '{cleaned_name}'."
                 )
 
             names_seen.add(comparison_name)
@@ -234,10 +230,8 @@ class DataPreparationService:
 
         if column is None:
             raise DataPreparationError(
-                
-                    f"Unknown source column '{source_column}' "
-                    f"in dataset '{dataset.confirmed_display_name}'."
-                
+                f"Unknown source column '{source_column}' "
+                f"in dataset '{dataset.confirmed_display_name}'."
             )
 
         return column

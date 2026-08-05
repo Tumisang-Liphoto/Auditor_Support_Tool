@@ -2,12 +2,15 @@
 
 from pathlib import Path
 
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QAction, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
+    QFrame,
     QHBoxLayout,
     QMainWindow,
     QStackedWidget,
+    QToolButton,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -30,6 +33,9 @@ from auditor_support_tool.gui.pages.data_preparation_page import (
 )
 from auditor_support_tool.gui.pages.data_profile_page import DataProfilePage
 from auditor_support_tool.gui.pages.data_sources_page import DataSourcesPage
+from auditor_support_tool.gui.pages.field_mapping_page import (
+    FieldMappingPage,
+)
 from auditor_support_tool.gui.pages.manuals_page import ManualsPage
 from auditor_support_tool.gui.pages.pdf_viewer_page import PdfViewerPage
 from auditor_support_tool.gui.pages.placeholder_page import PlaceholderPage
@@ -100,18 +106,55 @@ class MainWindow(QMainWindow):
 
         self._sidebar = Sidebar()
 
+        content_container = QWidget()
+        content_layout = QVBoxLayout(content_container)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
+
+        top_bar = QFrame()
+        top_bar.setObjectName("applicationTopBar")
+
+        top_bar_layout = QHBoxLayout(top_bar)
+        top_bar_layout.setContentsMargins(12, 8, 12, 8)
+        top_bar_layout.setSpacing(8)
+
+        self._sidebar_toggle_button = QToolButton()
+        self._sidebar_toggle_button.setObjectName("sidebarToggleButton")
+        self._sidebar_toggle_button.setText("☰")
+        self._sidebar_toggle_button.setToolTip("Hide or show the navigation panel")
+        self._sidebar_toggle_button.setAccessibleName("Toggle navigation panel")
+        self._sidebar_toggle_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._sidebar_toggle_button.clicked.connect(self._toggle_sidebar)
+
+        top_bar_layout.addWidget(self._sidebar_toggle_button)
+        top_bar_layout.addStretch(1)
+
         self._page_stack = QStackedWidget()
         self._page_stack.setObjectName("pageStack")
+
+        content_layout.addWidget(top_bar)
+        content_layout.addWidget(self._page_stack, 1)
 
         self._sidebar.route_selected.connect(self.show_route)
 
         root_layout.addWidget(self._sidebar)
-        root_layout.addWidget(self._page_stack, 1)
+        root_layout.addWidget(content_container, 1)
 
         self.setCentralWidget(central_widget)
 
         self._register_pages()
         self._build_menu_bar()
+
+    def _toggle_sidebar(self) -> None:
+        """Hide or show the application navigation panel."""
+
+        sidebar_will_be_visible = not self._sidebar.isVisible()
+        self._sidebar.setVisible(sidebar_will_be_visible)
+
+        tooltip = (
+            "Hide the navigation panel" if sidebar_will_be_visible else "Show the navigation panel"
+        )
+        self._sidebar_toggle_button.setToolTip(tooltip)
 
     def _build_menu_bar(self) -> None:
         """Create the application menu bar and keyboard shortcuts."""
@@ -369,6 +412,7 @@ class MainWindow(QMainWindow):
             workspace_state=self._workspace_state,
         )
         data_profile_page.continue_requested.connect(self.show_route)
+        data_profile_page.back_requested.connect(self.show_route)
 
         self._register_page(
             route="workspace.data_profile",
@@ -380,11 +424,23 @@ class MainWindow(QMainWindow):
             workspace_state=self._workspace_state,
         )
         data_preparation_page.continue_requested.connect(self.show_route)
+        data_preparation_page.back_requested.connect(self.show_route)
 
         self._register_page(
             route="workspace.data_preparation",
             title="Data Preparation",
             page=data_preparation_page,
+        )
+        field_mapping_page = FieldMappingPage(
+            workspace_state=self._workspace_state,
+        )
+        field_mapping_page.continue_requested.connect(self.show_route)
+        field_mapping_page.back_requested.connect(self.show_route)
+
+        self._register_page(
+            route="workspace.field_mapping",
+            title="Field Mapping",
+            page=field_mapping_page,
         )
 
         page_definitions: tuple[

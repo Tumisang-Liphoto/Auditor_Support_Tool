@@ -382,9 +382,7 @@ class UpdateService:
                 f"GitHub returned HTTP {error.code} while checking for updates."
             ) from error
         except TimeoutError as error:
-            raise UpdateServiceError(
-                "The GitHub update check timed out."
-            ) from error
+            raise UpdateServiceError("The GitHub update check timed out.") from error
         except URLError as error:
             reason = getattr(error, "reason", error)
             raise UpdateServiceError(
@@ -482,19 +480,14 @@ class UpdateService:
                 "The update package is incomplete or has an unexpected layout."
             )
         try:
-            manifest = json.loads(
-                manifest_path.read_text(encoding="utf-8-sig")
-                )
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
         except (OSError, json.JSONDecodeError) as error:
-            raise UpdateServiceError("The update manifest is unreadable."
-                                     ) from error
+            raise UpdateServiceError("The update manifest is unreadable.") from error
         manifest_version_text = str(manifest.get("version", "")).strip()
         try:
             manifest_version = Version(manifest_version_text)
         except InvalidVersion as error:
-            raise UpdateServiceError(
-                "The update manifest contains an invalid version."
-            ) from error
+            raise UpdateServiceError("The update manifest contains an invalid version.") from error
         if manifest_version != expected_version:
             raise UpdateServiceError(
                 "The update manifest version does not match the GitHub release."
