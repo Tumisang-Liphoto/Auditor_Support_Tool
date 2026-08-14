@@ -18,6 +18,10 @@ from auditor_support_tool.core.constants import APP_NAME, APP_VERSION
 
 NavigationItem = tuple[str, str]
 
+_ACTION_ROUTES = {
+    "workspace.new",
+}
+
 
 class NavigationGroup(QWidget):
     """Expandable collection of related navigation buttons."""
@@ -64,7 +68,10 @@ class NavigationGroup(QWidget):
         for label, route in items:
             button = QPushButton(label)
             button.setObjectName("navigationChildButton")
-            button.setCheckable(True)
+
+            is_action = route in _ACTION_ROUTES
+            button.setCheckable(not is_action)
+
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.setSizePolicy(
                 QSizePolicy.Policy.Expanding,
@@ -74,7 +81,9 @@ class NavigationGroup(QWidget):
                 lambda checked=False, selected_route=route: self.route_selected.emit(selected_route)
             )
 
-            button_group.addButton(button)
+            if not is_action:
+                button_group.addButton(button)
+
             self._route_buttons[route] = button
             content_layout.addWidget(button)
 
@@ -164,6 +173,7 @@ class Sidebar(QFrame):
             (
                 "Audit Workspace",
                 (
+                    ("New Workspace", "workspace.new"),
                     ("Engagement Overview", "workspace.overview"),
                     ("Data Sources", "workspace.data_sources"),
                     ("Data Profile", "workspace.data_profile"),
@@ -289,4 +299,5 @@ class Sidebar(QFrame):
             )
             parent_group.set_expanded(True)
 
-        button.setChecked(True)
+        if button.isCheckable():
+            button.setChecked(True)

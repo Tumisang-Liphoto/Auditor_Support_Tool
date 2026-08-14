@@ -485,15 +485,15 @@ class DataPreparationPage(QWidget):
         )
         include_item.setData(
             Qt.ItemDataRole.UserRole,
-            column.source_column,
+            column.column_id,
         )
 
         source_item = QTableWidgetItem(column.source_column)
 
         name_editor = QLineEdit(column.confirmed_name)
         name_editor.setProperty(
-            "source_column",
-            column.source_column,
+            "column_id",
+            column.column_id,
         )
         name_editor.setProperty(
             "dataset_id",
@@ -505,8 +505,8 @@ class DataPreparationPage(QWidget):
 
         type_combo = QComboBox()
         type_combo.setProperty(
-            "source_column",
-            column.source_column,
+            "column_id",
+            column.column_id,
         )
         type_combo.setProperty(
             "dataset_id",
@@ -583,17 +583,23 @@ class DataPreparationPage(QWidget):
         if dataset is None:
             return
 
-        source_column = item.data(Qt.ItemDataRole.UserRole)
+        column_id = item.data(Qt.ItemDataRole.UserRole)
 
-        if not isinstance(source_column, str):
+        if not isinstance(column_id, str):
             return
 
         included = item.checkState() == Qt.CheckState.Checked
+        column = dataset.get_column(column_id)
+
+        if column is None:
+            return
+
+        previous_included = column.included
 
         try:
             self._preparation_service.set_column_included(
                 dataset,
-                source_column,
+                column_id,
                 included,
             )
         except DataPreparationError as error:
@@ -602,6 +608,15 @@ class DataPreparationPage(QWidget):
                 "error",
             )
             return
+
+        if previous_included != included:
+            self._record_transformation(
+                action="column_inclusion_changed",
+                dataset=dataset,
+                column=column,
+                old_value=previous_included,
+                new_value=included,
+            )
 
         self._refresh_page()
 
@@ -616,21 +631,28 @@ class DataPreparationPage(QWidget):
         if dataset is None:
             return
 
-        source_column = editor.property("source_column")
+        column_id = editor.property("column_id")
 
-        if not isinstance(source_column, str):
+        if not isinstance(column_id, str):
             return
 
+        existing_column = dataset.get_column(column_id)
+
+        if existing_column is None:
+            return
+
+        previous_name = existing_column.confirmed_name
+
         try:
-            self._preparation_service.update_column_name(
+            column = self._preparation_service.update_column_name(
                 dataset,
-                source_column,
+                column_id,
                 editor.text(),
             )
         except DataPreparationError as error:
             column = self._find_column(
                 dataset,
-                source_column,
+                column_id,
             )
 
             if column is not None:
@@ -650,8 +672,17 @@ class DataPreparationPage(QWidget):
 
         editor.setToolTip("")
 
+        if previous_name != column.confirmed_name:
+            self._record_transformation(
+                action="prepared_name_changed",
+                dataset=dataset,
+                column=column,
+                old_value=previous_name,
+                new_value=column.confirmed_name,
+            )
+
         self._set_preparation_status(
-            f"Prepared name updated for '{source_column}'.",
+            f"Prepared name updated for '{column.source_column}'.",
             "success",
         )
         self._refresh_page()
@@ -667,19 +698,26 @@ class DataPreparationPage(QWidget):
         if dataset is None:
             return
 
-        source_column = combo.property("source_column")
+        column_id = combo.property("column_id")
         confirmed_type = combo.currentData()
 
-        if not isinstance(source_column, str) or not isinstance(
+        if not isinstance(column_id, str) or not isinstance(
             confirmed_type,
             DetectedDataType,
         ):
             return
 
+        existing_column = dataset.get_column(column_id)
+
+        if existing_column is None:
+            return
+
+        previous_type = existing_column.confirmed_type
+
         try:
             column = self._preparation_service.update_column_type(
                 dataset,
-                source_column,
+                column_id,
                 confirmed_type,
             )
         except DataPreparationError as error:
@@ -689,6 +727,15 @@ class DataPreparationPage(QWidget):
             )
             return
 
+        if previous_type != column.confirmed_type:
+            self._record_transformation(
+                action="confirmed_type_changed",
+                dataset=dataset,
+                column=column,
+                old_value=previous_type.value,
+                new_value=column.confirmed_type.value,
+            )
+
         if column.validation_warning:
             self._set_preparation_status(
                 column.validation_warning,
@@ -696,7 +743,7 @@ class DataPreparationPage(QWidget):
             )
         else:
             self._set_preparation_status(
-                (f"Confirmed type updated for '{source_column}'."),
+                (f"Confirmed type updated for '{column.source_column}'."),
                 "success",
             )
 
@@ -712,11 +759,23 @@ class DataPreparationPage(QWidget):
             return
 
         for column in dataset.columns:
+            previous_included = column.included
+
             self._preparation_service.set_column_included(
                 dataset,
-                column.source_column,
+                column.column_id,
                 included,
             )
+
+            if previous_included != included:
+                self._record_transformation(
+                    action="column_inclusion_changed",
+                    dataset=dataset,
+                    column=column,
+                    old_value=previous_included,
+                    new_value=included,
+                    details={"method": "bulk_action"},
+                )
 
         action = "included" if included else "excluded"
 
@@ -732,7 +791,16 @@ class DataPreparationPage(QWidget):
         if dataset is None:
             return
 
+        previous_status = dataset.preparation_status
+
         self._preparation_service.reset_dataset(dataset)
+
+        self._record_transformation(
+            action="preparation_reset",
+            dataset=dataset,
+            old_value=previous_status.value,
+            new_value=dataset.preparation_status.value,
+        )
 
         self._set_preparation_status(
             (
@@ -754,6 +822,8 @@ class DataPreparationPage(QWidget):
             )
             return
 
+        previous_status = dataset.preparation_status
+
         try:
             status = self._preparation_service.confirm_dataset(dataset)
         except DataPreparationError as error:
@@ -762,6 +832,13 @@ class DataPreparationPage(QWidget):
                 "error",
             )
             return
+
+        self._record_transformation(
+            action="preparation_confirmed",
+            dataset=dataset,
+            old_value=previous_status.value,
+            new_value=status.value,
+        )
 
         if status == PreparationStatus.CONFIRMED_WITH_WARNINGS:
             confirmation_message = (
@@ -933,11 +1010,35 @@ class DataPreparationPage(QWidget):
     @staticmethod
     def _find_column(
         dataset: WorksheetDataset,
-        source_column: str,
+        column_id: str,
     ) -> PreparedColumn | None:
-        return next(
-            (column for column in dataset.columns if column.source_column == source_column),
-            None,
+        """Return a prepared column by its stable identifier."""
+
+        return dataset.get_column(column_id)
+
+    def _record_transformation(
+        self,
+        *,
+        action: str,
+        dataset: WorksheetDataset,
+        column: PreparedColumn | None = None,
+        old_value: object | None = None,
+        new_value: object | None = None,
+        details: dict[str, object] | None = None,
+    ) -> None:
+        """Record a preparation change in the active workspace history."""
+
+        if not self._workspace_state.has_workspace:
+            return
+
+        self._workspace_state.record_transformation(
+            action=action,
+            dataset_id=dataset.dataset_id,
+            column_id=column.column_id if column is not None else None,
+            source_column=column.source_column if column is not None else None,
+            old_value=old_value,
+            new_value=new_value,
+            details=details,
         )
 
     def _set_action_buttons_enabled(

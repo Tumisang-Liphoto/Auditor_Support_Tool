@@ -16,6 +16,11 @@ class ApplicationPaths:
     config: Path
     cache: Path
     logs: Path
+
+    workspaces: Path
+    workspace_backups: Path
+    workspace_recovery: Path
+
     backups: Path
     updates: Path
     update_downloads: Path
@@ -37,6 +42,11 @@ def get_application_paths() -> ApplicationPaths:
     config_path = Path(directories.user_config_dir)
     cache_path = Path(directories.user_cache_dir)
     log_path = Path(directories.user_log_dir)
+
+    workspaces_path = data_path / "Workspaces"
+    workspace_backups_path = data_path / "Backups" / "Workspaces"
+    workspace_recovery_path = data_path / "Recovery"
+
     updates_path = cache_path / "Updates"
 
     return ApplicationPaths(
@@ -44,6 +54,9 @@ def get_application_paths() -> ApplicationPaths:
         config=config_path,
         cache=cache_path,
         logs=log_path,
+        workspaces=workspaces_path,
+        workspace_backups=workspace_backups_path,
+        workspace_recovery=workspace_recovery_path,
         backups=data_path / "Backups" / "Application",
         updates=updates_path,
         update_downloads=updates_path / "Downloads",
@@ -63,6 +76,9 @@ def ensure_application_paths() -> ApplicationPaths:
         paths.config,
         paths.cache,
         paths.logs,
+        paths.workspaces,
+        paths.workspace_backups,
+        paths.workspace_recovery,
         paths.backups,
         paths.updates,
         paths.update_downloads,

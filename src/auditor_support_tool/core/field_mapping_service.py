@@ -10,6 +10,7 @@ from auditor_support_tool.core.field_mapping_models import (
 from auditor_support_tool.core.workbook_package import (
     FieldMappingStatus,
     PreparationStatus,
+    PreparedColumn,
     WorksheetDataset,
 )
 
@@ -40,7 +41,7 @@ class FieldMappingService:
         used_keys = {key for key in dataset.field_mappings.values() if key}
 
         for column in dataset.included_columns:
-            if dataset.field_mappings.get(column.source_column):
+            if dataset.field_mappings.get(column.column_id):
                 continue
 
             candidates = tuple(
@@ -63,9 +64,9 @@ class FieldMappingService:
             if score < minimum_score:
                 continue
 
-            dataset.field_mappings[column.source_column] = best_field.key
+            dataset.field_mappings[column.column_id] = best_field.key
             used_keys.add(best_field.key)
-            suggestions[column.source_column] = best_field.key
+            suggestions[column.column_id] = best_field.key
 
         if suggestions:
             dataset.mapping_status = FieldMappingStatus.IN_PROGRESS
@@ -99,15 +100,17 @@ class FieldMappingService:
     def assign_mapping(
         self,
         dataset: WorksheetDataset,
-        source_column: str,
+        column_id: str,
         standard_field_key: str,
     ) -> None:
+        """Assign a standard audit field to a prepared column."""
+
         self._require_prepared_dataset(dataset)
-        self._require_included_column(dataset, source_column)
+        column = self._require_included_column(dataset, column_id)
 
         cleaned_key = standard_field_key.strip()
         if not cleaned_key:
-            self.remove_mapping(dataset, source_column)
+            self.remove_mapping(dataset, column_id)
             return
 
         valid_keys = {field.key for field in self.available_fields(dataset)}
@@ -117,30 +120,39 @@ class FieldMappingService:
                 f"field for '{dataset.confirmed_display_name}'."
             )
 
-        duplicate_source = next(
+        duplicate_column_id = next(
             (
-                existing_source
-                for existing_source, existing_key in dataset.field_mappings.items()
-                if (existing_source != source_column and existing_key == cleaned_key)
+                existing_column_id
+                for existing_column_id, existing_key in dataset.field_mappings.items()
+                if (existing_column_id != column_id and existing_key == cleaned_key)
             ),
             None,
         )
-        if duplicate_source is not None:
+
+        if duplicate_column_id is not None:
+            duplicate_column = dataset.get_column(duplicate_column_id)
+            duplicate_name = (
+                duplicate_column.source_column
+                if duplicate_column is not None
+                else duplicate_column_id
+            )
             raise FieldMappingError(
                 f"'{cleaned_key}' is already mapped from "
-                f"'{duplicate_source}'. A standard field may "
+                f"'{duplicate_name}'. A standard field may "
                 "only be mapped once within a dataset."
             )
 
-        dataset.field_mappings[source_column] = cleaned_key
+        dataset.field_mappings[column.column_id] = cleaned_key
         dataset.mapping_status = FieldMappingStatus.IN_PROGRESS
 
     def remove_mapping(
         self,
         dataset: WorksheetDataset,
-        source_column: str,
+        column_id: str,
     ) -> None:
-        dataset.field_mappings.pop(source_column, None)
+        """Remove the mapping assigned to a prepared column."""
+
+        dataset.field_mappings.pop(column_id, None)
         dataset.mapping_status = (
             FieldMappingStatus.IN_PROGRESS
             if dataset.field_mappings
@@ -181,11 +193,15 @@ class FieldMappingService:
     def mapped_field(
         self,
         dataset: WorksheetDataset,
-        source_column: str,
+        column_id: str,
     ) -> StandardAuditField | None:
-        mapped_key = dataset.field_mappings.get(source_column)
+        """Return the standard audit field mapped to a prepared column."""
+
+        mapped_key = dataset.field_mappings.get(column_id)
+
         if mapped_key is None:
             return None
+
         return next(
             (field for field in self.available_fields(dataset) if field.key == mapped_key),
             None,
@@ -241,31 +257,33 @@ class FieldMappingService:
     @staticmethod
     def _require_included_column(
         dataset: WorksheetDataset,
-        source_column: str,
-    ) -> None:
-        included_column = next(
-            (
-                column
-                for column in dataset.columns
-                if (column.source_column == source_column and column.included)
-            ),
-            None,
-        )
-        if included_column is None:
+        column_id: str,
+    ) -> PreparedColumn:
+        """Return an included prepared column by its stable identifier."""
+
+        column = dataset.get_column(column_id)
+
+        if column is None or not column.included:
             raise FieldMappingError(
-                f"'{source_column}' is not an included prepared "
-                f"column in '{dataset.confirmed_display_name}'."
+                "The selected prepared column is not available in "
+                f"'{dataset.confirmed_display_name}'."
             )
+
+        return column
 
     @staticmethod
     def _remove_invalid_source_mappings(
         dataset: WorksheetDataset,
     ) -> None:
-        included_sources = set(dataset.included_source_columns)
-        invalid_sources = tuple(
-            source_column
-            for source_column in dataset.field_mappings
-            if source_column not in included_sources
+        """Remove mappings whose prepared columns are no longer included."""
+
+        included_column_ids = {column.column_id for column in dataset.included_columns}
+
+        invalid_column_ids = tuple(
+            column_id
+            for column_id in dataset.field_mappings
+            if column_id not in included_column_ids
         )
-        for source_column in invalid_sources:
-            dataset.field_mappings.pop(source_column, None)
+
+        for column_id in invalid_column_ids:
+            dataset.field_mappings.pop(column_id, None)

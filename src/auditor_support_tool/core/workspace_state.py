@@ -4,9 +4,14 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 
+from auditor_support_tool.core.data_quality_models import DataQualityIssue
 from auditor_support_tool.core.workbook_package import (
     WorkbookPackage,
     WorksheetDataset,
+)
+from auditor_support_tool.core.workspace_models import (
+    TransformationRecord,
+    WorkspaceIdentity,
 )
 from auditor_support_tool.domains.financial_audit.general_ledger.data_profile_models import (
     DataProfile,
@@ -18,7 +23,7 @@ from auditor_support_tool.domains.financial_audit.general_ledger.models import (
 
 
 class WorkspaceState(QObject):
-    """Hold source data shared by the workspace pages."""
+    """Hold shared state for the active audit workspace."""
 
     source_changed = Signal()
     population_loaded = Signal()
@@ -27,10 +32,21 @@ class WorkspaceState(QObject):
     workbook_package_changed = Signal()
     active_dataset_changed = Signal()
 
+    workspace_identity_changed = Signal()
+    workspace_dirty_changed = Signal(bool)
+    workspace_file_changed = Signal()
+
+    transformation_history_changed = Signal()
+    data_quality_issues_changed = Signal()
+
     workspace_cleared = Signal()
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
+
+        self._workspace_identity: WorkspaceIdentity | None = None
+        self._workspace_file_path: Path | None = None
+        self._is_dirty = False
 
         self._source_path: Path | None = None
         self._source_info: SourceFileInfo | None = None
@@ -38,10 +54,37 @@ class WorkspaceState(QObject):
         self._workbook_package: WorkbookPackage | None = None
         self._active_dataset_id: str | None = None
 
+        self._transformation_history: list[TransformationRecord] = []
+        self._data_quality_issues: list[DataQualityIssue] = []
+
         # Temporary compatibility properties for the existing pages.
         self._selected_worksheet: str | None = None
         self._loaded_table: LoadedTable | None = None
         self._data_profile: DataProfile | None = None
+
+    @property
+    def workspace_identity(self) -> WorkspaceIdentity | None:
+        """Return the active workspace identity."""
+
+        return self._workspace_identity
+
+    @property
+    def workspace_file_path(self) -> Path | None:
+        """Return the saved workspace-document path."""
+
+        return self._workspace_file_path
+
+    @property
+    def has_workspace(self) -> bool:
+        """Return whether an audit workspace has been created or opened."""
+
+        return self._workspace_identity is not None
+
+    @property
+    def is_dirty(self) -> bool:
+        """Return whether the workspace contains unsaved changes."""
+
+        return self._is_dirty
 
     @property
     def source_path(self) -> Path | None:
@@ -95,6 +138,32 @@ class WorkspaceState(QObject):
         return self._workbook_package.selected_datasets
 
     @property
+    def transformation_history(self) -> tuple[TransformationRecord, ...]:
+        """Return the workspace transformation history in recorded order."""
+
+        return tuple(self._transformation_history)
+
+    @property
+    def data_quality_issues(self) -> tuple[DataQualityIssue, ...]:
+        """Return all data-quality issues recorded for the active workspace."""
+
+        return tuple(self._data_quality_issues)
+
+    @property
+    def blocking_data_quality_issues(self) -> tuple[DataQualityIssue, ...]:
+        """Return data-quality issues that should block affected execution."""
+
+        return tuple(issue for issue in self._data_quality_issues if issue.blocks_execution)
+
+    def data_quality_issues_for_dataset(
+        self,
+        dataset_id: str,
+    ) -> tuple[DataQualityIssue, ...]:
+        """Return data-quality issues belonging to one dataset."""
+
+        return tuple(issue for issue in self._data_quality_issues if issue.dataset_id == dataset_id)
+
+    @property
     def selected_worksheet(self) -> str | None:
         """Return the active original worksheet name."""
 
@@ -142,6 +211,157 @@ class WorkspaceState(QObject):
 
         return self._data_profile is not None
 
+    def start_workspace(
+        self,
+        identity: WorkspaceIdentity,
+        *,
+        file_path: Path | None = None,
+    ) -> None:
+        """Start a newly created or previously loaded audit workspace."""
+
+        self.clear()
+
+        self._workspace_identity = identity
+        self._workspace_file_path = (
+            file_path.expanduser().resolve() if file_path is not None else None
+        )
+
+        self._set_dirty(file_path is None)
+
+        self.workspace_identity_changed.emit()
+        self.workspace_file_changed.emit()
+
+    def set_workspace_file_path(
+        self,
+        file_path: Path | None,
+    ) -> None:
+        """Set the persistent workspace-document path."""
+
+        resolved_path = file_path.expanduser().resolve() if file_path is not None else None
+
+        if resolved_path == self._workspace_file_path:
+            return
+
+        self._workspace_file_path = resolved_path
+        self.workspace_file_changed.emit()
+
+    def mark_dirty(self) -> None:
+        """Mark the active workspace as containing unsaved changes."""
+
+        if self._workspace_identity is None:
+            return
+
+        self._workspace_identity.touch()
+        self._set_dirty(True)
+
+    def mark_saved(self) -> None:
+        """Mark the active workspace as fully saved."""
+
+        self._set_dirty(False)
+
+    def record_transformation(
+        self,
+        *,
+        action: str,
+        dataset_id: str | None = None,
+        column_id: str | None = None,
+        source_column: str | None = None,
+        old_value: object | None = None,
+        new_value: object | None = None,
+        details: dict[str, object] | None = None,
+    ) -> TransformationRecord:
+        """Record one auditable workspace transformation."""
+
+        if self._workspace_identity is None:
+            raise ValueError(
+                "An active audit workspace is required before recording transformation history."
+            )
+
+        record = TransformationRecord.create(
+            action=action,
+            dataset_id=dataset_id,
+            column_id=column_id,
+            source_column=source_column,
+            old_value=old_value,
+            new_value=new_value,
+            details=details,
+        )
+
+        self._transformation_history.append(record)
+        self.transformation_history_changed.emit()
+        self.mark_dirty()
+
+        return record
+
+    def set_transformation_history(
+        self,
+        records: tuple[TransformationRecord, ...] | list[TransformationRecord],
+        *,
+        mark_dirty: bool = False,
+    ) -> None:
+        """Replace transformation history, primarily when loading a workspace."""
+
+        self._transformation_history = list(records)
+        self.transformation_history_changed.emit()
+
+        if mark_dirty:
+            self.mark_dirty()
+
+    def add_data_quality_issue(
+        self,
+        issue: DataQualityIssue,
+    ) -> None:
+        """Add one data-quality issue to the active workspace."""
+
+        if self._workspace_identity is None:
+            raise ValueError(
+                "An active audit workspace is required before recording data-quality issues."
+            )
+
+        if any(existing.issue_id == issue.issue_id for existing in self._data_quality_issues):
+            return
+
+        self._data_quality_issues.append(issue)
+        self.data_quality_issues_changed.emit()
+        self.mark_dirty()
+
+    def set_data_quality_issues(
+        self,
+        issues: tuple[DataQualityIssue, ...] | list[DataQualityIssue],
+        *,
+        mark_dirty: bool = False,
+    ) -> None:
+        """Replace data-quality issues, primarily when loading a workspace."""
+
+        self._data_quality_issues = list(issues)
+        self.data_quality_issues_changed.emit()
+
+        if mark_dirty:
+            self.mark_dirty()
+
+    def clear_data_quality_issues(
+        self,
+        *,
+        dataset_id: str | None = None,
+    ) -> None:
+        """Clear all issues or only issues belonging to one dataset."""
+
+        if dataset_id is None:
+            changed = bool(self._data_quality_issues)
+            self._data_quality_issues = []
+        else:
+            remaining = [
+                issue for issue in self._data_quality_issues if issue.dataset_id != dataset_id
+            ]
+            changed = len(remaining) != len(self._data_quality_issues)
+            self._data_quality_issues = remaining
+
+        if not changed:
+            return
+
+        self.data_quality_issues_changed.emit()
+        self.mark_dirty()
+
     def set_source(
         self,
         source_info: SourceFileInfo,
@@ -159,6 +379,7 @@ class WorkspaceState(QObject):
         self._data_profile = None
 
         self.source_changed.emit()
+        self.mark_dirty()
 
     def set_workbook_package(
         self,
@@ -187,6 +408,8 @@ class WorkspaceState(QObject):
             self.population_loaded.emit()
             self.profile_created.emit()
 
+        self.mark_dirty()
+
     def set_active_dataset(
         self,
         dataset_id: str,
@@ -210,6 +433,8 @@ class WorkspaceState(QObject):
         self.population_loaded.emit()
         self.profile_created.emit()
 
+        self.mark_dirty()
+
     def set_dataset_selected(
         self,
         dataset_id: str,
@@ -218,9 +443,14 @@ class WorkspaceState(QObject):
         """Include or exclude a worksheet from preparation."""
 
         dataset = self._require_dataset(dataset_id)
+
+        if dataset.selected == selected:
+            return
+
         dataset.selected = selected
 
         self.workbook_package_changed.emit()
+        self.mark_dirty()
 
     def set_loaded_table(
         self,
@@ -234,6 +464,7 @@ class WorkspaceState(QObject):
         self._data_profile = None
 
         self.population_loaded.emit()
+        self.mark_dirty()
 
     def set_data_profile(
         self,
@@ -249,9 +480,18 @@ class WorkspaceState(QObject):
             active_dataset.data_profile = data_profile
 
         self.profile_created.emit()
+        self.mark_dirty()
 
     def clear(self) -> None:
         """Clear all active workspace data."""
+
+        had_identity = self._workspace_identity is not None
+        had_file_path = self._workspace_file_path is not None
+        was_dirty = self._is_dirty
+
+        self._workspace_identity = None
+        self._workspace_file_path = None
+        self._is_dirty = False
 
         self._source_path = None
         self._source_info = None
@@ -259,9 +499,30 @@ class WorkspaceState(QObject):
         self._workbook_package = None
         self._active_dataset_id = None
 
+        had_transformation_history = bool(self._transformation_history)
+        self._transformation_history = []
+
+        had_data_quality_issues = bool(self._data_quality_issues)
+        self._data_quality_issues = []
+
         self._selected_worksheet = None
         self._loaded_table = None
         self._data_profile = None
+
+        if had_identity:
+            self.workspace_identity_changed.emit()
+
+        if had_file_path:
+            self.workspace_file_changed.emit()
+
+        if was_dirty:
+            self.workspace_dirty_changed.emit(False)
+
+        if had_transformation_history:
+            self.transformation_history_changed.emit()
+
+        if had_data_quality_issues:
+            self.data_quality_issues_changed.emit()
 
         self.workspace_cleared.emit()
 
@@ -299,3 +560,15 @@ class WorkspaceState(QObject):
         self._selected_worksheet = None
         self._loaded_table = None
         self._data_profile = None
+
+    def _set_dirty(
+        self,
+        dirty: bool,
+    ) -> None:
+        """Update and announce the workspace dirty state."""
+
+        if self._is_dirty == dirty:
+            return
+
+        self._is_dirty = dirty
+        self.workspace_dirty_changed.emit(dirty)

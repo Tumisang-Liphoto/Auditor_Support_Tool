@@ -491,7 +491,7 @@ class FieldMappingPage(QWidget):
         used_keys = {field_key for field_key in dataset.field_mappings.values() if field_key}
 
         for column in dataset.included_columns:
-            if dataset.field_mappings.get(column.source_column):
+            if dataset.field_mappings.get(column.column_id):
                 continue
 
             candidates = tuple(field for field in catalogue if field.key not in used_keys)
@@ -517,11 +517,23 @@ class FieldMappingPage(QWidget):
             try:
                 self._mapping_service.assign_mapping(
                     dataset,
-                    column.source_column,
+                    column.column_id,
                     suggested_field.key,
                 )
             except FieldMappingError:
                 continue
+
+            self._record_transformation(
+                action="field_mapping_assigned",
+                dataset=dataset,
+                column=column,
+                old_value=None,
+                new_value=suggested_field.key,
+                details={
+                    "method": "automatic_suggestion",
+                    "prepared_name": column.confirmed_name,
+                },
+            )
 
             used_keys.add(suggested_field.key)
 
@@ -579,8 +591,8 @@ class FieldMappingPage(QWidget):
             dataset.dataset_id,
         )
         mapping_combo.setProperty(
-            "source_column",
-            column.source_column,
+            "column_id",
+            column.column_id,
         )
 
         mapping_combo.addItem(
@@ -589,13 +601,13 @@ class FieldMappingPage(QWidget):
         )
 
         mapped_key = dataset.field_mappings.get(
-            column.source_column,
+            column.column_id,
             "",
         )
         used_keys = {
             field_key
-            for source_name, field_key in dataset.field_mappings.items()
-            if source_name != column.source_column and field_key
+            for mapped_column_id, field_key in dataset.field_mappings.items()
+            if mapped_column_id != column.column_id and field_key
         }
 
         for field in catalogue:
@@ -618,7 +630,7 @@ class FieldMappingPage(QWidget):
 
         mapped_field = self._mapping_service.mapped_field(
             dataset,
-            column.source_column,
+            column.column_id,
         )
 
         description_text = mapped_field.description if mapped_field is not None else "—"
@@ -669,21 +681,29 @@ class FieldMappingPage(QWidget):
         if dataset is None:
             return
 
-        source_column = combo.property("source_column")
+        column_id = combo.property("column_id")
         standard_field_key = combo.currentData()
 
-        if not isinstance(source_column, str) or not isinstance(standard_field_key, str):
+        if not isinstance(column_id, str) or not isinstance(
+            standard_field_key,
+            str,
+        ):
+            return
+
+        column = dataset.get_column(column_id)
+
+        if column is None:
             return
 
         previous_key = dataset.field_mappings.get(
-            source_column,
+            column_id,
             "",
         )
 
         try:
             self._mapping_service.assign_mapping(
                 dataset,
-                source_column,
+                column_id,
                 standard_field_key,
             )
         except FieldMappingError as error:
@@ -702,14 +722,31 @@ class FieldMappingPage(QWidget):
             )
             return
 
+        if previous_key != standard_field_key:
+            if previous_key and standard_field_key:
+                action = "field_mapping_changed"
+            elif standard_field_key:
+                action = "field_mapping_assigned"
+            else:
+                action = "field_mapping_removed"
+
+            self._record_transformation(
+                action=action,
+                dataset=dataset,
+                column=column,
+                old_value=previous_key or None,
+                new_value=standard_field_key or None,
+                details={"method": "manual"},
+            )
+
         if standard_field_key:
             self._set_mapping_status(
-                (f"Mapping updated for '{source_column}'."),
+                (f"Mapping updated for '{column.source_column}'."),
                 "success",
             )
         else:
             self._set_mapping_status(
-                (f"Mapping removed from '{source_column}'."),
+                (f"Mapping removed from '{column.source_column}'."),
                 "success",
             )
 
@@ -721,7 +758,20 @@ class FieldMappingPage(QWidget):
         if dataset is None:
             return
 
+        previous_status = dataset.mapping_status
+        previous_mapping_count = len(dataset.field_mappings)
+
         self._mapping_service.reset_dataset(dataset)
+
+        self._record_transformation(
+            action="field_mapping_reset",
+            dataset=dataset,
+            old_value=previous_status.value,
+            new_value=dataset.mapping_status.value,
+            details={
+                "removed_mapping_count": previous_mapping_count,
+            },
+        )
 
         self._set_mapping_status(
             (f"Mappings for '{dataset.confirmed_display_name}' were reset."),
@@ -739,6 +789,8 @@ class FieldMappingPage(QWidget):
             )
             return
 
+        previous_status = dataset.mapping_status
+
         try:
             status = self._mapping_service.confirm_dataset(dataset)
         except FieldMappingError as error:
@@ -748,6 +800,13 @@ class FieldMappingPage(QWidget):
             )
             self._refresh_page()
             return
+
+        self._record_transformation(
+            action="field_mapping_confirmed",
+            dataset=dataset,
+            old_value=previous_status.value,
+            new_value=status.value,
+        )
 
         if status == FieldMappingStatus.NOT_APPLICABLE:
             confirmation_message = (
@@ -948,6 +1007,31 @@ class FieldMappingPage(QWidget):
             return None
 
         return package.get_dataset(dataset_id)
+
+    def _record_transformation(
+        self,
+        *,
+        action: str,
+        dataset: WorksheetDataset,
+        column: PreparedColumn | None = None,
+        old_value: object | None = None,
+        new_value: object | None = None,
+        details: dict[str, object] | None = None,
+    ) -> None:
+        """Record a field-mapping change in workspace history."""
+
+        if not self._workspace_state.has_workspace:
+            return
+
+        self._workspace_state.record_transformation(
+            action=action,
+            dataset_id=dataset.dataset_id,
+            column_id=column.column_id if column is not None else None,
+            source_column=column.source_column if column is not None else None,
+            old_value=old_value,
+            new_value=new_value,
+            details=details,
+        )
 
     def _set_action_buttons_enabled(
         self,

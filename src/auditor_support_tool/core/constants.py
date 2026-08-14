@@ -1,7 +1,7 @@
 """Application-wide constants."""
 
 APP_NAME = "Auditor Support Tool"
-APP_VERSION = "0.1.2-beta.2"
+APP_VERSION = "0.1.2"
 APP_EXECUTABLE_NAME = "Auditor Support Tool.exe"
 UPDATER_EXECUTABLE_NAME = "Auditor Support Tool Updater.exe"
 UPDATE_MANIFEST_NAME = "update-manifest.json"

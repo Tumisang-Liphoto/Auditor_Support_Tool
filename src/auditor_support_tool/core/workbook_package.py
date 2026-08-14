@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
+from uuid import uuid4
 
 from auditor_support_tool.domains.financial_audit.general_ledger.data_profile_models import (
     DataProfile,
@@ -12,6 +13,12 @@ from auditor_support_tool.domains.financial_audit.general_ledger.models import (
     LoadedTable,
     SourceFileInfo,
 )
+
+
+def new_column_id() -> str:
+    """Return a new stable identifier for a prepared source column."""
+
+    return f"column-{uuid4().hex}"
 
 
 class DatasetType(StrEnum):
@@ -81,6 +88,8 @@ class PreparedColumn:
 
     included: bool = True
     validation_warning: str = ""
+
+    column_id: str = field(default_factory=new_column_id)
 
     @property
     def name_was_changed(self) -> bool:
@@ -156,6 +165,18 @@ class WorksheetDataset:
         """Return standard-field keys already mapped."""
 
         return tuple(self.field_mappings.values())
+
+    def get_column(
+        self,
+        column_id: str,
+    ) -> PreparedColumn | None:
+        """Return a prepared column by its stable identifier."""
+
+        for column in self.columns:
+            if column.column_id == column_id:
+                return column
+
+        return None
 
 
 @dataclass(slots=True)

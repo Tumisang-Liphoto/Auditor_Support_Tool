@@ -11,6 +11,7 @@ from auditor_support_tool.core.data_preparation_service import (
 )
 from auditor_support_tool.core.workbook_package import (
     PreparationStatus,
+    PreparedColumn,
     WorksheetDataset,
 )
 from auditor_support_tool.core.workbook_package_service import (
@@ -66,6 +67,22 @@ def create_dataset(
     return dataset
 
 
+def column_by_source(
+    dataset: WorksheetDataset,
+    source_column: str,
+) -> PreparedColumn:
+    """Return a prepared column by its original source-column name."""
+
+    column = next(
+        (candidate for candidate in dataset.columns if candidate.source_column == source_column),
+        None,
+    )
+
+    assert column is not None
+
+    return column
+
+
 def test_column_name_can_be_changed(
     tmp_path: Path,
 ) -> None:
@@ -73,10 +90,11 @@ def test_column_name_can_be_changed(
 
     dataset = create_dataset(tmp_path)
     service = DataPreparationService()
+    account_column = column_by_source(dataset, "Account Code")
 
     column = service.update_column_name(
         dataset,
-        "Account Code",
+        account_column.column_id,
         "Account Number",
     )
 
@@ -91,6 +109,7 @@ def test_blank_column_name_is_rejected(
 
     dataset = create_dataset(tmp_path)
     service = DataPreparationService()
+    account_column = column_by_source(dataset, "Account Code")
 
     with pytest.raises(
         DataPreparationError,
@@ -98,7 +117,7 @@ def test_blank_column_name_is_rejected(
     ):
         service.update_column_name(
             dataset,
-            "Account Code",
+            account_column.column_id,
             "   ",
         )
 
@@ -110,6 +129,7 @@ def test_duplicate_prepared_name_is_rejected(
 
     dataset = create_dataset(tmp_path)
     service = DataPreparationService()
+    account_column = column_by_source(dataset, "Account Code")
 
     with pytest.raises(
         DataPreparationError,
@@ -117,7 +137,7 @@ def test_duplicate_prepared_name_is_rejected(
     ):
         service.update_column_name(
             dataset,
-            "Account Code",
+            account_column.column_id,
             "Amount",
         )
 
@@ -129,10 +149,11 @@ def test_identifier_can_be_confirmed_as_text(
 
     dataset = create_dataset(tmp_path)
     service = DataPreparationService()
+    account_column = column_by_source(dataset, "Account Code")
 
     column = service.update_column_type(
         dataset,
-        "Account Code",
+        account_column.column_id,
         DetectedDataType.TEXT,
     )
 
@@ -147,10 +168,11 @@ def test_incompatible_type_change_creates_warning(
 
     dataset = create_dataset(tmp_path)
     service = DataPreparationService()
+    description_column = column_by_source(dataset, "Description")
 
     column = service.update_column_type(
         dataset,
-        "Description",
+        description_column.column_id,
         DetectedDataType.DATE,
     )
 
@@ -161,14 +183,15 @@ def test_incompatible_type_change_creates_warning(
 def test_column_can_be_excluded(
     tmp_path: Path,
 ) -> None:
-    """A source column may be excluded from later stages."""
+    """A prepared source column may be excluded from later stages."""
 
     dataset = create_dataset(tmp_path)
     service = DataPreparationService()
+    description_column = column_by_source(dataset, "Description")
 
     column = service.set_column_included(
         dataset,
-        "Description",
+        description_column.column_id,
         False,
     )
 
@@ -198,10 +221,11 @@ def test_confirm_dataset_with_warning(
 
     dataset = create_dataset(tmp_path)
     service = DataPreparationService()
+    description_column = column_by_source(dataset, "Description")
 
     service.update_column_type(
         dataset,
-        "Description",
+        description_column.column_id,
         DetectedDataType.DATE,
     )
 
@@ -221,7 +245,7 @@ def test_dataset_requires_one_included_column(
     for column in dataset.columns:
         service.set_column_included(
             dataset,
-            column.source_column,
+            column.column_id,
             False,
         )
 
@@ -240,23 +264,22 @@ def test_reset_restores_suggestions(
     dataset = create_dataset(tmp_path)
     service = DataPreparationService()
 
-    account_column = next(
-        column for column in dataset.columns if column.source_column == "Account Code"
-    )
+    account_column = column_by_source(dataset, "Account Code")
+    description_column = column_by_source(dataset, "Description")
 
     service.update_column_name(
         dataset,
-        "Account Code",
+        account_column.column_id,
         "Changed Name",
     )
     service.update_column_type(
         dataset,
-        "Account Code",
+        account_column.column_id,
         DetectedDataType.TEXT,
     )
     service.set_column_included(
         dataset,
-        "Description",
+        description_column.column_id,
         False,
     )
 
@@ -271,17 +294,17 @@ def test_reset_restores_suggestions(
 def test_unknown_column_is_rejected(
     tmp_path: Path,
 ) -> None:
-    """Preparation changes require an existing source column."""
+    """Preparation changes require an existing stable column identifier."""
 
     dataset = create_dataset(tmp_path)
     service = DataPreparationService()
 
     with pytest.raises(
         DataPreparationError,
-        match="Unknown source column",
+        match="could not be found",
     ):
         service.set_column_included(
             dataset,
-            "Missing Column",
+            "column-missing",
             False,
         )

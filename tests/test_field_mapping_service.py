@@ -13,6 +13,7 @@ from auditor_support_tool.core.workbook_package import (
     DatasetType,
     FieldMappingStatus,
     PreparationStatus,
+    PreparedColumn,
     WorksheetDataset,
 )
 from auditor_support_tool.core.workbook_package_service import (
@@ -64,6 +65,22 @@ def create_general_ledger_dataset(
     return dataset
 
 
+def column_by_source(
+    dataset: WorksheetDataset,
+    source_column: str,
+) -> PreparedColumn:
+    """Return a prepared column by its original source-column name."""
+
+    column = next(
+        (candidate for candidate in dataset.columns if candidate.source_column == source_column),
+        None,
+    )
+
+    assert column is not None
+
+    return column
+
+
 def test_general_ledger_catalogue_is_available(
     tmp_path: Path,
 ) -> None:
@@ -82,18 +99,19 @@ def test_general_ledger_catalogue_is_available(
 def test_mapping_can_be_assigned(
     tmp_path: Path,
 ) -> None:
-    """An included source column can be mapped."""
+    """An included prepared column can be mapped."""
 
     dataset = create_general_ledger_dataset(tmp_path)
     service = FieldMappingService()
+    transaction_column = column_by_source(dataset, "Transaction Date")
 
     service.assign_mapping(
         dataset,
-        "Transaction Date",
+        transaction_column.column_id,
         "transaction_date",
     )
 
-    assert dataset.field_mappings["Transaction Date"] == "transaction_date"
+    assert dataset.field_mappings[transaction_column.column_id] == "transaction_date"
     assert dataset.mapping_status == FieldMappingStatus.IN_PROGRESS
 
 
@@ -104,6 +122,7 @@ def test_mapping_requires_prepared_dataset(
 
     dataset = create_general_ledger_dataset(tmp_path)
     dataset.preparation_status = PreparationStatus.NOT_REVIEWED
+    transaction_column = column_by_source(dataset, "Transaction Date")
 
     service = FieldMappingService()
 
@@ -113,7 +132,7 @@ def test_mapping_requires_prepared_dataset(
     ):
         service.assign_mapping(
             dataset,
-            "Transaction Date",
+            transaction_column.column_id,
             "transaction_date",
         )
 
@@ -125,20 +144,18 @@ def test_excluded_column_cannot_be_mapped(
 
     dataset = create_general_ledger_dataset(tmp_path)
 
-    transaction_column = next(
-        column for column in dataset.columns if column.source_column == "Transaction Date"
-    )
+    transaction_column = column_by_source(dataset, "Transaction Date")
     transaction_column.included = False
 
     service = FieldMappingService()
 
     with pytest.raises(
         FieldMappingError,
-        match="not an included prepared column",
+        match="not available",
     ):
         service.assign_mapping(
             dataset,
-            "Transaction Date",
+            transaction_column.column_id,
             "transaction_date",
         )
 
@@ -150,6 +167,7 @@ def test_unknown_standard_field_is_rejected(
 
     dataset = create_general_ledger_dataset(tmp_path)
     service = FieldMappingService()
+    transaction_column = column_by_source(dataset, "Transaction Date")
 
     with pytest.raises(
         FieldMappingError,
@@ -157,7 +175,7 @@ def test_unknown_standard_field_is_rejected(
     ):
         service.assign_mapping(
             dataset,
-            "Transaction Date",
+            transaction_column.column_id,
             "unknown_field",
         )
 
@@ -170,9 +188,12 @@ def test_standard_field_cannot_be_mapped_twice(
     dataset = create_general_ledger_dataset(tmp_path)
     service = FieldMappingService()
 
+    transaction_column = column_by_source(dataset, "Transaction Date")
+    description_column = column_by_source(dataset, "Description")
+
     service.assign_mapping(
         dataset,
-        "Transaction Date",
+        transaction_column.column_id,
         "transaction_date",
     )
 
@@ -182,7 +203,7 @@ def test_standard_field_cannot_be_mapped_twice(
     ):
         service.assign_mapping(
             dataset,
-            "Description",
+            description_column.column_id,
             "transaction_date",
         )
 
@@ -190,19 +211,20 @@ def test_standard_field_cannot_be_mapped_twice(
 def test_mapping_can_be_removed(
     tmp_path: Path,
 ) -> None:
-    """A mapping can be cleared from a source column."""
+    """A mapping can be cleared from a prepared column."""
 
     dataset = create_general_ledger_dataset(tmp_path)
     service = FieldMappingService()
+    transaction_column = column_by_source(dataset, "Transaction Date")
 
     service.assign_mapping(
         dataset,
-        "Transaction Date",
+        transaction_column.column_id,
         "transaction_date",
     )
     service.remove_mapping(
         dataset,
-        "Transaction Date",
+        transaction_column.column_id,
     )
 
     assert not dataset.field_mappings
@@ -229,10 +251,11 @@ def test_confirmation_does_not_require_specific_standard_fields(
 
     dataset = create_general_ledger_dataset(tmp_path)
     service = FieldMappingService()
+    transaction_column = column_by_source(dataset, "Transaction Date")
 
     service.assign_mapping(
         dataset,
-        "Transaction Date",
+        transaction_column.column_id,
         "transaction_date",
     )
 
@@ -250,14 +273,17 @@ def test_dataset_can_be_confirmed(
     dataset = create_general_ledger_dataset(tmp_path)
     service = FieldMappingService()
 
+    transaction_column = column_by_source(dataset, "Transaction Date")
+    account_column = column_by_source(dataset, "Account Code")
+
     service.assign_mapping(
         dataset,
-        "Transaction Date",
+        transaction_column.column_id,
         "transaction_date",
     )
     service.assign_mapping(
         dataset,
-        "Account Code",
+        account_column.column_id,
         "account_code",
     )
 
@@ -274,14 +300,17 @@ def test_reset_removes_all_mappings(
     dataset = create_general_ledger_dataset(tmp_path)
     service = FieldMappingService()
 
+    transaction_column = column_by_source(dataset, "Transaction Date")
+    account_column = column_by_source(dataset, "Account Code")
+
     service.assign_mapping(
         dataset,
-        "Transaction Date",
+        transaction_column.column_id,
         "transaction_date",
     )
     service.assign_mapping(
         dataset,
-        "Account Code",
+        account_column.column_id,
         "account_code",
     )
 

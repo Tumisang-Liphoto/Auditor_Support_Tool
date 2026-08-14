@@ -20,14 +20,14 @@ class DataPreparationService:
     def update_column_name(
         self,
         dataset: WorksheetDataset,
-        source_column: str,
+        column_id: str,
         confirmed_name: str,
     ) -> PreparedColumn:
         """Change the prepared display name of a source column."""
 
         column = self._require_column(
             dataset,
-            source_column,
+            column_id,
         )
 
         cleaned_name = confirmed_name.strip()
@@ -63,14 +63,14 @@ class DataPreparationService:
     def update_column_type(
         self,
         dataset: WorksheetDataset,
-        source_column: str,
+        column_id: str,
         confirmed_type: DetectedDataType,
     ) -> PreparedColumn:
         """Change how a source column should be interpreted."""
 
         column = self._require_column(
             dataset,
-            source_column,
+            column_id,
         )
 
         column.confirmed_type = confirmed_type
@@ -88,14 +88,14 @@ class DataPreparationService:
     def set_column_included(
         self,
         dataset: WorksheetDataset,
-        source_column: str,
+        column_id: str,
         included: bool,
     ) -> PreparedColumn:
         """Include or exclude a source column from later processing."""
 
         column = self._require_column(
             dataset,
-            source_column,
+            column_id,
         )
 
         column.included = included
@@ -221,17 +221,16 @@ class DataPreparationService:
     @staticmethod
     def _require_column(
         dataset: WorksheetDataset,
-        source_column: str,
+        column_id: str,
     ) -> PreparedColumn:
-        column = next(
-            (existing for existing in dataset.columns if existing.source_column == source_column),
-            None,
-        )
+        """Return a prepared column by its stable identifier."""
+
+        column = dataset.get_column(column_id)
 
         if column is None:
             raise DataPreparationError(
-                f"Unknown source column '{source_column}' "
-                f"in dataset '{dataset.confirmed_display_name}'."
+                "The selected source column could not be found in "
+                f"dataset '{dataset.confirmed_display_name}'."
             )
 
         return column
