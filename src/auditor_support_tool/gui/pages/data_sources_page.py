@@ -22,6 +22,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from auditor_support_tool.core.data_import_service import (
+    DataImportError,
+    DataImportService,
+)
 from auditor_support_tool.core.workbook_package import (
     DatasetType,
     PreparationStatus,
@@ -34,10 +38,6 @@ from auditor_support_tool.core.workbook_suggestion_service import (
     WorkbookSuggestionService,
 )
 from auditor_support_tool.core.workspace_state import WorkspaceState
-from auditor_support_tool.domains.financial_audit.general_ledger.data_import_service import (
-    DataImportError,
-    DataImportService,
-)
 from auditor_support_tool.domains.financial_audit.general_ledger.models import (
     SourceFileInfo,
 )
@@ -399,7 +399,7 @@ class DataSourcesPage(QWidget):
                 dataset_type_item = QTableWidgetItem("Not analysed")
                 records_item = self._centred_item(f"{worksheet.estimated_data_rows:,}")
                 columns_item = self._centred_item(f"{worksheet.maximum_column:,}")
-                confidence_item = self._centred_item("—")
+                confidence_item = self._centred_item("â€”")
 
                 status_text = "Ready for analysis" if worksheet.estimated_data_rows > 0 else "Empty"
                 status_item = self._centred_item(status_text)
@@ -456,7 +456,7 @@ class DataSourcesPage(QWidget):
             return
 
         self._load_package_button.setEnabled(False)
-        self._load_package_button.setText("Loading and Analysing…")
+        self._load_package_button.setText("Loading and Analysingâ€¦")
 
         try:
             package = self._package_service.build_package(self._source_path)
@@ -901,10 +901,10 @@ class DataSourcesPage(QWidget):
         self._source_path = None
 
         self._path_field.clear()
-        self._file_type_value.setText("—")
-        self._file_size_value.setText("—")
-        self._worksheet_count_value.setText("—")
-        self._loaded_dataset_count_value.setText("—")
+        self._file_type_value.setText("â€”")
+        self._file_size_value.setText("â€”")
+        self._worksheet_count_value.setText("â€”")
+        self._loaded_dataset_count_value.setText("â€”")
 
         self._navigator_table.clearContents()
         self._navigator_table.setRowCount(0)
@@ -985,7 +985,7 @@ class DataSourcesPage(QWidget):
 
     @staticmethod
     def _metadata_value() -> QLabel:
-        label = QLabel("—")
+        label = QLabel("â€”")
         label.setObjectName("fieldHint")
         return label
 

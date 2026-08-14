@@ -5,12 +5,12 @@ from pathlib import Path
 import pytest
 from openpyxl import Workbook
 
-from auditor_support_tool.domains.financial_audit.general_ledger.data_import_service import (
+from auditor_support_tool.core.data_import_service import (
     CSV_WORKSHEET_NAME,
     DataImportError,
     DataImportService,
 )
-from auditor_support_tool.domains.financial_audit.general_ledger.models import (
+from auditor_support_tool.core.data_models import (
     SOURCE_ROW_FIELD,
 )
 
