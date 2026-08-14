@@ -6,7 +6,7 @@ from decimal import Decimal
 from numbers import Integral, Real
 from typing import Any
 
-from auditor_support_tool.domains.financial_audit.general_ledger.data_profile_models import (
+from auditor_support_tool.core.data_profile_models import (
     ColumnProfile,
     DataProfile,
     DetectedDataType,

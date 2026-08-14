@@ -1,12 +1,12 @@
 """Manage preparation decisions for workbook worksheet datasets."""
 
+from auditor_support_tool.core.data_profile_models import (
+    DetectedDataType,
+)
 from auditor_support_tool.core.workbook_package import (
     PreparationStatus,
     PreparedColumn,
     WorksheetDataset,
-)
-from auditor_support_tool.domains.financial_audit.general_ledger.data_profile_models import (
-    DetectedDataType,
 )
 
 

@@ -7,6 +7,9 @@ from enum import StrEnum
 from threading import Event
 from uuid import uuid4
 
+from auditor_support_tool.core.procedure_identity import (
+    canonical_procedure_id,
+)
 from auditor_support_tool.core.workspace_models import utc_now_iso
 
 
@@ -47,9 +50,11 @@ class AuditExecutionRequest:
         if not cleaned_dataset_id:
             raise ValueError("Dataset identifier is required.")
 
+        canonical_id = canonical_procedure_id(cleaned_procedure_id)
+
         return cls(
             execution_id=str(uuid4()),
-            procedure_id=cleaned_procedure_id,
+            procedure_id=canonical_id,
             dataset_id=cleaned_dataset_id,
             created_at=utc_now_iso(),
         )

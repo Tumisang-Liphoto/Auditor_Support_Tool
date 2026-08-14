@@ -22,15 +22,15 @@ from auditor_support_tool.core.data_preparation_service import (
     DataPreparationError,
     DataPreparationService,
 )
+from auditor_support_tool.core.data_profile_models import (
+    DetectedDataType,
+)
 from auditor_support_tool.core.workbook_package import (
     PreparationStatus,
     PreparedColumn,
     WorksheetDataset,
 )
 from auditor_support_tool.core.workspace_state import WorkspaceState
-from auditor_support_tool.domains.financial_audit.general_ledger.data_profile_models import (
-    DetectedDataType,
-)
 
 
 class DataPreparationPage(QWidget):
@@ -527,7 +527,7 @@ class DataPreparationPage(QWidget):
         type_combo.currentIndexChanged.connect(self._confirmed_type_changed)
 
         changed_item = self._centred_item("Yes" if column.was_changed else "No")
-        warning_item = QTableWidgetItem(column.validation_warning or "—")
+        warning_item = QTableWidgetItem(column.validation_warning or "â€”")
         status_item = self._centred_item(self._status_label(column.status))
 
         self._columns_table.setItem(

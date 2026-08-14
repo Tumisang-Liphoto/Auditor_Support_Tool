@@ -4,6 +4,13 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 
+from auditor_support_tool.core.data_models import (
+    LoadedTable,
+    SourceFileInfo,
+)
+from auditor_support_tool.core.data_profile_models import (
+    DataProfile,
+)
 from auditor_support_tool.core.data_quality_models import DataQualityIssue
 from auditor_support_tool.core.workbook_package import (
     WorkbookPackage,
@@ -12,13 +19,6 @@ from auditor_support_tool.core.workbook_package import (
 from auditor_support_tool.core.workspace_models import (
     TransformationRecord,
     WorkspaceIdentity,
-)
-from auditor_support_tool.domains.financial_audit.general_ledger.data_profile_models import (
-    DataProfile,
-)
-from auditor_support_tool.domains.financial_audit.general_ledger.models import (
-    LoadedTable,
-    SourceFileInfo,
 )
 
 

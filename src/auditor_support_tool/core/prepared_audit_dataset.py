@@ -16,15 +16,13 @@ from enum import StrEnum
 from hashlib import sha256
 from typing import Any
 
+from auditor_support_tool.core.data_models import SOURCE_ROW_FIELD
+from auditor_support_tool.core.data_profile_models import (
+    DetectedDataType,
+)
 from auditor_support_tool.core.workbook_package import (
     PreparedColumn,
     WorksheetDataset,
-)
-from auditor_support_tool.domains.financial_audit.general_ledger.data_profile_models import (
-    DetectedDataType,
-)
-from auditor_support_tool.domains.financial_audit.general_ledger.models import (
-    SOURCE_ROW_FIELD,
 )
 
 

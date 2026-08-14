@@ -5,13 +5,13 @@ from enum import StrEnum
 from pathlib import Path
 from uuid import uuid4
 
-from auditor_support_tool.domains.financial_audit.general_ledger.data_profile_models import (
-    DataProfile,
-    DetectedDataType,
-)
-from auditor_support_tool.domains.financial_audit.general_ledger.models import (
+from auditor_support_tool.core.data_models import (
     LoadedTable,
     SourceFileInfo,
+)
+from auditor_support_tool.core.data_profile_models import (
+    DataProfile,
+    DetectedDataType,
 )
 
 

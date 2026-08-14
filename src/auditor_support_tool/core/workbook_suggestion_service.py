@@ -2,12 +2,12 @@
 
 import re
 
+from auditor_support_tool.core.data_profile_models import (
+    ColumnProfile,
+)
 from auditor_support_tool.core.workbook_package import (
     DatasetType,
     MappingConfidence,
-)
-from auditor_support_tool.domains.financial_audit.general_ledger.data_profile_models import (
-    ColumnProfile,
 )
 
 

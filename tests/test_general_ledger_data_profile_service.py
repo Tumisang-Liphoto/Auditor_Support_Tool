@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from auditor_support_tool.domains.financial_audit.general_ledger.data_profile_models import (
+from auditor_support_tool.core.data_profile_models import (
     DetectedDataType,
 )
 from auditor_support_tool.domains.financial_audit.general_ledger.data_profile_service import (

@@ -21,15 +21,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from auditor_support_tool.core.data_profile_models import (
+    ColumnProfile,
+    DataProfile,
+)
 from auditor_support_tool.core.workbook_package import (
     PreparationStatus,
 )
 from auditor_support_tool.core.workspace_state import (
     WorkspaceState,
-)
-from auditor_support_tool.domains.financial_audit.general_ledger.data_profile_models import (
-    ColumnProfile,
-    DataProfile,
 )
 
 
@@ -389,8 +389,8 @@ class DataProfilePage(QWidget):
             )
             self._records_value.setText(f"{table.record_count:,}")
             self._columns_value.setText(f"{table.column_count:,}")
-            self._blank_cells_value.setText("—")
-            self._columns_with_blanks_value.setText("—")
+            self._blank_cells_value.setText("â€”")
+            self._columns_with_blanks_value.setText("â€”")
             self._columns_table.setRowCount(0)
 
             self._set_summary_status(
@@ -541,7 +541,7 @@ class DataProfilePage(QWidget):
             self._blank_cells_value,
             self._columns_with_blanks_value,
         ):
-            label.setText("—")
+            label.setText("â€”")
 
     def _set_summary_status(
         self,
@@ -559,7 +559,7 @@ class DataProfilePage(QWidget):
 
     @staticmethod
     def _summary_value() -> QLabel:
-        label = QLabel("—")
+        label = QLabel("â€”")
         label.setObjectName("fieldHint")
         return label
 
@@ -574,7 +574,7 @@ class DataProfilePage(QWidget):
         values: tuple[Any, ...],
     ) -> str:
         if not values:
-            return "—"
+            return "â€”"
 
         return " | ".join(DataProfilePage._format_value(value) for value in values)
 

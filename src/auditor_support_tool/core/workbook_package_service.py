@@ -5,6 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import uuid4
 
+from auditor_support_tool.core.data_profile_models import (
+    DetectedDataType,
+)
 from auditor_support_tool.core.workbook_package import (
     DatasetType,
     FieldMappingStatus,
@@ -19,9 +22,6 @@ from auditor_support_tool.core.workbook_suggestion_service import (
 )
 from auditor_support_tool.domains.financial_audit.general_ledger.data_import_service import (
     DataImportService,
-)
-from auditor_support_tool.domains.financial_audit.general_ledger.data_profile_models import (
-    DetectedDataType,
 )
 from auditor_support_tool.domains.financial_audit.general_ledger.data_profile_service import (
     DataProfileService,

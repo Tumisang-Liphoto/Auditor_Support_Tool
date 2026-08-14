@@ -13,10 +13,8 @@ from auditor_support_tool.core.audit_execution_models import (
     AuditExecutionStatus,
     ExecutionCancellationToken,
 )
+from auditor_support_tool.core.data_models import LoadedTable
 from auditor_support_tool.core.workspace_models import utc_now_iso
-from auditor_support_tool.domains.financial_audit.general_ledger.models import (
-    LoadedTable,
-)
 
 AuditProcedureRunner = Callable[
     [LoadedTable, ExecutionCancellationToken],

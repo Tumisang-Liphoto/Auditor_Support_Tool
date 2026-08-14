@@ -9,6 +9,9 @@ from auditor_support_tool.core.data_preparation_service import (
     DataPreparationError,
     DataPreparationService,
 )
+from auditor_support_tool.core.data_profile_models import (
+    DetectedDataType,
+)
 from auditor_support_tool.core.workbook_package import (
     PreparationStatus,
     PreparedColumn,
@@ -16,9 +19,6 @@ from auditor_support_tool.core.workbook_package import (
 )
 from auditor_support_tool.core.workbook_package_service import (
     WorkbookPackageService,
-)
-from auditor_support_tool.domains.financial_audit.general_ledger.data_profile_models import (
-    DetectedDataType,
 )
 
 

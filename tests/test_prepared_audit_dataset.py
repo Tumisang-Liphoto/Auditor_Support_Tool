@@ -7,6 +7,9 @@ from pathlib import Path
 
 from openpyxl import Workbook
 
+from auditor_support_tool.core.data_profile_models import (
+    DetectedDataType,
+)
 from auditor_support_tool.core.prepared_audit_dataset import (
     FieldValueStatus,
     PreparedAuditDataset,
@@ -15,9 +18,6 @@ from auditor_support_tool.core.prepared_audit_dataset import (
 )
 from auditor_support_tool.core.workbook_package_service import (
     WorkbookPackageService,
-)
-from auditor_support_tool.domains.financial_audit.general_ledger.data_profile_models import (
-    DetectedDataType,
 )
 from auditor_support_tool.domains.financial_audit.general_ledger.models import (
     SOURCE_ROW_FIELD,
