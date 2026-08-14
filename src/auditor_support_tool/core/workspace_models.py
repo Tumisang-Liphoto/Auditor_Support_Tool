@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -73,6 +73,8 @@ class WorkspaceIdentity:
     name: str
     auditee_name: str = ""
     audit_year: str = ""
+    audit_period_start: str = ""
+    audit_period_end: str = ""
     audit_domain: str = ""
     audit_area: str = ""
     lead_auditor: str = ""
@@ -88,6 +90,8 @@ class WorkspaceIdentity:
         name: str,
         auditee_name: str = "",
         audit_year: str = "",
+        audit_period_start: str = "",
+        audit_period_end: str = "",
         audit_domain: str = "",
         audit_area: str = "",
         lead_auditor: str = "",
@@ -100,16 +104,72 @@ class WorkspaceIdentity:
         if not cleaned_name:
             raise ValueError("Workspace name is required.")
 
+        cleaned_period_start = audit_period_start.strip()
+        cleaned_period_end = audit_period_end.strip()
+
+        cls._validate_audit_period_values(
+            cleaned_period_start,
+            cleaned_period_end,
+        )
+
         return cls(
             workspace_id=str(uuid4()),
             name=cleaned_name,
             auditee_name=auditee_name.strip(),
             audit_year=audit_year.strip(),
+            audit_period_start=cleaned_period_start,
+            audit_period_end=cleaned_period_end,
             audit_domain=audit_domain.strip(),
             audit_area=audit_area.strip(),
             lead_auditor=lead_auditor.strip(),
             description=description.strip(),
         )
+
+    @property
+    def has_audit_period(self) -> bool:
+        """Return whether a complete audit period has been recorded."""
+
+        return bool(self.audit_period_start and self.audit_period_end)
+
+    def validate_audit_period(self) -> None:
+        """Validate the saved audit-period values."""
+
+        self._validate_audit_period_values(
+            self.audit_period_start.strip(),
+            self.audit_period_end.strip(),
+        )
+
+    @staticmethod
+    def _validate_audit_period_values(
+        period_start: str,
+        period_end: str,
+    ) -> None:
+        """Validate an optional audit period expressed as ISO dates."""
+
+        if bool(period_start) != bool(period_end):
+            raise ValueError("Audit period start and end dates must both be provided.")
+
+        if not period_start:
+            return
+
+        try:
+            start_date = date.fromisoformat(period_start)
+        except ValueError as error:
+            raise ValueError("Audit period start date must use YYYY-MM-DD.") from error
+
+        try:
+            end_date = date.fromisoformat(period_end)
+        except ValueError as error:
+            raise ValueError("Audit period end date must use YYYY-MM-DD.") from error
+
+        if start_date.isoformat() != period_start:
+            raise ValueError("Audit period start date must use YYYY-MM-DD.")
+
+        if end_date.isoformat() != period_end:
+            raise ValueError("Audit period end date must use YYYY-MM-DD.")
+
+        if end_date < start_date:
+            raise ValueError("Audit period end date cannot be before the start date.")
 
     def touch(self) -> None:
         """Update the last-modified timestamp."""

@@ -80,6 +80,8 @@ def test_save_and_load_document_round_trip(
         name="General Ledger Audit",
         auditee_name="Example Organisation",
         audit_year="2026",
+        audit_period_start="2026-04-01",
+        audit_period_end="2027-03-31",
     )
 
     document = WorkspaceDocument.create(
@@ -104,8 +106,137 @@ def test_save_and_load_document_round_trip(
     assert loaded.identity.name == "General Ledger Audit"
     assert loaded.identity.auditee_name == "Example Organisation"
     assert loaded.identity.audit_year == "2026"
+    assert loaded.identity.audit_period_start == "2026-04-01"
+    assert loaded.identity.audit_period_end == "2027-03-31"
+    assert loaded.identity.has_audit_period is True
     assert loaded.active_dataset_id == "dataset-001"
     assert loaded.field_mappings == document.field_mappings
+
+
+def test_legacy_workspace_without_audit_period_loads(
+    workspace_service: WorkspaceService,
+    tmp_path: Path,
+) -> None:
+    """Older workspace files without audit-period fields remain readable."""
+
+    identity = WorkspaceIdentity.create(
+        name="Legacy General Ledger Audit",
+        auditee_name="Example Organisation",
+        audit_year="2026",
+    )
+
+    raw_document = {
+        "format_version": 1,
+        "application_version": "0.1.2",
+        "identity": {
+            "workspace_id": identity.workspace_id,
+            "name": identity.name,
+            "auditee_name": identity.auditee_name,
+            "audit_year": identity.audit_year,
+            "audit_domain": "",
+            "audit_area": "",
+            "lead_auditor": "",
+            "description": "",
+            "created_at": identity.created_at,
+            "modified_at": identity.modified_at,
+        },
+        "active_dataset_id": None,
+        "source": None,
+        "workbook_package": None,
+        "field_mappings": {},
+        "transformation_history": [],
+        "data_quality_issues": [],
+    }
+
+    workspace_path = tmp_path / "legacy.astworkspace"
+    workspace_path.write_text(
+        json.dumps(raw_document),
+        encoding="utf-8",
+    )
+
+    loaded = workspace_service.load_document(workspace_path)
+
+    assert loaded.identity.name == "Legacy General Ledger Audit"
+    assert loaded.identity.audit_year == "2026"
+    assert loaded.identity.audit_period_start == ""
+    assert loaded.identity.audit_period_end == ""
+    assert loaded.identity.has_audit_period is False
+
+
+def test_saved_workspace_contains_audit_period(
+    workspace_service: WorkspaceService,
+    tmp_path: Path,
+) -> None:
+    """Audit-period dates should be written to workspace JSON."""
+
+    identity = WorkspaceIdentity.create(
+        name="Financial Audit",
+        audit_period_start="2026-04-01",
+        audit_period_end="2027-03-31",
+    )
+
+    document = WorkspaceDocument.create(
+        identity=identity,
+        application_version=APP_VERSION,
+    )
+
+    workspace_path = workspace_service.save_document(
+        document=document,
+        file_path=tmp_path / "financial-audit.astworkspace",
+    )
+
+    raw_document = json.loads(workspace_path.read_text(encoding="utf-8"))
+
+    raw_identity = raw_document["identity"]
+
+    assert raw_identity["audit_period_start"] == "2026-04-01"
+    assert raw_identity["audit_period_end"] == "2027-03-31"
+
+
+def test_invalid_saved_audit_period_is_rejected(
+    workspace_service: WorkspaceService,
+    tmp_path: Path,
+) -> None:
+    """Invalid audit-period metadata must not be loaded silently."""
+
+    identity = WorkspaceIdentity.create(name="Invalid Period Audit")
+
+    raw_document = {
+        "format_version": 1,
+        "application_version": APP_VERSION,
+        "identity": {
+            "workspace_id": identity.workspace_id,
+            "name": identity.name,
+            "auditee_name": "",
+            "audit_year": "2026",
+            "audit_period_start": "2027-03-31",
+            "audit_period_end": "2026-04-01",
+            "audit_domain": "",
+            "audit_area": "",
+            "lead_auditor": "",
+            "description": "",
+            "created_at": identity.created_at,
+            "modified_at": identity.modified_at,
+        },
+        "active_dataset_id": None,
+        "source": None,
+        "workbook_package": None,
+        "field_mappings": {},
+        "transformation_history": [],
+        "data_quality_issues": [],
+    }
+
+    workspace_path = tmp_path / "invalid-period.astworkspace"
+    workspace_path.write_text(
+        json.dumps(raw_document),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        WorkspaceServiceError,
+        match="Invalid audit period",
+    ):
+        workspace_service.load_document(workspace_path)
 
 
 def test_save_state_requires_active_workspace(
@@ -153,7 +284,11 @@ def test_load_into_state_starts_clean_workspace(
 ) -> None:
     """A loaded workspace becomes the clean active workspace."""
 
-    identity = WorkspaceIdentity.create(name="Payroll Audit")
+    identity = WorkspaceIdentity.create(
+        name="Payroll Audit",
+        audit_period_start="2026-04-01",
+        audit_period_end="2027-03-31",
+    )
     document = WorkspaceDocument.create(
         identity=identity,
         application_version=APP_VERSION,
@@ -175,6 +310,8 @@ def test_load_into_state_starts_clean_workspace(
     assert state.has_workspace is True
     assert state.workspace_identity is not None
     assert state.workspace_identity.workspace_id == identity.workspace_id
+    assert state.workspace_identity.audit_period_start == "2026-04-01"
+    assert state.workspace_identity.audit_period_end == "2027-03-31"
     assert state.workspace_file_path == workspace_path
     assert state.is_dirty is False
 
@@ -193,10 +330,16 @@ def test_overwrite_creates_backup(
     )
     workspace_path = tmp_path / "payroll.astworkspace"
 
-    workspace_service.save_document(document, workspace_path)
+    workspace_service.save_document(
+        document,
+        workspace_path,
+    )
 
     document.identity.description = "Updated description"
-    workspace_service.save_document(document, workspace_path)
+    workspace_service.save_document(
+        document,
+        workspace_path,
+    )
 
     backup_directory = application_paths.workspace_backups / workspace_path.stem
     backups = list(backup_directory.glob(f"*{WORKSPACE_FILE_EXTENSION}"))
@@ -240,6 +383,8 @@ def test_unsupported_format_version_is_rejected(
             "name": identity.name,
             "auditee_name": "",
             "audit_year": "",
+            "audit_period_start": "",
+            "audit_period_end": "",
             "audit_domain": "",
             "audit_area": "",
             "lead_auditor": "",

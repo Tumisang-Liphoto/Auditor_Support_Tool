@@ -179,7 +179,10 @@ class WorkspaceService:
         """Write a workspace document using an atomic replacement."""
 
         target_path = self._normalise_workspace_path(file_path)
-        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
 
         self._validate_document(document)
 
@@ -206,7 +209,12 @@ class WorkspaceService:
 
             temporary_path.replace(target_path)
 
-        except (OSError, TypeError, ValueError, json.JSONDecodeError) as error:
+        except (
+            OSError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ) as error:
             self._remove_file_if_present(temporary_path)
 
             raise WorkspaceServiceError(f"Could not save workspace: {error}") from error
@@ -363,12 +371,54 @@ class WorkspaceService:
             identity = WorkspaceIdentity(
                 workspace_id=str(raw_identity["workspace_id"]),
                 name=str(raw_identity["name"]),
-                auditee_name=str(raw_identity.get("auditee_name", "")),
-                audit_year=str(raw_identity.get("audit_year", "")),
-                audit_domain=str(raw_identity.get("audit_domain", "")),
-                audit_area=str(raw_identity.get("audit_area", "")),
-                lead_auditor=str(raw_identity.get("lead_auditor", "")),
-                description=str(raw_identity.get("description", "")),
+                auditee_name=str(
+                    raw_identity.get(
+                        "auditee_name",
+                        "",
+                    )
+                ),
+                audit_year=str(
+                    raw_identity.get(
+                        "audit_year",
+                        "",
+                    )
+                ),
+                audit_period_start=str(
+                    raw_identity.get(
+                        "audit_period_start",
+                        "",
+                    )
+                ).strip(),
+                audit_period_end=str(
+                    raw_identity.get(
+                        "audit_period_end",
+                        "",
+                    )
+                ).strip(),
+                audit_domain=str(
+                    raw_identity.get(
+                        "audit_domain",
+                        "",
+                    )
+                ),
+                audit_area=str(
+                    raw_identity.get(
+                        "audit_area",
+                        "",
+                    )
+                ),
+                lead_auditor=str(
+                    raw_identity.get(
+                        "lead_auditor",
+                        "",
+                    )
+                ),
+                description=str(
+                    raw_identity.get(
+                        "description",
+                        "",
+                    )
+                ),
                 created_at=str(raw_identity["created_at"]),
                 modified_at=str(raw_identity["modified_at"]),
             )
@@ -390,10 +440,16 @@ class WorkspaceService:
 
             workbook_package = raw_document.get("workbook_package")
 
-            if workbook_package is not None and not isinstance(workbook_package, dict):
+            if workbook_package is not None and not isinstance(
+                workbook_package,
+                dict,
+            ):
                 raise TypeError("Workbook package must be an object or null.")
 
-            field_mappings = raw_document.get("field_mappings", {})
+            field_mappings = raw_document.get(
+                "field_mappings",
+                {},
+            )
 
             if not isinstance(field_mappings, dict):
                 raise TypeError("Field mappings must be an object.")
@@ -403,7 +459,10 @@ class WorkspaceService:
                 [],
             )
 
-            if not isinstance(transformation_history, list):
+            if not isinstance(
+                transformation_history,
+                list,
+            ):
                 raise TypeError("Transformation history must be an array.")
 
             for history_entry in transformation_history:
@@ -415,16 +474,26 @@ class WorkspaceService:
                 [],
             )
 
-            if not isinstance(data_quality_issues, list):
+            if not isinstance(
+                data_quality_issues,
+                list,
+            ):
                 raise TypeError("Data-quality issues must be an array.")
 
             for data_quality_issue in data_quality_issues:
-                if not isinstance(data_quality_issue, dict):
+                if not isinstance(
+                    data_quality_issue,
+                    dict,
+                ):
                     raise TypeError("Data-quality issue entries must be objects.")
 
             active_dataset_id = self._optional_string(raw_document.get("active_dataset_id"))
 
-        except (KeyError, TypeError, ValueError) as error:
+        except (
+            KeyError,
+            TypeError,
+            ValueError,
+        ) as error:
             raise WorkspaceServiceError(
                 f"The workspace file is incomplete or invalid: {error}"
             ) from error
@@ -475,7 +544,10 @@ class WorkspaceService:
             severity = DataQualitySeverity(str(raw_issue["severity"]))
             scope = DataQualityScope(str(raw_issue["scope"]))
 
-            details = raw_issue.get("details", {})
+            details = raw_issue.get(
+                "details",
+                {},
+            )
 
             if not isinstance(details, dict):
                 raise TypeError("Data-quality details must be an object.")
@@ -494,14 +566,18 @@ class WorkspaceService:
                 dataset_id=dataset_id,
                 column_id=WorkspaceService._optional_string(raw_issue.get("column_id")),
                 source_column=WorkspaceService._optional_string(raw_issue.get("source_column")),
-                standard_field_key=WorkspaceService._optional_string(
-                    raw_issue.get("standard_field_key")
+                standard_field_key=(
+                    WorkspaceService._optional_string(raw_issue.get("standard_field_key"))
                 ),
                 affected_record_count=affected_record_count,
                 details=dict(details),
             )
 
-        except (KeyError, TypeError, ValueError) as error:
+        except (
+            KeyError,
+            TypeError,
+            ValueError,
+        ) as error:
             raise WorkspaceServiceError(f"Invalid data-quality issue entry: {error}") from error
 
     @staticmethod
@@ -527,7 +603,10 @@ class WorkspaceService:
             if not action:
                 raise ValueError("Transformation action is required.")
 
-            details = raw_record.get("details", {})
+            details = raw_record.get(
+                "details",
+                {},
+            )
 
             if not isinstance(details, dict):
                 raise TypeError("Transformation details must be an object.")
@@ -536,15 +615,19 @@ class WorkspaceService:
                 record_id=record_id,
                 timestamp=timestamp,
                 action=action,
-                dataset_id=WorkspaceService._optional_string(raw_record.get("dataset_id")),
-                column_id=WorkspaceService._optional_string(raw_record.get("column_id")),
-                source_column=WorkspaceService._optional_string(raw_record.get("source_column")),
+                dataset_id=(WorkspaceService._optional_string(raw_record.get("dataset_id"))),
+                column_id=(WorkspaceService._optional_string(raw_record.get("column_id"))),
+                source_column=(WorkspaceService._optional_string(raw_record.get("source_column"))),
                 old_value=raw_record.get("old_value"),
                 new_value=raw_record.get("new_value"),
                 details=dict(details),
             )
 
-        except (KeyError, TypeError, ValueError) as error:
+        except (
+            KeyError,
+            TypeError,
+            ValueError,
+        ) as error:
             raise WorkspaceServiceError(f"Invalid transformation-history entry: {error}") from error
 
     def _validate_document(
@@ -557,7 +640,8 @@ class WorkspaceService:
             raise UnsupportedWorkspaceVersionError(
                 "Unsupported workspace format version: "
                 f"{document.format_version}. "
-                f"Supported version: {WORKSPACE_FORMAT_VERSION}."
+                f"Supported version: "
+                f"{WORKSPACE_FORMAT_VERSION}."
             )
 
         if not document.application_version.strip():
@@ -568,6 +652,11 @@ class WorkspaceService:
 
         if not document.identity.name.strip():
             raise WorkspaceServiceError("Workspace name is required.")
+
+        try:
+            document.identity.validate_audit_period()
+        except ValueError as error:
+            raise WorkspaceServiceError(f"Invalid audit period: {error}") from error
 
         if not document.identity.created_at.strip():
             raise WorkspaceServiceError("Workspace creation date is required.")
@@ -662,7 +751,7 @@ class WorkspaceService:
         return WorkspaceSourceReference(
             source_path=str(relative_source),
             file_name=absolute_reference.file_name,
-            file_size_bytes=absolute_reference.file_size_bytes,
+            file_size_bytes=(absolute_reference.file_size_bytes),
             modified_at=absolute_reference.modified_at,
             sha256=absolute_reference.sha256,
         )
@@ -674,7 +763,7 @@ class WorkspaceService:
     ) -> Path:
         """Return the companion source path for a saved workspace."""
 
-        data_directory = workspace_path.parent / (f"{workspace_path.stem}.astdata")
+        data_directory = workspace_path.parent / f"{workspace_path.stem}.astdata"
 
         return (data_directory / "source" / source_file_name).resolve()
 
@@ -733,13 +822,19 @@ class WorkspaceService:
         """Copy the current workspace file to the backup directory."""
 
         backup_directory = self._application_paths.workspace_backups / source_path.stem
-        backup_directory.mkdir(parents=True, exist_ok=True)
+        backup_directory.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
 
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         backup_name = f"{source_path.stem}-{timestamp}{WORKSPACE_FILE_EXTENSION}"
         backup_path = backup_directory / backup_name
 
-        shutil.copy2(source_path, backup_path)
+        shutil.copy2(
+            source_path,
+            backup_path,
+        )
 
         return backup_path
 

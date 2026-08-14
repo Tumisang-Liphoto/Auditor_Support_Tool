@@ -1,7 +1,5 @@
 """Dialog for creating a new audit workspace."""
 
-from __future__ import annotations
-
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
@@ -20,7 +18,7 @@ from auditor_support_tool.core.workspace_models import WorkspaceIdentity
 
 
 class NewWorkspaceDialog(QDialog):
-    """Collect the descriptive details for a new audit workspace."""
+    """Collect identity information for a new audit workspace."""
 
     def __init__(
         self,
@@ -78,8 +76,21 @@ class NewWorkspaceDialog(QDialog):
         self._audit_year_input.setMaxLength(20)
         self._audit_year_input.setClearButtonEnabled(True)
 
+        self._audit_period_start_input = QLineEdit()
+        self._audit_period_start_input.setPlaceholderText("YYYY-MM-DD, example: 2026-04-01")
+        self._audit_period_start_input.setMaxLength(10)
+        self._audit_period_start_input.setClearButtonEnabled(True)
+
+        self._audit_period_end_input = QLineEdit()
+        self._audit_period_end_input.setPlaceholderText("YYYY-MM-DD, example: 2027-03-31")
+        self._audit_period_end_input.setMaxLength(10)
+        self._audit_period_end_input.setClearButtonEnabled(True)
+
         self._audit_domain_combo = QComboBox()
-        self._audit_domain_combo.addItem("Select audit domain", "")
+        self._audit_domain_combo.addItem(
+            "Select audit domain",
+            "",
+        )
         self._audit_domain_combo.addItem(
             "Financial Audit",
             "Financial Audit",
@@ -126,6 +137,14 @@ class NewWorkspaceDialog(QDialog):
         form_layout.addRow(
             "Audit year:",
             self._audit_year_input,
+        )
+        form_layout.addRow(
+            "Period start:",
+            self._audit_period_start_input,
+        )
+        form_layout.addRow(
+            "Period end:",
+            self._audit_period_end_input,
         )
         form_layout.addRow(
             "Audit domain:",
@@ -183,10 +202,12 @@ class NewWorkspaceDialog(QDialog):
                 name=workspace_name,
                 auditee_name=self._auditee_name_input.text(),
                 audit_year=self._audit_year_input.text(),
+                audit_period_start=(self._audit_period_start_input.text()),
+                audit_period_end=(self._audit_period_end_input.text()),
                 audit_domain=str(self._audit_domain_combo.currentData() or ""),
                 audit_area=self._audit_area_input.text(),
                 lead_auditor=self._lead_auditor_input.text(),
-                description=self._description_input.toPlainText(),
+                description=(self._description_input.toPlainText()),
             )
         except ValueError as error:
             QMessageBox.warning(
