@@ -276,7 +276,7 @@ def test_gl003_without_period_evaluates_all_usable_dates(
     assert result.records_evaluated_count == 5
     assert result.exception_count == 3
     assert result.excluded_record_count == 2
-    assert len(result.limitations) == 1
+    assert any("No audit period was supplied." in limitation for limitation in result.limitations)
 
 
 def test_gl003_honours_cooperative_cancellation(
