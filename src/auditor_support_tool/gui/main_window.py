@@ -18,6 +18,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from auditor_support_tool.application_procedure_bootstrap import (
+    create_application_procedure_registry,
+)
 from auditor_support_tool.core.constants import (
     APP_NAME,
     APP_VERSION,
@@ -43,6 +46,9 @@ from auditor_support_tool.gui.dialogs.new_workspace_dialog import (
 )
 from auditor_support_tool.gui.pages.about_page import AboutPage
 from auditor_support_tool.gui.pages.appearance_page import AppearancePage
+from auditor_support_tool.gui.pages.audit_procedures_page import (
+    AuditProceduresPage,
+)
 from auditor_support_tool.gui.pages.dashboard_page import DashboardPage
 from auditor_support_tool.gui.pages.data_preparation_page import (
     DataPreparationPage,
@@ -88,6 +94,7 @@ class MainWindow(QMainWindow):
         self._update_service = update_service
         self._workspace_service = workspace_service
         self._workspace_state = WorkspaceState(self)
+        self._procedure_registry = create_application_procedure_registry()
         self._workspace_readiness_service = WorkspaceReadinessService()
 
         self._workspace_state.workspace_identity_changed.connect(self._update_window_title)
@@ -778,6 +785,18 @@ class MainWindow(QMainWindow):
             route="workspace.field_mapping",
             title="Field Mapping",
             page=field_mapping_page,
+        )
+
+        audit_procedures_page = AuditProceduresPage(
+            workspace_state=self._workspace_state,
+            procedure_registry=self._procedure_registry,
+        )
+        audit_procedures_page.back_requested.connect(self.show_route)
+
+        self._register_page(
+            route="workspace.audit_procedures",
+            title="Audit Procedures",
+            page=audit_procedures_page,
         )
 
         page_definitions: tuple[
