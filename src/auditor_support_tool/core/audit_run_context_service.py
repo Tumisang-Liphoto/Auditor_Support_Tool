@@ -11,8 +11,8 @@ from auditor_support_tool.core.audit_execution_models import (
 from auditor_support_tool.core.audit_procedure_models import (
     ProcedureRunContext,
 )
-from auditor_support_tool.core.prepared_audit_dataset import (
-    PreparedAuditDataset,
+from auditor_support_tool.core.audit_record_source import (
+    AuditRecordSource,
 )
 from auditor_support_tool.core.source_integrity_service import (
     SourceIntegrityService,
@@ -24,7 +24,7 @@ class AuditRunContextError(RuntimeError):
 
 
 class AuditRunContextService:
-    """Build run context from the actual source and prepared dataset."""
+    """Build run context from the actual source and audit record source."""
 
     def __init__(
         self,
@@ -36,16 +36,16 @@ class AuditRunContextService:
         self,
         *,
         request: AuditExecutionRequest,
-        prepared_dataset: PreparedAuditDataset,
+        record_source: AuditRecordSource,
         source_path: str | Path,
         procedure_version: str,
         parameters: Mapping[str, object] | None = None,
     ) -> ProcedureRunContext:
         """Return the reproducibility context for one audit-procedure run."""
 
-        if request.dataset_id != prepared_dataset.dataset_id:
+        if request.dataset_id != record_source.dataset_id:
             raise AuditRunContextError(
-                "Execution request dataset does not match the prepared audit dataset."
+                "Execution request dataset does not match the audit record source."
             )
 
         try:
@@ -59,6 +59,6 @@ class AuditRunContextService:
             request=request,
             procedure_version=procedure_version,
             source_sha256=source_sha256,
-            mapping_fingerprint=prepared_dataset.mapping_fingerprint,
+            mapping_fingerprint=record_source.mapping_fingerprint,
             parameters=parameters,
         )

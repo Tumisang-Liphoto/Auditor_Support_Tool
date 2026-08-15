@@ -169,7 +169,7 @@ def test_run_context_service_uses_actual_source_hash_and_mapping(
 
     context = AuditRunContextService().build(
         request=request,
-        prepared_dataset=prepared_dataset,
+        record_source=prepared_dataset,
         source_path=source_path,
         procedure_version="1.0.0",
         parameters={"weekend_days": [5, 6]},
@@ -197,7 +197,7 @@ def test_run_context_rejects_wrong_dataset() -> None:
     ):
         AuditRunContextService().build(
             request=request,
-            prepared_dataset=StubPreparedDataset(),
+            record_source=StubPreparedDataset(),
             source_path=Path("unused.xlsx"),
             procedure_version="1.0.0",
         )

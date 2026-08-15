@@ -13,17 +13,23 @@ from auditor_support_tool.core.audit_execution_models import (
     AuditExecutionStatus,
     ExecutionCancellationToken,
 )
-from auditor_support_tool.core.data_models import LoadedTable
+from auditor_support_tool.core.audit_record_source import (
+    AuditRecordSource,
+)
 from auditor_support_tool.core.workspace_models import utc_now_iso
 
 AuditProcedureRunner = Callable[
-    [LoadedTable, ExecutionCancellationToken],
+    [AuditRecordSource, ExecutionCancellationToken],
     object,
 ]
 
 
 class AuditExecutionConflictError(RuntimeError):
     """Raised when the same procedure/dataset pair is already running."""
+
+
+class AuditExecutionSourceError(RuntimeError):
+    """Raised when an execution request does not match its record source."""
 
 
 class AuditExecutionService:
@@ -37,15 +43,21 @@ class AuditExecutionService:
         self,
         *,
         request: AuditExecutionRequest,
-        table: LoadedTable,
+        source: AuditRecordSource,
         runner: AuditProcedureRunner,
         cancellation_token: ExecutionCancellationToken | None = None,
     ) -> AuditExecutionOutcome:
-        """Execute one procedure against the complete loaded population.
+        """Execute one procedure against the complete audit record source.
 
-        The supplied ``LoadedTable`` is passed directly to the procedure runner.
-        This service does not sample, truncate or copy ``table.rows``.
+        The supplied record source is passed directly to the procedure runner.
+        The execution service does not sample, truncate, materialise or copy
+        the source population.
         """
+
+        if request.dataset_id != source.dataset_id:
+            raise AuditExecutionSourceError(
+                "Execution request dataset does not match the audit record source."
+            )
 
         token = cancellation_token or ExecutionCancellationToken()
         execution_key = request.execution_key
@@ -62,12 +74,12 @@ class AuditExecutionService:
                     status=AuditExecutionStatus.CANCELLED,
                     started_at=started_at,
                     started_clock=started_clock,
-                    table=table,
+                    source=source,
                 )
 
             try:
                 payload = runner(
-                    table,
+                    source,
                     token,
                 )
             except AuditExecutionCancelledError:
@@ -76,7 +88,7 @@ class AuditExecutionService:
                     status=AuditExecutionStatus.CANCELLED,
                     started_at=started_at,
                     started_clock=started_clock,
-                    table=table,
+                    source=source,
                 )
             except Exception as error:
                 return self._build_outcome(
@@ -84,7 +96,7 @@ class AuditExecutionService:
                     status=AuditExecutionStatus.FAILED,
                     started_at=started_at,
                     started_clock=started_clock,
-                    table=table,
+                    source=source,
                     error_message=str(error),
                 )
 
@@ -94,7 +106,7 @@ class AuditExecutionService:
                     status=AuditExecutionStatus.CANCELLED,
                     started_at=started_at,
                     started_clock=started_clock,
-                    table=table,
+                    source=source,
                     payload=payload,
                 )
 
@@ -103,7 +115,7 @@ class AuditExecutionService:
                 status=AuditExecutionStatus.COMPLETED,
                 started_at=started_at,
                 started_clock=started_clock,
-                table=table,
+                source=source,
                 payload=payload,
             )
 
@@ -153,7 +165,7 @@ class AuditExecutionService:
         status: AuditExecutionStatus,
         started_at: str,
         started_clock: float,
-        table: LoadedTable,
+        source: AuditRecordSource,
         payload: object | None = None,
         error_message: str = "",
     ) -> AuditExecutionOutcome:
@@ -170,7 +182,7 @@ class AuditExecutionService:
             started_at=started_at,
             finished_at=utc_now_iso(),
             duration_seconds=duration_seconds,
-            source_record_count=table.record_count,
+            source_record_count=source.record_count,
             payload=payload,
             error_message=error_message,
         )

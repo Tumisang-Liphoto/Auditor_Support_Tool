@@ -1,6 +1,8 @@
 """Tests for guarded audit-procedure execution."""
 
-from pathlib import Path
+from __future__ import annotations
+
+from collections.abc import Iterator
 from threading import Event, Thread
 
 import pytest
@@ -14,50 +16,95 @@ from auditor_support_tool.core.audit_execution_models import (
 from auditor_support_tool.core.audit_execution_service import (
     AuditExecutionConflictError,
     AuditExecutionService,
+    AuditExecutionSourceError,
 )
-from auditor_support_tool.domains.financial_audit.general_ledger.models import (
-    LoadedTable,
-    PopulationSummary,
+from auditor_support_tool.core.audit_record_source import (
+    AuditRecordSource,
 )
 
 
-def create_table(
+class StubRecord:
+    """Minimal generic record used by execution-service tests."""
+
+    def __init__(
+        self,
+        record_number: int,
+    ) -> None:
+        self.record_number = record_number
+
+
+class StubRecordSource:
+    """Generic non-domain record source used by execution-service tests."""
+
+    def __init__(
+        self,
+        *,
+        dataset_id: str = "dataset-123",
+        record_count: int = 5,
+    ) -> None:
+        self._dataset_id = dataset_id
+        self._records = tuple(StubRecord(index + 1) for index in range(record_count))
+
+    @property
+    def dataset_id(self) -> str:
+        """Return the stable test dataset identifier."""
+
+        return self._dataset_id
+
+    @property
+    def record_count(self) -> int:
+        """Return the complete test population count."""
+
+        return len(self._records)
+
+    @property
+    def standard_fields(self) -> tuple[str, ...]:
+        """Return the fields exposed by this generic source."""
+
+        return ()
+
+    @property
+    def mapping_fingerprint(self) -> str:
+        """Return a deterministic placeholder mapping fingerprint."""
+
+        return "a" * 64
+
+    def has_field(
+        self,
+        standard_field_key: str,
+    ) -> bool:
+        """Return whether a field is available."""
+
+        return standard_field_key in self.standard_fields
+
+    def iter_records(self) -> Iterator[StubRecord]:
+        """Yield the complete test population."""
+
+        yield from self._records
+
+
+def create_source(
     record_count: int = 5,
-) -> LoadedTable:
-    """Create a loaded audit population without reading a source file."""
+    *,
+    dataset_id: str = "dataset-123",
+) -> StubRecordSource:
+    """Create a generic audit record source."""
 
-    rows = tuple(
-        {
-            "Transaction Date": f"2026-01-{index + 1:02d}",
-            "Amount": float(index + 1),
-        }
-        for index in range(record_count)
-    )
-
-    return LoadedTable(
-        source_path=Path("population.xlsx"),
-        file_type="xlsx",
-        worksheet_name="General_Ledger",
-        headers=("Transaction Date", "Amount"),
-        original_headers=("Transaction Date", "Amount"),
-        rows=rows,
-        summary=PopulationSummary(
-            source_records_read=record_count,
-            records_loaded=record_count,
-            blank_rows_skipped=0,
-            column_count=2,
-            blank_cell_count=0,
-            header_changes=(),
-        ),
+    return StubRecordSource(
+        dataset_id=dataset_id,
+        record_count=record_count,
     )
 
 
-def create_request() -> AuditExecutionRequest:
+def create_request(
+    *,
+    dataset_id: str = "dataset-123",
+) -> AuditExecutionRequest:
     """Create a standard test execution request."""
 
     return AuditExecutionRequest.create(
         procedure_id="GL003",
-        dataset_id="dataset-123",
+        dataset_id=dataset_id,
     )
 
 
@@ -74,52 +121,77 @@ def test_request_requires_procedure_identifier() -> None:
         )
 
 
-def test_full_population_is_passed_without_truncation() -> None:
-    """The execution service must pass the complete LoadedTable to a procedure."""
+def test_full_record_source_is_passed_without_materialisation() -> None:
+    """Execution should pass the complete source directly to the runner."""
 
-    table = create_table(record_count=250)
+    source = create_source(record_count=250)
     request = create_request()
     service = AuditExecutionService()
 
-    received_table: LoadedTable | None = None
+    received_source: AuditRecordSource | None = None
 
     def runner(
-        supplied_table: LoadedTable,
+        supplied_source: AuditRecordSource,
         token: ExecutionCancellationToken,
     ) -> object:
-        nonlocal received_table
-        received_table = supplied_table
+        nonlocal received_source
+        received_source = supplied_source
 
         assert not token.is_cancelled
 
+        records_seen = sum(1 for _record in supplied_source.iter_records())
+
         return {
-            "records_seen": supplied_table.record_count,
+            "records_seen": records_seen,
         }
 
     outcome = service.execute(
         request=request,
-        table=table,
+        source=source,
         runner=runner,
     )
 
-    assert received_table is table
-    assert received_table.rows is table.rows
+    assert received_source is source
     assert outcome.status == AuditExecutionStatus.COMPLETED
     assert outcome.source_record_count == 250
-    assert outcome.payload == {"records_seen": 250}
+    assert outcome.payload == {
+        "records_seen": 250,
+    }
+
+
+def test_execution_rejects_wrong_dataset_source() -> None:
+    """A request cannot execute against a different dataset."""
+
+    source = create_source(
+        dataset_id="dataset-other",
+    )
+    request = create_request(
+        dataset_id="dataset-123",
+    )
+    service = AuditExecutionService()
+
+    with pytest.raises(
+        AuditExecutionSourceError,
+        match="does not match",
+    ):
+        service.execute(
+            request=request,
+            source=source,
+            runner=lambda supplied_source, token: None,
+        )
 
 
 def test_execution_duration_is_recorded() -> None:
     """Every execution should produce traceable timing information."""
 
-    table = create_table()
+    source = create_source()
     request = create_request()
     service = AuditExecutionService()
 
     outcome = service.execute(
         request=request,
-        table=table,
-        runner=lambda supplied_table, token: supplied_table.record_count,
+        source=source,
+        runner=lambda supplied_source, token: supplied_source.record_count,
     )
 
     assert outcome.started_at
@@ -130,7 +202,7 @@ def test_execution_duration_is_recorded() -> None:
 def test_pre_cancelled_execution_does_not_call_runner() -> None:
     """Cancellation before execution should prevent procedure work."""
 
-    table = create_table()
+    source = create_source()
     request = create_request()
     service = AuditExecutionService()
     token = ExecutionCancellationToken()
@@ -139,16 +211,17 @@ def test_pre_cancelled_execution_does_not_call_runner() -> None:
     runner_called = False
 
     def runner(
-        supplied_table: LoadedTable,
+        supplied_source: AuditRecordSource,
         supplied_token: ExecutionCancellationToken,
     ) -> object:
         nonlocal runner_called
         runner_called = True
-        return supplied_table.record_count
+
+        return supplied_source.record_count
 
     outcome = service.execute(
         request=request,
-        table=table,
+        source=source,
         runner=runner,
         cancellation_token=token,
     )
@@ -160,16 +233,16 @@ def test_pre_cancelled_execution_does_not_call_runner() -> None:
 def test_cooperative_cancellation_is_reported() -> None:
     """A runner may stop cooperatively when cancellation is requested."""
 
-    table = create_table(record_count=10)
+    source = create_source(record_count=10)
     request = create_request()
     service = AuditExecutionService()
     token = ExecutionCancellationToken()
 
     def runner(
-        supplied_table: LoadedTable,
+        supplied_source: AuditRecordSource,
         supplied_token: ExecutionCancellationToken,
     ) -> object:
-        for index, _row in enumerate(supplied_table.rows):
+        for index, _record in enumerate(supplied_source.iter_records()):
             if index == 3:
                 supplied_token.cancel()
 
@@ -179,7 +252,7 @@ def test_cooperative_cancellation_is_reported() -> None:
 
     outcome = service.execute(
         request=request,
-        table=table,
+        source=source,
         runner=runner,
         cancellation_token=token,
     )
@@ -190,19 +263,19 @@ def test_cooperative_cancellation_is_reported() -> None:
 def test_runner_failure_is_captured() -> None:
     """Procedure exceptions should become controlled failed outcomes."""
 
-    table = create_table()
+    source = create_source()
     request = create_request()
     service = AuditExecutionService()
 
     def runner(
-        supplied_table: LoadedTable,
+        supplied_source: AuditRecordSource,
         token: ExecutionCancellationToken,
     ) -> object:
         raise RuntimeError("Procedure failed.")
 
     outcome = service.execute(
         request=request,
-        table=table,
+        source=source,
         runner=runner,
     )
 
@@ -213,7 +286,7 @@ def test_runner_failure_is_captured() -> None:
 def test_duplicate_execution_is_prevented() -> None:
     """The same procedure and dataset cannot run concurrently."""
 
-    table = create_table()
+    source = create_source()
     request = create_request()
     service = AuditExecutionService()
 
@@ -222,18 +295,19 @@ def test_duplicate_execution_is_prevented() -> None:
     first_outcome: list[object] = []
 
     def blocking_runner(
-        supplied_table: LoadedTable,
+        supplied_source: AuditRecordSource,
         token: ExecutionCancellationToken,
     ) -> object:
         runner_started.set()
         runner_release.wait(timeout=5)
-        return supplied_table.record_count
+
+        return supplied_source.record_count
 
     def execute_first() -> None:
         first_outcome.append(
             service.execute(
                 request=request,
-                table=table,
+                source=source,
                 runner=blocking_runner,
             )
         )
@@ -245,6 +319,7 @@ def test_duplicate_execution_is_prevented() -> None:
     thread.start()
 
     assert runner_started.wait(timeout=5)
+
     assert service.is_running(
         procedure_id=request.procedure_id,
         dataset_id=request.dataset_id,
@@ -259,14 +334,15 @@ def test_duplicate_execution_is_prevented() -> None:
                 procedure_id=request.procedure_id,
                 dataset_id=request.dataset_id,
             ),
-            table=table,
-            runner=lambda supplied_table, token: None,
+            source=source,
+            runner=lambda supplied_source, token: None,
         )
 
     runner_release.set()
     thread.join(timeout=5)
 
     assert len(first_outcome) == 1
+
     assert not service.is_running(
         procedure_id=request.procedure_id,
         dataset_id=request.dataset_id,
