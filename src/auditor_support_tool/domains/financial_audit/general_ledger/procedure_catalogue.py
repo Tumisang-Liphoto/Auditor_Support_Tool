@@ -1,156 +1,398 @@
 """Canonical General Ledger procedure catalogue.
 
-The catalogue follows the application-aligned, readiness-prioritised engine
-design workbook. Internal IDs use the compact ``GL003`` form. User interfaces
-may display the corresponding ``GL-003`` form.
+Each catalogue entry contains one authoritative generic ProcedureDefinition
+plus General Ledger implementation-readiness metadata.
+
+Internal procedure IDs use compact identifiers such as ``GL003``. User
+interfaces may display the corresponding ``GL-003`` form.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
+from auditor_support_tool.core.procedure_definition import (
+    ProcedureDefinition,
+)
 from auditor_support_tool.core.procedure_identity import (
     canonical_procedure_id,
-    procedure_display_id,
 )
 
 
 @dataclass(frozen=True, slots=True)
-class GeneralLedgerProcedureDefinition:
-    """Identity and definition-readiness metadata for one GL procedure."""
+class GeneralLedgerProcedureCatalogueEntry:
+    """One General Ledger procedure and its planning metadata."""
 
-    procedure_id: str
-    name: str
+    definition: ProcedureDefinition
     readiness_rank: int
     readiness_score: int
     readiness_band: str
 
     @property
+    def procedure_id(self) -> str:
+        """Return the canonical procedure identifier."""
+
+        return self.definition.procedure_id
+
+    @property
     def display_id(self) -> str:
-        """Return a UI-friendly identifier such as ``GL-003``."""
+        """Return the UI-friendly procedure identifier."""
 
-        return procedure_display_id(self.procedure_id)
+        return self.definition.display_id
+
+    @property
+    def name(self) -> str:
+        """Return the procedure name."""
+
+        return self.definition.name
+
+    @property
+    def category(self) -> str:
+        """Return the procedure category."""
+
+        return self.definition.category
+
+    @property
+    def description(self) -> str:
+        """Return the procedure description."""
+
+        return self.definition.description
+
+    @property
+    def required_fields(self) -> tuple[str, ...]:
+        """Return standard fields required for execution."""
+
+        return self.definition.required_fields
+
+    @property
+    def helpful_fields(self) -> tuple[str, ...]:
+        """Return optional supporting standard fields."""
+
+        return self.definition.helpful_fields
+
+    @property
+    def procedure_version(self) -> str:
+        """Return the procedure logic version."""
+
+        return self.definition.procedure_version
 
 
-GENERAL_LEDGER_PROCEDURES: tuple[GeneralLedgerProcedureDefinition, ...] = (
-    GeneralLedgerProcedureDefinition(
-        "GL003", "Weekend Transactions", 1, 90, "Priority 1 - Nearly Ready"
+# Compatibility name retained while catalogue consumers migrate to the more
+# explicit catalogue-entry terminology.
+GeneralLedgerProcedureDefinition = GeneralLedgerProcedureCatalogueEntry
+
+
+def _entry(
+    procedure_id: str,
+    name: str,
+    readiness_rank: int,
+    readiness_score: int,
+    readiness_band: str,
+    *,
+    description: str = "",
+    required_fields: tuple[str, ...] = (),
+    helpful_fields: tuple[str, ...] = (),
+    procedure_version: str = "1.0",
+) -> GeneralLedgerProcedureCatalogueEntry:
+    """Create one validated General Ledger catalogue entry."""
+
+    return GeneralLedgerProcedureCatalogueEntry(
+        definition=ProcedureDefinition.create(
+            procedure_id=procedure_id,
+            name=name,
+            category="General Ledger",
+            description=description,
+            required_fields=required_fields,
+            helpful_fields=helpful_fields,
+            procedure_version=procedure_version,
+        ),
+        readiness_rank=readiness_rank,
+        readiness_score=readiness_score,
+        readiness_band=readiness_band,
+    )
+
+
+GENERAL_LEDGER_PROCEDURES: tuple[
+    GeneralLedgerProcedureCatalogueEntry,
+    ...,
+] = (
+    _entry(
+        "GL003",
+        "Weekend Transactions",
+        1,
+        90,
+        "Priority 1 - Nearly Ready",
+        description=(
+            "Identifies transactions dated on Saturdays or Sundays for further audit scrutiny."
+        ),
+        required_fields=("transaction_date",),
+        helpful_fields=(
+            "journal_number",
+            "account_code",
+            "description",
+            "debit_amount",
+            "credit_amount",
+            "net_amount",
+            "vendor_number",
+            "vendor_name",
+            "prepared_by",
+            "approved_by",
+            "source_module",
+        ),
+        procedure_version="1.0",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL006", "Segregation of Duties", 2, 89, "Priority 1 - Nearly Ready"
+    _entry(
+        "GL006",
+        "Segregation of Duties",
+        2,
+        89,
+        "Priority 1 - Nearly Ready",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL011", "Unmapped Accounts", 3, 88, "Priority 1 - Nearly Ready"
+    _entry(
+        "GL011",
+        "Unmapped Accounts",
+        3,
+        88,
+        "Priority 1 - Nearly Ready",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL024", "Trial Balance Balance Check", 4, 87, "Priority 1 - Nearly Ready"
+    _entry(
+        "GL024",
+        "Trial Balance Balance Check",
+        4,
+        87,
+        "Priority 1 - Nearly Ready",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL028", "Multiple Employees Sharing Bank Account", 5, 86, "Priority 1 - Nearly Ready"
+    _entry(
+        "GL028",
+        "Multiple Employees Sharing Bank Account",
+        5,
+        86,
+        "Priority 1 - Nearly Ready",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL032", "Text-Based Payroll Analysis", 6, 85, "Priority 1 - Nearly Ready"
+    _entry(
+        "GL032",
+        "Text-Based Payroll Analysis",
+        6,
+        85,
+        "Priority 1 - Nearly Ready",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL033", "Duplicate Narration Analysis", 7, 84, "Priority 1 - Nearly Ready"
+    _entry(
+        "GL033",
+        "Duplicate Narration Analysis",
+        7,
+        84,
+        "Priority 1 - Nearly Ready",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL005", "Round Amount Transactions", 8, 83, "Priority 1 - Nearly Ready"
+    _entry(
+        "GL005",
+        "Round Amount Transactions",
+        8,
+        83,
+        "Priority 1 - Nearly Ready",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL014", "Public Holiday Transactions", 9, 82, "Priority 1 - Nearly Ready"
+    _entry(
+        "GL014",
+        "Public Holiday Transactions",
+        9,
+        82,
+        "Priority 1 - Nearly Ready",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL022", "Unused Accounts", 10, 81, "Priority 1 - Nearly Ready"
+    _entry(
+        "GL022",
+        "Unused Accounts",
+        10,
+        81,
+        "Priority 1 - Nearly Ready",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL004", "High Value Transactions", 11, 76, "Priority 2 - Moderate Definition"
+    _entry(
+        "GL004",
+        "High Value Transactions",
+        11,
+        76,
+        "Priority 2 - Moderate Definition",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL007", "Manual Journal Analysis", 12, 75, "Priority 2 - Moderate Definition"
+    _entry(
+        "GL007",
+        "Manual Journal Analysis",
+        12,
+        75,
+        "Priority 2 - Moderate Definition",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL008", "Period-End Transactions", 13, 74, "Priority 2 - Moderate Definition"
+    _entry(
+        "GL008",
+        "Period-End Transactions",
+        13,
+        74,
+        "Priority 2 - Moderate Definition",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL010", "Payments to Unknown Employees", 14, 73, "Priority 2 - Moderate Definition"
+    _entry(
+        "GL010",
+        "Payments to Unknown Employees",
+        14,
+        73,
+        "Priority 2 - Moderate Definition",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL013", "Duplicate Journal Detection", 15, 72, "Priority 2 - Moderate Definition"
+    _entry(
+        "GL013",
+        "Duplicate Journal Detection",
+        15,
+        72,
+        "Priority 2 - Moderate Definition",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL017", "Duplicate Vendor Payments", 16, 71, "Priority 2 - Moderate Definition"
+    _entry(
+        "GL017",
+        "Duplicate Vendor Payments",
+        16,
+        71,
+        "Priority 2 - Moderate Definition",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL021", "Account Usage Analysis", 17, 70, "Priority 2 - Moderate Definition"
+    _entry(
+        "GL021",
+        "Account Usage Analysis",
+        17,
+        70,
+        "Priority 2 - Moderate Definition",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL023", "Material Account Identification", 18, 69, "Priority 2 - Moderate Definition"
+    _entry(
+        "GL023",
+        "Material Account Identification",
+        18,
+        69,
+        "Priority 2 - Moderate Definition",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL001", "Duplicate Invoice Detection", 19, 68, "Priority 2 - Moderate Definition"
+    _entry(
+        "GL001",
+        "Duplicate Invoice Detection",
+        19,
+        68,
+        "Priority 2 - Moderate Definition",
+        description=(
+            "Identifies repeated invoice numbers that may require further audit scrutiny."
+        ),
+        required_fields=("invoice_number",),
+        helpful_fields=(
+            "vendor_number",
+            "vendor_name",
+            "transaction_date",
+            "journal_number",
+            "net_amount",
+            "debit_amount",
+            "credit_amount",
+            "description",
+            "account_code",
+            "prepared_by",
+            "approved_by",
+            "source_module",
+        ),
+        procedure_version="1.0",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL002", "Duplicate Salary Payments", 20, 67, "Priority 2 - Moderate Definition"
+    _entry(
+        "GL002",
+        "Duplicate Salary Payments",
+        20,
+        67,
+        "Priority 2 - Moderate Definition",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL012", "GL-to-Trial Balance Reconciliation", 21, 66, "Priority 2 - Moderate Definition"
+    _entry(
+        "GL012",
+        "GL-to-Trial Balance Reconciliation",
+        21,
+        66,
+        "Priority 2 - Moderate Definition",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL015", "User Activity Analysis", 22, 65, "Priority 2 - Moderate Definition"
+    _entry(
+        "GL015",
+        "User Activity Analysis",
+        22,
+        65,
+        "Priority 2 - Moderate Definition",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL016", "Weekend User Activity", 23, 64, "Priority 2 - Moderate Definition"
+    _entry(
+        "GL016",
+        "Weekend User Activity",
+        23,
+        64,
+        "Priority 2 - Moderate Definition",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL018", "New Vendor Analysis", 24, 63, "Priority 2 - Moderate Definition"
+    _entry(
+        "GL018",
+        "New Vendor Analysis",
+        24,
+        63,
+        "Priority 2 - Moderate Definition",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL027", "Salary Above Approved Salary", 25, 62, "Priority 2 - Moderate Definition"
+    _entry(
+        "GL027",
+        "Salary Above Approved Salary",
+        25,
+        62,
+        "Priority 2 - Moderate Definition",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL009", "Vendor Concentration Analysis", 26, 49, "Priority 3 - Significant Definition Work"
+    _entry(
+        "GL009",
+        "Vendor Concentration Analysis",
+        26,
+        49,
+        "Priority 3 - Significant Definition Work",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL019", "Split Purchases", 27, 47, "Priority 3 - Significant Definition Work"
+    _entry(
+        "GL019",
+        "Split Purchases",
+        27,
+        47,
+        "Priority 3 - Significant Definition Work",
     ),
-    GeneralLedgerProcedureDefinition(
+    _entry(
         "GL020",
         "Dormant Period Followed by Activity Spike",
         28,
         45,
         "Priority 3 - Significant Definition Work",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL025", "Negative Balance Review", 29, 43, "Priority 3 - Significant Definition Work"
+    _entry(
+        "GL025",
+        "Negative Balance Review",
+        29,
+        43,
+        "Priority 3 - Significant Definition Work",
     ),
-    GeneralLedgerProcedureDefinition(
+    _entry(
         "GL026",
         "Unexpected Account Combinations",
         30,
         41,
         "Priority 3 - Significant Definition Work",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL029", "Payroll Misclassification", 31, 39, "Priority 3 - Significant Definition Work"
+    _entry(
+        "GL029",
+        "Payroll Misclassification",
+        31,
+        39,
+        "Priority 3 - Significant Definition Work",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL030", "Benford's Law Analysis", 32, 35, "Priority 3 - Significant Definition Work"
+    _entry(
+        "GL030",
+        "Benford's Law Analysis",
+        32,
+        35,
+        "Priority 3 - Significant Definition Work",
     ),
-    GeneralLedgerProcedureDefinition(
-        "GL031", "Outlier Detection", 33, 33, "Priority 3 - Significant Definition Work"
+    _entry(
+        "GL031",
+        "Outlier Detection",
+        33,
+        33,
+        "Priority 3 - Significant Definition Work",
     ),
 )
 
-_PROCEDURES_BY_ID = {
-    definition.procedure_id: definition for definition in GENERAL_LEDGER_PROCEDURES
-}
+_PROCEDURES_BY_ID = {entry.procedure_id: entry for entry in GENERAL_LEDGER_PROCEDURES}
 
 
 def get_general_ledger_procedure(
     procedure_id: str,
-) -> GeneralLedgerProcedureDefinition | None:
-    """Return a GL procedure definition by canonical/display identifier."""
+) -> GeneralLedgerProcedureCatalogueEntry | None:
+    """Return a GL catalogue entry by canonical/display identifier."""
 
     try:
         canonical = canonical_procedure_id(procedure_id)
@@ -162,13 +404,13 @@ def get_general_ledger_procedure(
 
 def require_general_ledger_procedure(
     procedure_id: str,
-) -> GeneralLedgerProcedureDefinition:
-    """Return a GL procedure definition or raise a clear lookup error."""
+) -> GeneralLedgerProcedureCatalogueEntry:
+    """Return a GL catalogue entry or raise a clear lookup error."""
 
     canonical = canonical_procedure_id(procedure_id)
-    definition = _PROCEDURES_BY_ID.get(canonical)
+    entry = _PROCEDURES_BY_ID.get(canonical)
 
-    if definition is None:
+    if entry is None:
         raise KeyError(f"Unknown General Ledger engine procedure ID: {canonical}")
 
-    return definition
+    return entry

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import date
 from decimal import Decimal
 
 from auditor_support_tool.core.audit_execution_models import (
@@ -29,6 +30,9 @@ class ProcedureRunContext:
     source_sha256: str
     mapping_fingerprint: str
 
+    audit_period_start: str = ""
+    audit_period_end: str = ""
+
     parameters: dict[str, object] = field(default_factory=dict)
     created_at: str = field(default_factory=utc_now_iso)
 
@@ -40,6 +44,8 @@ class ProcedureRunContext:
         procedure_version: str,
         source_sha256: str,
         mapping_fingerprint: str,
+        audit_period_start: str = "",
+        audit_period_end: str = "",
         parameters: Mapping[str, object] | None = None,
     ) -> ProcedureRunContext:
         """Create and validate the reproducibility context for a run."""
@@ -58,6 +64,11 @@ class ProcedureRunContext:
             label="Mapping fingerprint",
         )
 
+        cleaned_period_start, cleaned_period_end = _validate_audit_period(
+            audit_period_start,
+            audit_period_end,
+        )
+
         return cls(
             execution_id=request.execution_id,
             procedure_id=request.procedure_id,
@@ -65,8 +76,16 @@ class ProcedureRunContext:
             dataset_id=request.dataset_id,
             source_sha256=cleaned_source_hash,
             mapping_fingerprint=cleaned_mapping_hash,
+            audit_period_start=cleaned_period_start,
+            audit_period_end=cleaned_period_end,
             parameters=dict(parameters or {}),
         )
+
+    @property
+    def has_audit_period(self) -> bool:
+        """Return whether a complete audit period is recorded."""
+
+        return bool(self.audit_period_start and self.audit_period_end)
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,7 +152,10 @@ class ProcedureResult:
     exception_count: int
     exception_rate: float
 
-    exception_records: tuple[ProcedureExceptionRecord, ...] = ()
+    exception_records: tuple[
+        ProcedureExceptionRecord,
+        ...,
+    ] = ()
     exclusion_counts: dict[str, int] = field(default_factory=dict)
 
     related_value_total: Decimal | None = None
@@ -150,7 +172,10 @@ class ProcedureResult:
         context: ProcedureRunContext,
         population_count: int,
         records_evaluated_count: int,
-        exception_records: tuple[ProcedureExceptionRecord, ...] = (),
+        exception_records: tuple[
+            ProcedureExceptionRecord,
+            ...,
+        ] = (),
         exclusion_counts: Mapping[str, int] | None = None,
         related_value_total: Decimal | None = None,
         limitations: tuple[str, ...] = (),
@@ -216,17 +241,55 @@ class ProcedureResult:
         return cls(
             context=context,
             population_count=population_count,
-            records_evaluated_count=records_evaluated_count,
-            excluded_record_count=excluded_record_count,
+            records_evaluated_count=(records_evaluated_count),
+            excluded_record_count=(excluded_record_count),
             exception_count=exception_count,
             exception_rate=exception_rate,
-            exception_records=exception_records_tuple,
-            exclusion_counts=cleaned_exclusion_counts,
-            related_value_total=related_value_total,
+            exception_records=(exception_records_tuple),
+            exclusion_counts=(cleaned_exclusion_counts),
+            related_value_total=(related_value_total),
             limitations=cleaned_limitations,
             metrics=dict(metrics or {}),
-            audit_use_statement=cleaned_audit_use_statement,
+            audit_use_statement=(cleaned_audit_use_statement),
         )
+
+
+def _validate_audit_period(
+    audit_period_start: str,
+    audit_period_end: str,
+) -> tuple[str, str]:
+    """Validate and normalise an optional audit period."""
+
+    cleaned_start = audit_period_start.strip()
+    cleaned_end = audit_period_end.strip()
+
+    if not cleaned_start and not cleaned_end:
+        return "", ""
+
+    if not cleaned_start or not cleaned_end:
+        raise ValueError("Audit period start and end dates must both be provided.")
+
+    try:
+        start_date = date.fromisoformat(cleaned_start)
+    except ValueError as error:
+        raise ValueError(
+            "Audit period start must be a valid ISO date in YYYY-MM-DD format."
+        ) from error
+
+    try:
+        end_date = date.fromisoformat(cleaned_end)
+    except ValueError as error:
+        raise ValueError(
+            "Audit period end must be a valid ISO date in YYYY-MM-DD format."
+        ) from error
+
+    if end_date < start_date:
+        raise ValueError("Audit period end cannot be before audit period start.")
+
+    return (
+        start_date.isoformat(),
+        end_date.isoformat(),
+    )
 
 
 def _require_sha256(

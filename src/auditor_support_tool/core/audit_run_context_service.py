@@ -24,11 +24,11 @@ class AuditRunContextError(RuntimeError):
 
 
 class AuditRunContextService:
-    """Build run context from the actual source and audit record source."""
+    """Build run context from source, mappings and audit scope."""
 
     def __init__(
         self,
-        source_integrity_service: SourceIntegrityService | None = None,
+        source_integrity_service: (SourceIntegrityService | None) = None,
     ) -> None:
         self._source_integrity_service = source_integrity_service or SourceIntegrityService()
 
@@ -39,9 +39,11 @@ class AuditRunContextService:
         record_source: AuditRecordSource,
         source_path: str | Path,
         procedure_version: str,
+        audit_period_start: str = "",
+        audit_period_end: str = "",
         parameters: Mapping[str, object] | None = None,
     ) -> ProcedureRunContext:
-        """Return the reproducibility context for one audit-procedure run."""
+        """Return the reproducibility context for one procedure run."""
 
         if request.dataset_id != record_source.dataset_id:
             raise AuditRunContextError(
@@ -50,7 +52,10 @@ class AuditRunContextService:
 
         try:
             source_sha256 = self._source_integrity_service.sha256_file(source_path)
-        except (FileNotFoundError, OSError) as error:
+        except (
+            FileNotFoundError,
+            OSError,
+        ) as error:
             raise AuditRunContextError(
                 f"Could not calculate source-file integrity hash: {error}"
             ) from error
@@ -59,6 +64,8 @@ class AuditRunContextService:
             request=request,
             procedure_version=procedure_version,
             source_sha256=source_sha256,
-            mapping_fingerprint=record_source.mapping_fingerprint,
+            mapping_fingerprint=(record_source.mapping_fingerprint),
+            audit_period_start=audit_period_start,
+            audit_period_end=audit_period_end,
             parameters=parameters,
         )
