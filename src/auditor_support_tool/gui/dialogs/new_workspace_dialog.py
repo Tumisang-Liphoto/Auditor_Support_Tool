@@ -1,8 +1,9 @@
 """Dialog for creating a new audit workspace."""
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QDate, Qt
 from PySide6.QtWidgets import (
     QComboBox,
+    QDateEdit,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -30,7 +31,7 @@ class NewWorkspaceDialog(QDialog):
 
         self.setWindowTitle("New Audit Workspace")
         self.setModal(True)
-        self.setMinimumWidth(520)
+        self.setMinimumWidth(540)
 
         self._build_interface()
 
@@ -71,20 +72,44 @@ class NewWorkspaceDialog(QDialog):
         self._auditee_name_input.setPlaceholderText("Example: Ministry of Example")
         self._auditee_name_input.setClearButtonEnabled(True)
 
-        self._audit_year_input = QLineEdit()
-        self._audit_year_input.setPlaceholderText("Example: 2026")
-        self._audit_year_input.setMaxLength(20)
-        self._audit_year_input.setClearButtonEnabled(True)
+        today = QDate.currentDate()
 
-        self._audit_period_start_input = QLineEdit()
-        self._audit_period_start_input.setPlaceholderText("YYYY-MM-DD, example: 2026-04-01")
-        self._audit_period_start_input.setMaxLength(10)
-        self._audit_period_start_input.setClearButtonEnabled(True)
+        self._audit_year_input = QComboBox()
+        self._audit_year_input.setObjectName("modernYearSelector")
+        self._audit_year_input.setMinimumHeight(38)
 
-        self._audit_period_end_input = QLineEdit()
-        self._audit_period_end_input.setPlaceholderText("YYYY-MM-DD, example: 2027-03-31")
-        self._audit_period_end_input.setMaxLength(10)
-        self._audit_period_end_input.setClearButtonEnabled(True)
+        current_year = today.year()
+
+        for year in range(
+            current_year + 5,
+            current_year - 11,
+            -1,
+        ):
+            self._audit_year_input.addItem(
+                str(year),
+                year,
+            )
+
+        current_year_index = self._audit_year_input.findData(current_year)
+
+        if current_year_index >= 0:
+            self._audit_year_input.setCurrentIndex(current_year_index)
+
+        self._audit_year_input.setToolTip("Select the audit year.")
+
+        self._audit_period_start_input = QDateEdit()
+        self._configure_date_picker(
+            self._audit_period_start_input,
+            today,
+            "Select the first day of the audit period.",
+        )
+
+        self._audit_period_end_input = QDateEdit()
+        self._configure_date_picker(
+            self._audit_period_end_input,
+            today,
+            "Select the last day of the audit period.",
+        )
 
         self._audit_domain_combo = QComboBox()
         self._audit_domain_combo.addItem(
@@ -181,7 +206,67 @@ class NewWorkspaceDialog(QDialog):
         root_layout.addLayout(form_layout)
         root_layout.addWidget(self._button_box)
 
+        self._apply_modern_field_style()
+
         self._workspace_name_input.setFocus()
+
+    @staticmethod
+    def _configure_date_picker(
+        date_input: QDateEdit,
+        date: QDate,
+        tooltip: str,
+    ) -> None:
+        """Configure a modern calendar-backed date selector."""
+
+        date_input.setObjectName("modernDatePicker")
+        date_input.setCalendarPopup(True)
+        date_input.setDisplayFormat("dd MMM yyyy")
+        date_input.setDate(date)
+        date_input.setMinimumHeight(38)
+        date_input.setToolTip(tooltip)
+
+    def _apply_modern_field_style(self) -> None:
+        """Apply modern styling to year and date selectors."""
+
+        self.setStyleSheet(
+            self.styleSheet()
+            + """
+            QComboBox#modernYearSelector,
+            QDateEdit#modernDatePicker {
+                min-height: 38px;
+                padding-left: 12px;
+                padding-right: 8px;
+                border: 1px solid #C9CED6;
+                border-radius: 7px;
+                background-color: #FFFFFF;
+            }
+
+            QComboBox#modernYearSelector:hover,
+            QDateEdit#modernDatePicker:hover {
+                border-color: #8A94A3;
+            }
+
+            QComboBox#modernYearSelector:focus,
+            QDateEdit#modernDatePicker:focus {
+                border: 1px solid #4A7BD0;
+            }
+
+            QComboBox#modernYearSelector::drop-down,
+            QDateEdit#modernDatePicker::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 34px;
+                border: none;
+                border-left: 1px solid #E3E6EA;
+            }
+
+            QComboBox#modernYearSelector QAbstractItemView {
+                padding: 4px;
+                selection-background-color: #E8EEF8;
+                selection-color: #202124;
+            }
+            """
+        )
 
     def _accept_workspace(self) -> None:
         """Validate the form and create the workspace identity."""
@@ -197,16 +282,20 @@ class NewWorkspaceDialog(QDialog):
             self._workspace_name_input.setFocus()
             return
 
+        audit_period_start = self._audit_period_start_input.date().toString(Qt.DateFormat.ISODate)
+
+        audit_period_end = self._audit_period_end_input.date().toString(Qt.DateFormat.ISODate)
+
         try:
             self._workspace_identity = WorkspaceIdentity.create(
                 name=workspace_name,
-                auditee_name=self._auditee_name_input.text(),
-                audit_year=self._audit_year_input.text(),
-                audit_period_start=(self._audit_period_start_input.text()),
-                audit_period_end=(self._audit_period_end_input.text()),
+                auditee_name=(self._auditee_name_input.text()),
+                audit_year=str(self._audit_year_input.currentData()),
+                audit_period_start=(audit_period_start),
+                audit_period_end=(audit_period_end),
                 audit_domain=str(self._audit_domain_combo.currentData() or ""),
-                audit_area=self._audit_area_input.text(),
-                lead_auditor=self._lead_auditor_input.text(),
+                audit_area=(self._audit_area_input.text()),
+                lead_auditor=(self._lead_auditor_input.text()),
                 description=(self._description_input.toPlainText()),
             )
         except ValueError as error:
