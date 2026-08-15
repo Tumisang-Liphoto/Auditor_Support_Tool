@@ -1,5 +1,9 @@
 """Shared in-memory state for the active audit workspace."""
 
+from __future__ import annotations
+
+from collections.abc import Mapping
+from copy import deepcopy
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
@@ -12,6 +16,9 @@ from auditor_support_tool.core.data_profile_models import (
     DataProfile,
 )
 from auditor_support_tool.core.data_quality_models import DataQualityIssue
+from auditor_support_tool.core.procedure_identity import (
+    canonical_procedure_id,
+)
 from auditor_support_tool.core.workbook_package import (
     WorkbookPackage,
     WorksheetDataset,
@@ -38,6 +45,7 @@ class WorkspaceState(QObject):
 
     transformation_history_changed = Signal()
     data_quality_issues_changed = Signal()
+    procedure_parameters_changed = Signal(str)
 
     workspace_cleared = Signal()
 
@@ -56,6 +64,7 @@ class WorkspaceState(QObject):
 
         self._transformation_history: list[TransformationRecord] = []
         self._data_quality_issues: list[DataQualityIssue] = []
+        self._procedure_parameters: dict[str, dict[str, object]] = {}
 
         # Temporary compatibility properties for the existing pages.
         self._selected_worksheet: str | None = None
@@ -162,6 +171,112 @@ class WorkspaceState(QObject):
         """Return data-quality issues belonging to one dataset."""
 
         return tuple(issue for issue in self._data_quality_issues if issue.dataset_id == dataset_id)
+
+    @property
+    def procedure_parameters(self) -> dict[str, dict[str, object]]:
+        """Return a defensive copy of saved parameters for all procedures."""
+
+        return deepcopy(self._procedure_parameters)
+
+    def get_procedure_parameters(
+        self,
+        procedure_id: str,
+    ) -> dict[str, object]:
+        """Return saved parameters for one procedure."""
+
+        canonical_id = canonical_procedure_id(procedure_id)
+
+        return deepcopy(
+            self._procedure_parameters.get(
+                canonical_id,
+                {},
+            )
+        )
+
+    def set_procedure_parameters(
+        self,
+        procedure_id: str,
+        parameters: Mapping[str, object],
+        *,
+        mark_dirty: bool = True,
+    ) -> None:
+        """Store serialisable parameters for one audit procedure."""
+
+        if self._workspace_identity is None:
+            raise ValueError(
+                "An active audit workspace is required before saving procedure parameters."
+            )
+
+        canonical_id = canonical_procedure_id(procedure_id)
+        cleaned_parameters = _normalise_procedure_parameter_values(parameters)
+
+        current = self._procedure_parameters.get(
+            canonical_id,
+            {},
+        )
+
+        if current == cleaned_parameters:
+            return
+
+        if cleaned_parameters:
+            self._procedure_parameters[canonical_id] = cleaned_parameters
+        else:
+            self._procedure_parameters.pop(
+                canonical_id,
+                None,
+            )
+
+        self.procedure_parameters_changed.emit(canonical_id)
+
+        if mark_dirty:
+            self.mark_dirty()
+
+    def set_all_procedure_parameters(
+        self,
+        procedure_parameters: Mapping[str, Mapping[str, object]],
+        *,
+        mark_dirty: bool = True,
+    ) -> None:
+        """Replace the complete saved procedure-parameter store."""
+
+        if self._workspace_identity is None:
+            raise ValueError(
+                "An active audit workspace is required before restoring procedure parameters."
+            )
+
+        cleaned_store: dict[str, dict[str, object]] = {}
+
+        for procedure_id, parameters in procedure_parameters.items():
+            canonical_id = canonical_procedure_id(str(procedure_id))
+            cleaned = _normalise_procedure_parameter_values(parameters)
+
+            if cleaned:
+                cleaned_store[canonical_id] = cleaned
+
+        if cleaned_store == self._procedure_parameters:
+            return
+
+        previous_ids = set(self._procedure_parameters)
+        new_ids = set(cleaned_store)
+
+        self._procedure_parameters = cleaned_store
+
+        for procedure_id in sorted(previous_ids | new_ids):
+            self.procedure_parameters_changed.emit(procedure_id)
+
+        if mark_dirty:
+            self.mark_dirty()
+
+    def clear_procedure_parameters(
+        self,
+        procedure_id: str,
+    ) -> None:
+        """Remove saved parameters for one procedure."""
+
+        self.set_procedure_parameters(
+            procedure_id,
+            {},
+        )
 
     @property
     def selected_worksheet(self) -> str | None:
@@ -505,6 +620,9 @@ class WorkspaceState(QObject):
         had_data_quality_issues = bool(self._data_quality_issues)
         self._data_quality_issues = []
 
+        procedure_parameter_ids = tuple(self._procedure_parameters)
+        self._procedure_parameters = {}
+
         self._selected_worksheet = None
         self._loaded_table = None
         self._data_profile = None
@@ -523,6 +641,9 @@ class WorkspaceState(QObject):
 
         if had_data_quality_issues:
             self.data_quality_issues_changed.emit()
+
+        for procedure_id in procedure_parameter_ids:
+            self.procedure_parameters_changed.emit(procedure_id)
 
         self.workspace_cleared.emit()
 
@@ -572,3 +693,75 @@ class WorkspaceState(QObject):
 
         self._is_dirty = dirty
         self.workspace_dirty_changed.emit(dirty)
+
+
+def _normalise_procedure_parameter_values(
+    parameters: Mapping[str, object],
+) -> dict[str, object]:
+    """Return a JSON-safe copy of one procedure's parameter values."""
+
+    if not isinstance(parameters, Mapping):
+        raise TypeError("Procedure parameters must be a mapping.")
+
+    cleaned: dict[str, object] = {}
+
+    for raw_key, raw_value in parameters.items():
+        key = str(raw_key).strip()
+
+        if not key:
+            raise ValueError("Procedure parameter keys cannot be blank.")
+
+        cleaned[key] = _normalise_parameter_value(
+            raw_value,
+            path=key,
+        )
+
+    return cleaned
+
+
+def _normalise_parameter_value(
+    value: object,
+    *,
+    path: str,
+) -> object:
+    """Normalise one value to JSON-compatible workspace data."""
+
+    if value is None or isinstance(
+        value,
+        (str, int, float, bool),
+    ):
+        return value
+
+    if isinstance(
+        value,
+        (list, tuple),
+    ):
+        return [
+            _normalise_parameter_value(
+                item,
+                path=f"{path}[]",
+            )
+            for item in value
+        ]
+
+    if isinstance(value, Mapping):
+        normalised: dict[str, object] = {}
+
+        for raw_key, nested_value in value.items():
+            nested_key = str(raw_key).strip()
+
+            if not nested_key:
+                raise ValueError("Nested procedure parameter keys cannot be blank.")
+
+            normalised[nested_key] = _normalise_parameter_value(
+                nested_value,
+                path=f"{path}.{nested_key}",
+            )
+
+        return normalised
+
+    raise TypeError(
+        "Procedure parameter values must be JSON-compatible. "
+        f"Unsupported value at {path}: "
+        f"{type(value).__name__}."
+    )

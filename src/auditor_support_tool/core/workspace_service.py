@@ -117,6 +117,7 @@ class WorkspaceService:
             source=source_reference,
             workbook_package=workbook_package_snapshot,
             field_mappings={},
+            procedure_parameters=state.procedure_parameters,
             transformation_history=[asdict(record) for record in state.transformation_history],
             data_quality_issues=[asdict(issue) for issue in state.data_quality_issues],
         )
@@ -348,6 +349,10 @@ class WorkspaceService:
             data_quality_issues,
             mark_dirty=False,
         )
+        state.set_all_procedure_parameters(
+            document.procedure_parameters,
+            mark_dirty=False,
+        )
 
         state.mark_saved()
 
@@ -454,6 +459,13 @@ class WorkspaceService:
             if not isinstance(field_mappings, dict):
                 raise TypeError("Field mappings must be an object.")
 
+            procedure_parameters = self._procedure_parameters_from_raw(
+                raw_document.get(
+                    "procedure_parameters",
+                    {},
+                )
+            )
+
             transformation_history = raw_document.get(
                 "transformation_history",
                 [],
@@ -506,9 +518,56 @@ class WorkspaceService:
             source=source,
             workbook_package=workbook_package,
             field_mappings=field_mappings,
+            procedure_parameters=procedure_parameters,
             transformation_history=transformation_history,
             data_quality_issues=data_quality_issues,
         )
+
+    @staticmethod
+    def _procedure_parameters_from_raw(
+        raw_parameters: object,
+    ) -> dict[str, dict[str, object]]:
+        """Validate and copy saved procedure parameter values."""
+
+        if not isinstance(raw_parameters, dict):
+            raise TypeError("Procedure parameters must be an object.")
+
+        cleaned: dict[str, dict[str, object]] = {}
+
+        for raw_procedure_id, raw_values in raw_parameters.items():
+            procedure_id = str(raw_procedure_id).strip()
+
+            if not procedure_id:
+                raise TypeError("Procedure parameter procedure IDs cannot be blank.")
+
+            if not isinstance(
+                raw_values,
+                dict,
+            ):
+                raise TypeError("Each procedure parameter entry must be an object.")
+
+            cleaned_values: dict[str, object] = {}
+
+            for raw_key, value in raw_values.items():
+                key = str(raw_key).strip()
+
+                if not key:
+                    raise TypeError("Procedure parameter keys cannot be blank.")
+
+                cleaned_values[key] = value
+
+            if cleaned_values:
+                cleaned[procedure_id] = cleaned_values
+
+        try:
+            json.dumps(cleaned)
+        except (
+            TypeError,
+            ValueError,
+        ) as error:
+            raise TypeError("Procedure parameter values must be JSON-compatible.") from error
+
+        return cleaned
 
     @staticmethod
     def _data_quality_issue_from_dict(
@@ -657,6 +716,11 @@ class WorkspaceService:
             document.identity.validate_audit_period()
         except ValueError as error:
             raise WorkspaceServiceError(f"Invalid audit period: {error}") from error
+
+        try:
+            self._procedure_parameters_from_raw(document.procedure_parameters)
+        except TypeError as error:
+            raise WorkspaceServiceError(f"Invalid procedure parameters: {error}") from error
 
         if not document.identity.created_at.strip():
             raise WorkspaceServiceError("Workspace creation date is required.")

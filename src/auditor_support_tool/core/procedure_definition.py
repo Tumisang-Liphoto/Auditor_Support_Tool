@@ -8,6 +8,9 @@ from auditor_support_tool.core.procedure_identity import (
     canonical_procedure_id,
     procedure_display_id,
 )
+from auditor_support_tool.core.procedure_parameter_models import (
+    ProcedureParameterDefinition,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +28,7 @@ class ProcedureDefinition:
 
     required_fields: tuple[str, ...] = ()
     helpful_fields: tuple[str, ...] = ()
+    parameter_definitions: tuple[ProcedureParameterDefinition, ...] = ()
 
     procedure_version: str = "1.0"
 
@@ -38,6 +42,7 @@ class ProcedureDefinition:
         description: str = "",
         required_fields: tuple[str, ...] = (),
         helpful_fields: tuple[str, ...] = (),
+        parameter_definitions: tuple[ProcedureParameterDefinition, ...] = (),
         procedure_version: str = "1.0",
     ) -> ProcedureDefinition:
         """Create and validate a generic procedure definition."""
@@ -68,6 +73,8 @@ class ProcedureDefinition:
             label="Helpful field",
         )
 
+        cleaned_parameter_definitions = _normalise_parameter_definitions(parameter_definitions)
+
         overlapping_fields = set(cleaned_required_fields) & set(cleaned_helpful_fields)
 
         if overlapping_fields:
@@ -84,6 +91,7 @@ class ProcedureDefinition:
             description=cleaned_description,
             required_fields=cleaned_required_fields,
             helpful_fields=cleaned_helpful_fields,
+            parameter_definitions=cleaned_parameter_definitions,
             procedure_version=cleaned_version,
         )
 
@@ -98,6 +106,12 @@ class ProcedureDefinition:
         """Return all standard fields relevant to this procedure."""
 
         return self.required_fields + self.helpful_fields
+
+    @property
+    def parameter_keys(self) -> tuple[str, ...]:
+        """Return configurable parameter keys in definition order."""
+
+        return tuple(definition.key for definition in self.parameter_definitions)
 
 
 def _normalise_fields(
@@ -123,3 +137,26 @@ def _normalise_fields(
         cleaned_fields.append(cleaned_field)
 
     return tuple(cleaned_fields)
+
+
+def _normalise_parameter_definitions(
+    definitions: tuple[ProcedureParameterDefinition, ...],
+) -> tuple[ProcedureParameterDefinition, ...]:
+    """Validate procedure parameter definitions and their unique keys."""
+
+    cleaned: list[ProcedureParameterDefinition] = []
+    seen_keys: set[str] = set()
+
+    for definition in definitions:
+        if not isinstance(definition, ProcedureParameterDefinition):
+            raise TypeError(
+                "Procedure parameter definitions must be ProcedureParameterDefinition instances."
+            )
+
+        if definition.key in seen_keys:
+            raise ValueError(f"Procedure parameter is duplicated: {definition.key}.")
+
+        seen_keys.add(definition.key)
+        cleaned.append(definition)
+
+    return tuple(cleaned)
