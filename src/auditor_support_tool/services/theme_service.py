@@ -436,6 +436,33 @@ def build_stylesheet(
             color: {colors["muted"]};
         }}
 
+        QFrame#card[available="true"] {{
+            background: {colors["information_surface"]};
+            border-color: {accent};
+            border-radius: 8px;
+        }}
+
+        QFrame#card[available="true"] QLabel#resultMetricValue {{
+            color: {colors["risk"]};
+            font-size: 20pt;
+        }}
+
+        QFrame#card[available="false"] {{
+            background: {colors["content"]};
+            border-color: {colors["border"]};
+            border-radius: 8px;
+        }}
+
+        QFrame#card[available="false"] QLabel#cardTitle,
+        QFrame#card[available="false"] QLabel#cardText,
+        QFrame#card[available="false"] QLabel#resultMetricValue {{
+            color: {colors["muted"]};
+        }}
+
+        QFrame#card[available="false"] QLabel#resultMetricValue {{
+            font-size: 19pt;
+        }}
+
         QLineEdit#formInput {{
             background: {colors["field"]};
             color: {colors["text"]};
@@ -595,6 +622,18 @@ def build_stylesheet(
             background: {colors["selected"]};
             color: {colors["text"]};
             border-color: {accent};
+        }}
+
+        QPushButton#secondaryActionButton:checked {{
+            background: {colors["selected"]};
+            color: {colors["text"]};
+            border-color: {accent};
+            font-weight: 700;
+        }}
+
+        QPushButton#secondaryActionButton:checked:hover {{
+            background: {colors["selected"]};
+            border-color: {accent_hover};
         }}
 
         QFrame#settingsPanel {{
@@ -768,11 +807,16 @@ def build_stylesheet(
         }}
 
         QFrame#resultsEmptyState,
-        QFrame#resultAnalysisPanel,
-        QFrame#resultExceptionPanel {{
+        QFrame#resultAnalysisPanel {{
             background: {colors["surface"]};
             border: 1px solid {colors["border"]};
-            border-radius: 10px;
+            border-radius: 11px;
+        }}
+
+        QFrame#resultExceptionPanel {{
+            background: {colors["surface"]};
+            border: 1px solid {colors["field_border"]};
+            border-radius: 12px;
         }}
 
         QFrame#resultHeader {{
@@ -855,8 +899,12 @@ def build_stylesheet(
         QFrame#resultMetricCard {{
             background: {colors["surface"]};
             border: 1px solid {colors["border"]};
-            border-radius: 10px;
-            min-height: 142px;
+            border-radius: 11px;
+            min-height: 126px;
+        }}
+
+        QFrame#resultMetricCard:hover {{
+            border-color: {colors["field_border"]};
         }}
 
         QLabel#resultMetricTitle {{
@@ -883,6 +931,10 @@ def build_stylesheet(
             color: {colors["information"]};
         }}
 
+        QLabel#resultMetricValue[emphasis="muted"] {{
+            color: {colors["muted"]};
+        }}
+
         QLabel#resultMetricDetail {{
             color: {colors["muted"]};
             font-size: 8pt;
@@ -904,9 +956,10 @@ def build_stylesheet(
             color: {colors["text"]};
             border: 1px solid {colors["field_border"]};
             border-radius: 7px;
-            padding: 7px;
+            padding: 7px 9px;
             min-width: 27px;
             min-height: 27px;
+            font-weight: 600;
         }}
 
         QToolButton#resultMoreButton:hover {{
@@ -941,13 +994,18 @@ def build_stylesheet(
             color: {colors["text"]};
         }}
 
+        QTableWidget#resultExceptionTable::item:hover {{
+            background: {colors["selected"]};
+            color: {colors["text"]};
+        }}
+
         QTableWidget#resultExceptionTable QHeaderView::section {{
-            background: {colors["content"]};
+            background: {colors["selected"]};
             color: {colors["text"]};
             border: none;
             border-right: 1px solid {colors["border"]};
-            border-bottom: 1px solid {colors["border"]};
-            padding: 7px;
+            border-bottom: 1px solid {colors["field_border"]};
+            padding: 8px;
             font-size: 8pt;
             font-weight: 700;
         }}
@@ -1071,6 +1129,34 @@ def build_stylesheet(
         QScrollBar::add-page:vertical,
         QScrollBar::sub-page:vertical {{
             background: transparent;
+        }}
+
+        QMenu {{
+            background: {colors["surface"]};
+            color: {colors["text"]};
+            border: 1px solid {colors["field_border"]};
+            padding: 5px;
+        }}
+
+        QMenu::item {{
+            border-radius: 5px;
+            padding: 7px 24px 7px 9px;
+        }}
+
+        QMenu::item:selected {{
+            background: {colors["selected"]};
+            color: {colors["text"]};
+        }}
+
+        QMenu::item:checked {{
+            color: {colors["text"]};
+            font-weight: 700;
+        }}
+
+        QMenu::separator {{
+            background: {colors["border"]};
+            height: 1px;
+            margin: 4px 7px;
         }}
 
         QToolTip {{
