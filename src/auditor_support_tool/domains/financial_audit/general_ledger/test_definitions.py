@@ -5,7 +5,9 @@ the generic core ``ProcedureDefinition`` contract.
 
 The legacy ``TestDefinition`` objects exported here are derived from that
 catalogue so older General Ledger services and prototype procedures continue
-to work while they are migrated to the Test Engine.
+to work while they are migrated to the Test Engine. Canonical application
+field keys are translated back to their historical legacy names only at this
+compatibility boundary.
 """
 
 from auditor_support_tool.core.procedure_identity import (
@@ -86,7 +88,27 @@ GENERAL_LEDGER_FIELDS: tuple[AuditFieldDefinition, ...] = (
         label="Source Module",
         description="The application module from which the transaction originated.",
     ),
+    AuditFieldDefinition(
+        key="journal_type",
+        label="Journal Type",
+        description="The classification of the journal or accounting entry.",
+    ),
 )
+
+_CANONICAL_TO_LEGACY_FIELD_KEY = {
+    "vendor_code": "vendor_number",
+    "transaction_amount": "net_amount",
+    "transaction_description": "description",
+    "entry_user": "prepared_by",
+    "approval_user": "approved_by",
+    "journal_source": "source_module",
+}
+
+
+def _legacy_field_key(field_key: str) -> str:
+    """Return the historical field key used by legacy GL components."""
+
+    return _CANONICAL_TO_LEGACY_FIELD_KEY.get(field_key, field_key)
 
 
 def _legacy_test_definition(
@@ -99,8 +121,8 @@ def _legacy_test_definition(
         title=entry.name,
         category=entry.category,
         description=entry.description,
-        required_fields=entry.required_fields,
-        helpful_fields=entry.helpful_fields,
+        required_fields=tuple(_legacy_field_key(key) for key in entry.required_fields),
+        helpful_fields=tuple(_legacy_field_key(key) for key in entry.helpful_fields),
         logic_version=entry.procedure_version,
     )
 
@@ -123,7 +145,7 @@ _LEGACY_TESTS_BY_CANONICAL_ID = {
 def get_field_definition(
     field_key: str,
 ) -> AuditFieldDefinition | None:
-    """Return a standard field definition by its key."""
+    """Return a legacy standard field definition by its historical key."""
 
     cleaned_key = field_key.strip()
 

@@ -132,7 +132,7 @@ def create_prepared_source(
     dataset.field_mappings = {
         date_column.column_id: "transaction_date",
         reference_column.column_id: "journal_number",
-        narrative_column.column_id: "description",
+        narrative_column.column_id: "transaction_description",
     }
 
     return (
@@ -257,7 +257,7 @@ def test_gl003_exception_uses_standard_helpful_fields(
     assert first_exception.values["transaction_date"] == "2026-01-03"
     assert first_exception.values["day_of_week"] == "Saturday"
     assert first_exception.values["journal_number"] == "J002"
-    assert first_exception.values["description"] == "Saturday transaction"
+    assert first_exception.values["transaction_description"] == "Saturday transaction"
 
 
 def test_gl003_without_period_evaluates_all_usable_dates(

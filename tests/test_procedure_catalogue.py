@@ -101,24 +101,34 @@ def test_weekend_transactions_has_canonical_gl003_identity() -> None:
 
 
 def test_gl003_execution_requirements_are_authoritative() -> None:
-    """GL003 should expose its execution requirements through the catalogue."""
+    """GL003 should expose its canonical execution requirements."""
 
     entry = require_general_ledger_procedure("GL003")
 
     assert entry.required_fields == ("transaction_date",)
     assert "journal_number" in entry.helpful_fields
-    assert "net_amount" in entry.helpful_fields
+    assert "transaction_amount" in entry.helpful_fields
+    assert "transaction_description" in entry.helpful_fields
+    assert "entry_user" in entry.helpful_fields
+    assert "approval_user" in entry.helpful_fields
+    assert "journal_source" in entry.helpful_fields
+    assert "journal_type" in entry.helpful_fields
     assert entry.procedure_version == "1.0"
 
 
 def test_gl001_execution_requirements_are_authoritative() -> None:
-    """GL001 should expose its execution requirements through the catalogue."""
+    """GL001 should expose its canonical execution requirements."""
 
     entry = require_general_ledger_procedure("GL001")
 
     assert entry.required_fields == ("invoice_number",)
-    assert "vendor_number" in entry.helpful_fields
+    assert "vendor_code" in entry.helpful_fields
     assert "transaction_date" in entry.helpful_fields
+    assert "transaction_amount" in entry.helpful_fields
+    assert "transaction_description" in entry.helpful_fields
+    assert "entry_user" in entry.helpful_fields
+    assert "approval_user" in entry.helpful_fields
+    assert "journal_source" in entry.helpful_fields
     assert entry.procedure_version == "1.0"
 
 
