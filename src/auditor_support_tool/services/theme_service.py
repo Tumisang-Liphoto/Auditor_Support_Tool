@@ -189,6 +189,13 @@ def build_stylesheet(
             "status": "#202621",
             "selected": theme_definition["selected_dark"],
             "error": "#FFB4AB",
+            "warning": "#F4B740",
+            "information": "#7DB5F5",
+            "risk": "#FF8A80",
+            "success_surface": "#203B2C",
+            "warning_surface": "#493B1F",
+            "risk_surface": "#4A2825",
+            "information_surface": "#20364D",
         }
     else:
         colors = {
@@ -208,6 +215,13 @@ def build_stylesheet(
             "status": "#FFFFFF",
             "selected": theme_definition["selected_light"],
             "error": "#B42318",
+            "warning": "#B7791F",
+            "information": "#2F6DB3",
+            "risk": "#D92D20",
+            "success_surface": "#EDF8F0",
+            "warning_surface": "#FFF7E6",
+            "risk_surface": "#FFF0EE",
+            "information_surface": "#EEF5FD",
         }
 
     return f"""
@@ -258,16 +272,17 @@ def build_stylesheet(
         }}
 
         QPushButton#navigationButton:checked {{
-            background: {accent};
-            color: {accent_text};
+            background: {colors["sidebar_hover"]};
+            color: #FFFFFF;
         }}
 
-        QPushButton#navigationChildButton {{
+                QPushButton#navigationChildButton {{
             background: transparent;
             color: {colors["sidebar_text"]};
             border: none;
-            border-radius: 5px;
-            padding: 8px 10px;
+            border-radius: 6px;
+            padding: 9px 12px;
+            min-height: 22px;
             text-align: left;
             font-weight: 400;
         }}
@@ -278,15 +293,99 @@ def build_stylesheet(
         }}
 
         QPushButton#navigationChildButton:checked {{
-            background: {colors["selected"]};
-            color: {colors["text"]};
-            border: 1px solid {accent};
+            background: {colors["sidebar_hover"]};
+            color: #FFFFFF;
+            border: none;
             font-weight: 600;
         }}
 
         QLabel#sidebarVersion {{
             color: {colors["sidebar_muted"]};
             font-size: 9pt;
+        }}
+
+                QFrame#workspaceContextPanel {{
+            background: {colors["sidebar_hover"]};
+            border: 1px solid {colors["sidebar_hover"]};
+            border-radius: 9px;
+        }}
+
+        QLabel#workspaceContextEyebrow {{
+            color: {colors["sidebar_muted"]};
+            font-size: 7pt;
+            font-weight: 700;
+        }}
+
+        QLabel#workspaceContextName {{
+            color: #FFFFFF;
+            font-size: 10pt;
+            font-weight: 700;
+        }}
+
+        QLabel#workspaceContextStatus {{
+            background: {accent};
+            color: {accent_text};
+            border: none;
+            border-radius: 7px;
+            padding: 3px 7px;
+            font-size: 7pt;
+            font-weight: 700;
+        }}
+
+        QLabel#workspaceContextDetail {{
+            color: {colors["sidebar_text"]};
+            font-size: 8pt;
+            font-weight: 600;
+        }}
+
+        QLabel#workspaceContextMuted {{
+            color: {colors["sidebar_muted"]};
+            font-size: 8pt;
+        }}
+
+        QFrame#applicationTopBar {{
+            background: {colors["surface"]};
+            border: none;
+            border-bottom: 1px solid {colors["border"]};
+        }}
+
+        QToolButton#sidebarToggleButton {{
+            background: transparent;
+            color: {colors["text"]};
+            border: none;
+            border-radius: 6px;
+            padding: 6px 9px;
+            font-size: 14pt;
+            font-weight: 600;
+        }}
+
+        QToolButton#sidebarToggleButton:hover {{
+            background: {colors["selected"]};
+        }}
+
+        QToolButton#sidebarToggleButton:pressed {{
+            background: {colors["border"]};
+        }}
+
+        QWidget#breadcrumbBar {{
+            background: transparent;
+        }}
+
+        QLabel#breadcrumbRoot {{
+            color: {colors["muted"]};
+            font-size: 9pt;
+        }}
+
+        QLabel#breadcrumbSeparator {{
+            color: {colors["field_border"]};
+            font-size: 11pt;
+            font-weight: 600;
+        }}
+
+        QLabel#breadcrumbCurrent {{
+            color: {colors["text"]};
+            font-size: 9pt;
+            font-weight: 600;
         }}
 
         QStackedWidget#pageStack,
@@ -662,6 +761,195 @@ def build_stylesheet(
         QLabel#profileSectionDescription {{
             color: {colors["muted"]};
             font-size: 10pt;
+        }}
+
+        QWidget#resultsContent {{
+            background: transparent;
+        }}
+
+        QFrame#resultsEmptyState,
+        QFrame#resultAnalysisPanel,
+        QFrame#resultExceptionPanel {{
+            background: {colors["surface"]};
+            border: 1px solid {colors["border"]};
+            border-radius: 10px;
+        }}
+
+        QFrame#resultHeader {{
+            background: transparent;
+            border: none;
+        }}
+
+        QLabel#resultStatusBadge {{
+            background: {colors["selected"]};
+            color: {colors["text"]};
+            border: 1px solid {colors["border"]};
+            border-radius: 6px;
+            padding: 5px 9px;
+            font-size: 8pt;
+            font-weight: 700;
+        }}
+
+        QLabel#resultStatusBadge[status="completed"] {{
+            background: {colors["success_surface"]};
+            color: {colors["success"]};
+            border-color: {colors["success"]};
+        }}
+
+        QLabel#resultStatusBadge[status="failed"] {{
+            background: {colors["risk_surface"]};
+            color: {colors["risk"]};
+            border-color: {colors["risk"]};
+        }}
+
+        QLabel#resultStatusBadge[status="cancelled"] {{
+            background: {colors["warning_surface"]};
+            color: {colors["warning"]};
+            border-color: {colors["warning"]};
+        }}
+
+        QLabel#resultStatusBadge[status="blocked"] {{
+            background: {colors["warning_surface"]};
+            color: {colors["warning"]};
+            border-color: {colors["warning"]};
+        }}
+
+        QLabel#resultStatusBadge[status="not_implemented"] {{
+            background: {colors["selected"]};
+            color: {colors["muted"]};
+            border-color: {colors["field_border"]};
+        }}
+
+        QLabel#resultProcedureTitle {{
+            color: {colors["text"]};
+            font-size: 17pt;
+            font-weight: 700;
+        }}
+
+        QLabel#resultProcedureDescription {{
+            color: {colors["muted"]};
+            font-size: 9pt;
+        }}
+
+        QFrame#resultMetadataStrip {{
+            background: transparent;
+            border: none;
+            border-bottom: 1px solid {colors["border"]};
+        }}
+
+        QWidget#resultMetadataItem {{
+            background: transparent;
+        }}
+
+        QLabel#resultMetadataText {{
+            color: {colors["muted"]};
+            font-size: 8pt;
+        }}
+
+        QFrame#resultMetadataDivider {{
+            color: {colors["border"]};
+            background: {colors["border"]};
+            max-width: 1px;
+        }}
+
+        QFrame#resultMetricCard {{
+            background: {colors["surface"]};
+            border: 1px solid {colors["border"]};
+            border-radius: 10px;
+            min-height: 142px;
+        }}
+
+        QLabel#resultMetricTitle {{
+            color: {colors["text"]};
+            font-size: 9pt;
+            font-weight: 700;
+        }}
+
+        QLabel#resultMetricValue {{
+            color: {colors["text"]};
+            font-size: 24pt;
+            font-weight: 700;
+        }}
+
+        QLabel#resultMetricValue[emphasis="success"] {{
+            color: {colors["success"]};
+        }}
+
+        QLabel#resultMetricValue[emphasis="risk"] {{
+            color: {colors["risk"]};
+        }}
+
+        QLabel#resultMetricValue[emphasis="information"] {{
+            color: {colors["information"]};
+        }}
+
+        QLabel#resultMetricDetail {{
+            color: {colors["muted"]};
+            font-size: 8pt;
+        }}
+
+        QLabel#resultSectionTitle {{
+            color: {colors["text"]};
+            font-size: 12pt;
+            font-weight: 700;
+        }}
+
+        QLabel#resultSectionDescription {{
+            color: {colors["muted"]};
+            font-size: 9pt;
+        }}
+
+        QToolButton#resultMoreButton {{
+            background: {colors["surface"]};
+            color: {colors["text"]};
+            border: 1px solid {colors["field_border"]};
+            border-radius: 7px;
+            padding: 7px;
+            min-width: 27px;
+            min-height: 27px;
+        }}
+
+        QToolButton#resultMoreButton:hover {{
+            background: {colors["selected"]};
+            border-color: {accent};
+        }}
+
+        QToolButton#resultMoreButton:disabled {{
+            color: {colors["muted"]};
+            border-color: {colors["border"]};
+        }}
+
+        QTableWidget#resultExceptionTable {{
+            background: {colors["surface"]};
+            alternate-background-color: {colors["content"]};
+            color: {colors["text"]};
+            border: 1px solid {colors["border"]};
+            border-radius: 6px;
+            gridline-color: {colors["border"]};
+            selection-background-color: {colors["selected"]};
+            selection-color: {colors["text"]};
+        }}
+
+        QTableWidget#resultExceptionTable::item {{
+            padding: 6px 7px;
+            border: none;
+            border-bottom: 1px solid {colors["border"]};
+        }}
+
+        QTableWidget#resultExceptionTable::item:selected {{
+            background: {colors["selected"]};
+            color: {colors["text"]};
+        }}
+
+        QTableWidget#resultExceptionTable QHeaderView::section {{
+            background: {colors["content"]};
+            color: {colors["text"]};
+            border: none;
+            border-right: 1px solid {colors["border"]};
+            border-bottom: 1px solid {colors["border"]};
+            padding: 7px;
+            font-size: 8pt;
+            font-weight: 700;
         }}
 
         QWidget#fieldLabelContainer,

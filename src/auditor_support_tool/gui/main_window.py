@@ -31,6 +31,7 @@ from auditor_support_tool.core.constants import (
     MINIMUM_WINDOW_HEIGHT,
     MINIMUM_WINDOW_WIDTH,
 )
+from auditor_support_tool.core.test_engine_models import TestEngineOutcome
 from auditor_support_tool.core.workspace_readiness_service import (
     WorkspaceReadinessService,
     WorkspaceStage,
@@ -61,11 +62,15 @@ from auditor_support_tool.gui.pages.field_mapping_page import (
 from auditor_support_tool.gui.pages.manuals_page import ManualsPage
 from auditor_support_tool.gui.pages.pdf_viewer_page import PdfViewerPage
 from auditor_support_tool.gui.pages.placeholder_page import PlaceholderPage
+from auditor_support_tool.gui.pages.results_page import ResultsPage
 from auditor_support_tool.gui.pages.test_description_page import (
     TestDescriptionPage,
 )
 from auditor_support_tool.gui.pages.updates_page import UpdatesPage
 from auditor_support_tool.gui.pages.user_profile_page import UserProfilePage
+from auditor_support_tool.gui.widgets.breadcrumb_bar import (
+    BreadcrumbBar,
+)
 from auditor_support_tool.gui.widgets.sidebar import Sidebar
 from auditor_support_tool.services.settings_service import (
     SettingsService,
@@ -151,7 +156,9 @@ class MainWindow(QMainWindow):
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
-        self._sidebar = Sidebar()
+        self._sidebar = Sidebar(
+            workspace_state=self._workspace_state,
+        )
 
         content_container = QWidget()
         content_layout = QVBoxLayout(content_container)
@@ -174,7 +181,13 @@ class MainWindow(QMainWindow):
         self._sidebar_toggle_button.clicked.connect(self._toggle_sidebar)
 
         top_bar_layout.addWidget(self._sidebar_toggle_button)
-        top_bar_layout.addStretch(1)
+
+        self._breadcrumb_bar = BreadcrumbBar()
+
+        top_bar_layout.addWidget(
+            self._breadcrumb_bar,
+            1,
+        )
 
         self._page_stack = QStackedWidget()
         self._page_stack.setObjectName("pageStack")
@@ -792,11 +805,27 @@ class MainWindow(QMainWindow):
             procedure_registry=self._procedure_registry,
         )
         audit_procedures_page.back_requested.connect(self.show_route)
+        audit_procedures_page.result_ready.connect(self._handle_procedure_outcome)
 
         self._register_page(
             route="workspace.audit_procedures",
             title="Audit Procedures",
             page=audit_procedures_page,
+        )
+
+        self._results_page = ResultsPage(
+            workspace_state=self._workspace_state,
+            procedure_registry=self._procedure_registry,
+        )
+        self._results_page.back_requested.connect(self.show_route)
+
+        self._workspace_state.workspace_cleared.connect(self._results_page.clear_result)
+        self._workspace_state.active_dataset_changed.connect(self._results_page.clear_result)
+
+        self._register_page(
+            route="workspace.results",
+            title="Results",
+            page=self._results_page,
         )
 
         page_definitions: tuple[
@@ -1041,6 +1070,64 @@ class MainWindow(QMainWindow):
         self._readiness_warning_label.clear()
         self._readiness_warning_label.setVisible(False)
 
+    def _breadcrumb_parts_for_route(
+        self,
+        *,
+        route: str,
+        title: str,
+    ) -> tuple[str, ...]:
+        """Return the breadcrumb hierarchy for an application route."""
+
+        if route == "dashboard":
+            return ("Dashboard",)
+
+        if route == "workspace.results":
+            results_page = getattr(
+                self,
+                "_results_page",
+                None,
+            )
+
+            if results_page is not None and results_page.outcome is not None:
+                return (
+                    "Audit Workspace",
+                    "Audit Procedures",
+                    results_page.procedure_breadcrumb_title,
+                    "Results",
+                )
+
+        if route.startswith("workspace."):
+            return (
+                "Audit Workspace",
+                title,
+            )
+
+        if route.startswith("engagements."):
+            return (
+                "Engagements",
+                title,
+            )
+
+        if route.startswith("reports."):
+            return (
+                "Reports",
+                title,
+            )
+
+        if route.startswith("settings."):
+            return (
+                "Settings",
+                title,
+            )
+
+        if route.startswith("about."):
+            return (
+                "Help",
+                title,
+            )
+
+        return (title,)
+
     def show_route(
         self,
         route: str,
@@ -1073,9 +1160,25 @@ class MainWindow(QMainWindow):
 
         title = self._page_titles[route]
 
+        self._breadcrumb_bar.set_parts(
+            self._breadcrumb_parts_for_route(
+                route=route,
+                title=title,
+            )
+        )
+
         status = "Profile setup required" if self._profile_required else "Ready"
 
         self.statusBar().showMessage(f"{title}   |   {status}   |   Version {APP_VERSION}")
+
+    def _handle_procedure_outcome(
+        self,
+        outcome: TestEngineOutcome,
+    ) -> None:
+        """Open the dedicated Results page for a procedure outcome."""
+
+        self._results_page.set_outcome(outcome)
+        self.show_route("workspace.results")
 
     def _handle_profile_saved(
         self,
