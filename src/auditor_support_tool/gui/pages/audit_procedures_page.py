@@ -19,6 +19,9 @@ from PySide6.QtWidgets import (
 from auditor_support_tool.core.prepared_audit_dataset import (
     PreparedAuditDataset,
 )
+from auditor_support_tool.core.procedure_availability import (
+    ProcedureAvailabilityService,
+)
 from auditor_support_tool.core.procedure_definition import (
     ProcedureDefinition,
 )
@@ -75,6 +78,9 @@ class AuditProceduresPage(QWidget):
         self._procedure_registry = procedure_registry
 
         self._readiness_service = ProcedureReadinessService()
+        self._availability_service = ProcedureAvailabilityService(
+            readiness_service=self._readiness_service
+        )
         self._test_engine = TestEngineService(registry=procedure_registry)
 
         self._updating_dataset_selector = False
@@ -117,8 +123,8 @@ class AuditProceduresPage(QWidget):
         title.setObjectName("pageTitle")
 
         subtitle = QLabel(
-            "Run audit procedures against the prepared and mapped dataset. "
-            "Readiness is checked automatically."
+            "Run audit procedures supported by the currently prepared and "
+            "mapped data. Availability is checked automatically."
         )
         subtitle.setObjectName("pageSubtitle")
         subtitle.setWordWrap(True)
@@ -196,8 +202,9 @@ class AuditProceduresPage(QWidget):
         heading.setObjectName("profileSectionTitle")
 
         description = QLabel(
-            "Only procedures with executable implementations are shown here. "
-            "Required-field checks are performed automatically against the selected dataset."
+            "Only implemented procedures whose required fields are available "
+            "in the selected dataset are shown. Optional fields may enrich "
+            "results but do not block execution."
         )
         description.setObjectName("profileSectionDescription")
         description.setWordWrap(True)
@@ -279,7 +286,7 @@ class AuditProceduresPage(QWidget):
             self._updating_dataset_selector = False
 
     def _populate_procedures(self, dataset: WorksheetDataset) -> None:
-        """Display executable procedures and their current readiness."""
+        """Display only procedures supported by the selected mapped data."""
 
         self._clear_procedure_rows()
 
@@ -288,21 +295,29 @@ class AuditProceduresPage(QWidget):
         if not procedures:
             empty_label = QLabel("No executable audit procedures are currently registered.")
             empty_label.setObjectName("fieldHint")
+            empty_label.setWordWrap(True)
             self._procedure_rows_layout.addWidget(empty_label)
             return
 
         source = PreparedAuditDataset(dataset)
 
-        for procedure in procedures:
-            readiness = self._readiness_service.check(
-                definition=procedure.definition,
-                source=source,
-            )
+        available = self._availability_service.available(
+            procedures=procedures,
+            source=source,
+        )
 
+        if not available:
+            empty_label = QLabel("No audit procedures are available for the currently mapped data.")
+            empty_label.setObjectName("fieldHint")
+            empty_label.setWordWrap(True)
+            self._procedure_rows_layout.addWidget(empty_label)
+            return
+
+        for item in available:
             self._procedure_rows_layout.addWidget(
                 self._build_procedure_row(
-                    procedure.definition,
-                    readiness,
+                    item.procedure.definition,
+                    item.readiness,
                 )
             )
 
@@ -358,22 +373,14 @@ class AuditProceduresPage(QWidget):
             )
             actions_layout.addWidget(configure_button)
 
-        if readiness.can_run:
-            action_button = QPushButton("Run Test")
-            action_button.setObjectName("primaryActionButton")
-            action_button.setIcon(qta.icon("fa5s.play"))
-            action_button.clicked.connect(
-                lambda checked=False, selected_id=definition.procedure_id: self._run_procedure(
-                    selected_id
-                )
+        action_button = QPushButton("Run Test")
+        action_button.setObjectName("primaryActionButton")
+        action_button.setIcon(qta.icon("fa5s.play"))
+        action_button.clicked.connect(
+            lambda checked=False, selected_id=definition.procedure_id: self._run_procedure(
+                selected_id
             )
-        else:
-            action_button = QPushButton("Review Field Mapping")
-            action_button.setObjectName("secondaryActionButton")
-            action_button.setIcon(qta.icon("fa5s.edit"))
-            action_button.clicked.connect(
-                lambda: self.back_requested.emit("workspace.field_mapping")
-            )
+        )
 
         actions_layout.addWidget(action_button)
 
