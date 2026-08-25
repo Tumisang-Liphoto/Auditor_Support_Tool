@@ -19,6 +19,14 @@ from PySide6.QtWidgets import (
 from auditor_support_tool.core.prepared_audit_dataset import (
     PreparedAuditDataset,
 )
+from auditor_support_tool.core.procedure_definition import (
+    ProcedureDefinition,
+)
+from auditor_support_tool.core.procedure_parameter_service import (
+    ProcedureParameterValidationError,
+    format_procedure_parameter_value,
+    resolve_procedure_parameters,
+)
 from auditor_support_tool.core.procedure_readiness import (
     ProcedureReadiness,
     ProcedureReadinessService,
@@ -36,6 +44,9 @@ from auditor_support_tool.core.workbook_package import (
 )
 from auditor_support_tool.core.workspace_state import (
     WorkspaceState,
+)
+from auditor_support_tool.gui.dialogs.procedure_parameters_dialog import (
+    ProcedureParametersDialog,
 )
 
 
@@ -213,6 +224,9 @@ class AuditProceduresPage(QWidget):
         self._workspace_state.workbook_package_changed.connect(self._refresh_page)
         self._workspace_state.active_dataset_changed.connect(self._refresh_page)
         self._workspace_state.workspace_identity_changed.connect(self._refresh_page)
+        self._workspace_state.procedure_parameters_changed.connect(
+            lambda _procedure_id: self._refresh_page()
+        )
         self._workspace_state.workspace_cleared.connect(self._refresh_page)
 
     def _refresh_page(self) -> None:
@@ -287,18 +301,14 @@ class AuditProceduresPage(QWidget):
 
             self._procedure_rows_layout.addWidget(
                 self._build_procedure_row(
-                    procedure.definition.procedure_id,
-                    procedure.definition.display_id,
-                    procedure.definition.name,
+                    procedure.definition,
                     readiness,
                 )
             )
 
     def _build_procedure_row(
         self,
-        procedure_id: str,
-        display_id: str,
-        name: str,
+        definition: ProcedureDefinition,
         readiness: ProcedureReadiness,
     ) -> QFrame:
         """Create one procedure row with a direct action."""
@@ -313,7 +323,7 @@ class AuditProceduresPage(QWidget):
         text_layout = QVBoxLayout()
         text_layout.setSpacing(4)
 
-        name_label = QLabel(f"{display_id}  {name}")
+        name_label = QLabel(f"{definition.display_id}  {definition.name}")
         name_label.setObjectName("fieldLabel")
 
         requirements_label = QLabel(self._readiness_message(readiness))
@@ -323,17 +333,39 @@ class AuditProceduresPage(QWidget):
         text_layout.addWidget(name_label)
         text_layout.addWidget(requirements_label)
 
+        if definition.parameter_definitions:
+            settings_label = QLabel(self._parameter_summary(definition))
+            settings_label.setObjectName("fieldHint")
+            settings_label.setWordWrap(True)
+            text_layout.addWidget(settings_label)
+
         status_label = QLabel(self._readiness_status_text(readiness.status))
         status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         status_label.setMinimumWidth(150)
         status_label.setStyleSheet(self._readiness_badge_style(readiness.status))
+
+        actions_layout = QHBoxLayout()
+        actions_layout.setSpacing(8)
+
+        if definition.parameter_definitions:
+            configure_button = QPushButton("Configure")
+            configure_button.setObjectName("secondaryActionButton")
+            configure_button.setIcon(qta.icon("fa5s.cog"))
+            configure_button.clicked.connect(
+                lambda checked=False, selected_id=definition.procedure_id: (
+                    self._configure_procedure(selected_id)
+                )
+            )
+            actions_layout.addWidget(configure_button)
 
         if readiness.can_run:
             action_button = QPushButton("Run Test")
             action_button.setObjectName("primaryActionButton")
             action_button.setIcon(qta.icon("fa5s.play"))
             action_button.clicked.connect(
-                lambda checked=False, selected_id=procedure_id: self._run_procedure(selected_id)
+                lambda checked=False, selected_id=definition.procedure_id: self._run_procedure(
+                    selected_id
+                )
             )
         else:
             action_button = QPushButton("Review Field Mapping")
@@ -343,11 +375,57 @@ class AuditProceduresPage(QWidget):
                 lambda: self.back_requested.emit("workspace.field_mapping")
             )
 
+        actions_layout.addWidget(action_button)
+
         layout.addLayout(text_layout, 1)
         layout.addWidget(status_label)
-        layout.addWidget(action_button)
+        layout.addLayout(actions_layout)
 
         return row
+
+    def _configure_procedure(self, procedure_id: str) -> None:
+        """Open the generic settings dialog for one procedure."""
+
+        procedure = self._procedure_registry.get(procedure_id)
+
+        if procedure is None:
+            self._set_page_status(
+                f"No executable implementation is registered for {procedure_id}.",
+                "error",
+            )
+            return
+
+        definition = procedure.definition
+
+        if not definition.parameter_definitions:
+            self._set_page_status(
+                "This procedure has no configurable settings.",
+                "neutral",
+            )
+            return
+
+        dialog = ProcedureParametersDialog(
+            definition=definition,
+            initial_values=self._workspace_state.get_procedure_parameters(procedure_id),
+            parent=self,
+        )
+
+        if not dialog.exec():
+            return
+
+        try:
+            self._workspace_state.set_procedure_parameters(
+                procedure_id,
+                dialog.parameter_values,
+            )
+        except (TypeError, ValueError) as error:
+            self._set_page_status(str(error), "error")
+            return
+
+        self._set_page_status(
+            f"Settings saved for {definition.display_id}.",
+            "success",
+        )
 
     def _run_procedure(self, procedure_id: str) -> None:
         """Run a ready procedure and send its outcome to the Results page."""
@@ -379,6 +457,31 @@ class AuditProceduresPage(QWidget):
 
         source = PreparedAuditDataset(dataset)
 
+        procedure = self._procedure_registry.get(procedure_id)
+
+        if procedure is None:
+            self._set_page_status(
+                f"No executable implementation is registered for {procedure_id}.",
+                "error",
+            )
+            return
+
+        try:
+            effective_parameters = resolve_procedure_parameters(
+                procedure.definition,
+                self._workspace_state.get_procedure_parameters(procedure_id),
+            )
+            self._workspace_state.set_procedure_parameters(
+                procedure_id,
+                effective_parameters,
+            )
+        except (ProcedureParameterValidationError, TypeError, ValueError) as error:
+            self._set_page_status(
+                f"Review the procedure settings before running: {error}",
+                "error",
+            )
+            return
+
         audit_period_start = str(getattr(identity, "audit_period_start", "") or "")
         audit_period_end = str(getattr(identity, "audit_period_end", "") or "")
 
@@ -393,6 +496,7 @@ class AuditProceduresPage(QWidget):
             source_path=source_path,
             audit_period_start=audit_period_start,
             audit_period_end=audit_period_end,
+            parameters=effective_parameters,
         )
 
         self._clear_page_status()
@@ -439,6 +543,42 @@ class AuditProceduresPage(QWidget):
             for dataset in self._workspace_state.selected_datasets
             if dataset.mapping_status in self._MAPPING_COMPLETE
         )
+
+    def _parameter_summary(
+        self,
+        definition: ProcedureDefinition,
+    ) -> str:
+        """Return a concise summary of configured and default settings."""
+
+        saved_values = self._workspace_state.get_procedure_parameters(definition.procedure_id)
+
+        try:
+            effective_values = resolve_procedure_parameters(
+                definition,
+                saved_values,
+            )
+        except ProcedureParameterValidationError as error:
+            return f"Settings need review: {error}"
+
+        parts: list[str] = []
+
+        for parameter in definition.parameter_definitions:
+            if parameter.key not in effective_values:
+                parts.append(f"{parameter.label}: Not configured")
+                continue
+
+            value_text = format_procedure_parameter_value(
+                parameter,
+                effective_values[parameter.key],
+            )
+            default_suffix = (
+                " (default)"
+                if parameter.key not in saved_values and parameter.default_value is not None
+                else ""
+            )
+            parts.append(f"{parameter.label}: {value_text}{default_suffix}")
+
+        return "Settings: " + " | ".join(parts)
 
     def _set_page_status(
         self,

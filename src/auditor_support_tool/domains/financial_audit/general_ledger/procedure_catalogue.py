@@ -17,6 +17,10 @@ from auditor_support_tool.core.procedure_definition import (
 from auditor_support_tool.core.procedure_identity import (
     canonical_procedure_id,
 )
+from auditor_support_tool.core.procedure_parameter_models import (
+    ProcedureParameterDefinition,
+    ProcedureParameterType,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +75,14 @@ class GeneralLedgerProcedureCatalogueEntry:
         return self.definition.helpful_fields
 
     @property
+    def parameter_definitions(
+        self,
+    ) -> tuple[ProcedureParameterDefinition, ...]:
+        """Return configurable procedure parameters."""
+
+        return self.definition.parameter_definitions
+
+    @property
     def procedure_version(self) -> str:
         """Return the procedure logic version."""
 
@@ -92,6 +104,7 @@ def _entry(
     description: str = "",
     required_fields: tuple[str, ...] = (),
     helpful_fields: tuple[str, ...] = (),
+    parameter_definitions: tuple[ProcedureParameterDefinition, ...] = (),
     procedure_version: str = "1.0",
 ) -> GeneralLedgerProcedureCatalogueEntry:
     """Create one validated General Ledger catalogue entry."""
@@ -104,12 +117,48 @@ def _entry(
             description=description,
             required_fields=required_fields,
             helpful_fields=helpful_fields,
+            parameter_definitions=parameter_definitions,
             procedure_version=procedure_version,
         ),
         readiness_rank=readiness_rank,
         readiness_score=readiness_score,
         readiness_band=readiness_band,
     )
+
+
+_GL003_PARAMETERS = (
+    ProcedureParameterDefinition.create(
+        key="weekend_days",
+        label="Weekend days",
+        value_type=ProcedureParameterType.MULTI_CHOICE,
+        description=(
+            "Select the days treated as weekend activity. Saturday and "
+            "Sunday are selected by default."
+        ),
+        required=True,
+        default_value=("Saturday", "Sunday"),
+        choices=("Saturday", "Sunday"),
+    ),
+    ProcedureParameterDefinition.create(
+        key="high_value_threshold",
+        label="High-value threshold",
+        value_type=ProcedureParameterType.DECIMAL,
+        description=(
+            "Optional monetary threshold used to identify high-value weekend transactions."
+        ),
+        placeholder="Example: 100000",
+    ),
+    ProcedureParameterDefinition.create(
+        key="manual_journal_values",
+        label="Manual-journal values",
+        value_type=ProcedureParameterType.TEXT_LIST,
+        description=(
+            "Optional journal type or source values that identify manual "
+            "journals. Separate multiple values with commas."
+        ),
+        placeholder="Example: Manual, Adjustment",
+    ),
+)
 
 
 GENERAL_LEDGER_PROCEDURES: tuple[
@@ -140,6 +189,7 @@ GENERAL_LEDGER_PROCEDURES: tuple[
             "journal_source",
             "journal_type",
         ),
+        parameter_definitions=_GL003_PARAMETERS,
         procedure_version="1.0",
     ),
     _entry(

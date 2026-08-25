@@ -36,7 +36,7 @@ _SAME_USER_INDICATOR = "same_preparer_approver"
 
 
 class WeekendTransactionsProcedure:
-    """Identify transactions dated on Saturdays or Sundays."""
+    """Identify transactions dated on the configured weekend days."""
 
     @property
     def definition(self) -> ProcedureDefinition:
@@ -85,6 +85,7 @@ class WeekendTransactionsProcedure:
         period_start = self._audit_period_start(context)
         period_end = self._audit_period_end(context)
 
+        weekend_days = self._weekend_days(context)
         high_value_threshold = self._high_value_threshold(context)
         manual_journal_values = self._manual_journal_values(context)
 
@@ -124,17 +125,19 @@ class WeekendTransactionsProcedure:
 
             weekday_number = transaction_date.weekday()
 
-            if weekday_number not in {
-                5,
-                6,
-            }:
-                continue
-
             if weekday_number == 5:
                 day_name = "Saturday"
+            elif weekday_number == 6:
+                day_name = "Sunday"
+            else:
+                continue
+
+            if day_name.casefold() not in weekend_days:
+                continue
+
+            if day_name == "Saturday":
                 saturday_transactions += 1
             else:
-                day_name = "Sunday"
                 sunday_transactions += 1
 
             weekend_dates.add(transaction_date)
@@ -184,12 +187,12 @@ class WeekendTransactionsProcedure:
             )
 
             if manual_available:
-                manual_value = self._manual_journal_value(resolved_helpful)
+                record_manual_values = self._manual_journal_record_values(resolved_helpful)
 
-                if manual_value is not None:
+                if record_manual_values:
                     manual_journal_records_evaluated += 1
 
-                    if manual_value.casefold() in manual_journal_values:
+                    if record_manual_values & manual_journal_values:
                         manual_journal_count += 1
                         risk_indicators.append(_MANUAL_JOURNAL_INDICATOR)
 
@@ -374,6 +377,45 @@ class WeekendTransactionsProcedure:
         return values
 
     @staticmethod
+    def _weekend_days(
+        context: ProcedureRunContext,
+    ) -> frozenset[str]:
+        """Return the configured weekend-day names."""
+
+        raw_values = context.parameters.get(
+            "weekend_days",
+            ("Saturday", "Sunday"),
+        )
+
+        if isinstance(raw_values, str):
+            candidates = raw_values.split(",")
+        elif isinstance(
+            raw_values,
+            (tuple, list, set, frozenset),
+        ):
+            candidates = raw_values
+        else:
+            raise ValueError("GL-003 weekend days must be text or a collection of day names.")
+
+        weekend_days = frozenset(
+            str(value).strip().casefold() for value in candidates if str(value).strip()
+        )
+
+        allowed_days = {
+            "saturday",
+            "sunday",
+        }
+        unsupported = sorted(weekend_days - allowed_days)
+
+        if unsupported:
+            raise ValueError("GL-003 weekend days currently support Saturday and Sunday only.")
+
+        if not weekend_days:
+            raise ValueError("GL-003 requires at least one selected weekend day.")
+
+        return weekend_days
+
+    @staticmethod
     def _high_value_threshold(
         context: ProcedureRunContext,
     ) -> Decimal | None:
@@ -507,19 +549,17 @@ class WeekendTransactionsProcedure:
         return (debit_amount or Decimal("0")) - (credit_amount or Decimal("0"))
 
     @staticmethod
-    def _manual_journal_value(
+    def _manual_journal_record_values(
         resolved_values: dict[str, ResolvedFieldValue],
-    ) -> str | None:
-        """Return the most specific usable manual-journal classification."""
+    ) -> frozenset[str]:
+        """Return usable journal type and source classifications."""
 
-        journal_type = WeekendTransactionsProcedure._resolved_text(
-            resolved_values.get("journal_type")
+        candidates = (
+            WeekendTransactionsProcedure._resolved_text(resolved_values.get("journal_type")),
+            WeekendTransactionsProcedure._resolved_text(resolved_values.get("journal_source")),
         )
 
-        if journal_type is not None:
-            return journal_type
-
-        return WeekendTransactionsProcedure._resolved_text(resolved_values.get("journal_source"))
+        return frozenset(value.casefold() for value in candidates if value is not None)
 
     @staticmethod
     def _resolved_decimal(

@@ -28,6 +28,10 @@ from auditor_support_tool.core.audit_run_context_service import (
 from auditor_support_tool.core.procedure_identity import (
     canonical_procedure_id,
 )
+from auditor_support_tool.core.procedure_parameter_service import (
+    ProcedureParameterValidationError,
+    resolve_procedure_parameters,
+)
 from auditor_support_tool.core.procedure_readiness import (
     ProcedureReadinessService,
 )
@@ -99,6 +103,20 @@ class TestEngineService:
                 ),
             )
 
+        try:
+            resolved_parameters = resolve_procedure_parameters(
+                definition,
+                parameters,
+            )
+        except ProcedureParameterValidationError as error:
+            return TestEngineOutcome(
+                procedure_id=canonical_id,
+                dataset_id=source.dataset_id,
+                status=TestEngineStatus.FAILED,
+                readiness=readiness,
+                error_message=str(error),
+            )
+
         request = AuditExecutionRequest.create(
             procedure_id=canonical_id,
             dataset_id=source.dataset_id,
@@ -112,7 +130,7 @@ class TestEngineService:
                 procedure_version=(definition.procedure_version),
                 audit_period_start=audit_period_start,
                 audit_period_end=audit_period_end,
-                parameters=parameters,
+                parameters=resolved_parameters,
             )
         except (
             AuditRunContextError,
