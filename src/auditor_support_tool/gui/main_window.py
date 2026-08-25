@@ -736,13 +736,25 @@ class MainWindow(QMainWindow):
             page=manuals_page,
         )
 
-        test_description_page = TestDescriptionPage()
-        test_description_page.document_requested.connect(self._open_pdf_description)
+        self._test_description_page = TestDescriptionPage(page_route="about.test_descriptions")
+        self._test_description_page.document_requested.connect(self._open_pdf_description)
 
         self._register_page(
             route="about.test_descriptions",
             title="Test Descriptions",
-            page=test_description_page,
+            page=self._test_description_page,
+        )
+
+        self._procedure_test_description_page = TestDescriptionPage(
+            page_route="workspace.test_description"
+        )
+        self._procedure_test_description_page.document_requested.connect(self._open_pdf_description)
+        self._procedure_test_description_page.back_requested.connect(self.show_route)
+
+        self._register_page(
+            route="workspace.test_description",
+            title="Test Description",
+            page=self._procedure_test_description_page,
         )
 
         self._pdf_viewer_page = PdfViewerPage()
@@ -806,6 +818,9 @@ class MainWindow(QMainWindow):
         )
         audit_procedures_page.back_requested.connect(self.show_route)
         audit_procedures_page.result_ready.connect(self._handle_procedure_outcome)
+        audit_procedures_page.test_description_requested.connect(
+            self._show_procedure_test_description
+        )
 
         self._register_page(
             route="workspace.audit_procedures",
@@ -1023,6 +1038,7 @@ class MainWindow(QMainWindow):
             "workspace.data_preparation": WorkspaceStage.DATA_PREPARATION,
             "workspace.field_mapping": WorkspaceStage.FIELD_MAPPING,
             "workspace.audit_procedures": WorkspaceStage.AUDIT_PROCEDURES,
+            "workspace.test_description": WorkspaceStage.AUDIT_PROCEDURES,
         }
 
         return route_stages.get(route)
@@ -1096,6 +1112,21 @@ class MainWindow(QMainWindow):
                     "Results",
                 )
 
+        if route == "workspace.test_description":
+            page = getattr(
+                self,
+                "_procedure_test_description_page",
+                None,
+            )
+
+            if page is not None:
+                return (
+                    "Audit Workspace",
+                    "Audit Procedures",
+                    page.breadcrumb_title,
+                    "Test Description",
+                )
+
         if route.startswith("workspace."):
             return (
                 "Audit Workspace",
@@ -1147,6 +1178,9 @@ class MainWindow(QMainWindow):
         if not self._workspace_route_is_ready(route):
             return
 
+        if route == "about.test_descriptions":
+            self._test_description_page.show_catalogue()
+
         page = self._pages.get(route)
 
         if page is None:
@@ -1170,6 +1204,26 @@ class MainWindow(QMainWindow):
         status = "Profile setup required" if self._profile_required else "Ready"
 
         self.statusBar().showMessage(f"{title}   |   {status}   |   Version {APP_VERSION}")
+
+    def _show_procedure_test_description(
+        self,
+        procedure_id: str,
+    ) -> None:
+        """Open one test description from the Audit Procedures page."""
+
+        loaded = self._procedure_test_description_page.show_test(
+            procedure_id,
+            return_route="workspace.audit_procedures",
+        )
+
+        if not loaded:
+            self.statusBar().showMessage(
+                f"No bundled test description is available for "
+                f"{procedure_id}   |   Version {APP_VERSION}"
+            )
+            return
+
+        self.show_route("workspace.test_description")
 
     def _handle_procedure_outcome(
         self,

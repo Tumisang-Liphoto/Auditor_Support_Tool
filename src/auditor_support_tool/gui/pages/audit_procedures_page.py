@@ -33,10 +33,12 @@ from auditor_support_tool.core.procedure_parameter_service import (
 from auditor_support_tool.core.procedure_readiness import (
     ProcedureReadiness,
     ProcedureReadinessService,
-    ProcedureReadinessStatus,
 )
 from auditor_support_tool.core.procedure_registry import (
     ProcedureRegistry,
+)
+from auditor_support_tool.core.test_description_catalogue import (
+    has_test_description_document,
 )
 from auditor_support_tool.core.test_engine_service import (
     TestEngineService,
@@ -58,6 +60,7 @@ class AuditProceduresPage(QWidget):
 
     back_requested = Signal(str)
     result_ready = Signal(object)
+    test_description_requested = Signal(str)
 
     _MAPPING_COMPLETE = {
         FieldMappingStatus.CONFIRMED,
@@ -354,13 +357,25 @@ class AuditProceduresPage(QWidget):
             settings_label.setWordWrap(True)
             text_layout.addWidget(settings_label)
 
-        status_label = QLabel(self._readiness_status_text(readiness.status))
-        status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        status_label.setMinimumWidth(150)
-        status_label.setStyleSheet(self._readiness_badge_style(readiness.status))
-
         actions_layout = QHBoxLayout()
         actions_layout.setSpacing(8)
+
+        description_button = QPushButton("Test Description")
+        description_button.setObjectName("secondaryActionButton")
+        description_button.setIcon(qta.icon("fa5s.book-open"))
+
+        description_available = has_test_description_document(definition.procedure_id)
+        description_button.setEnabled(description_available)
+
+        if not description_available:
+            description_button.setToolTip("A bundled test description is not yet available.")
+
+        description_button.clicked.connect(
+            lambda checked=False, selected_id=definition.procedure_id: (
+                self.test_description_requested.emit(selected_id)
+            )
+        )
+        actions_layout.addWidget(description_button)
 
         if definition.parameter_definitions:
             configure_button = QPushButton("Configure")
@@ -385,7 +400,6 @@ class AuditProceduresPage(QWidget):
         actions_layout.addWidget(action_button)
 
         layout.addLayout(text_layout, 1)
-        layout.addWidget(status_label)
         layout.addLayout(actions_layout)
 
         return row
@@ -629,37 +643,6 @@ class AuditProceduresPage(QWidget):
             return "Required fields available: " + ", ".join(readiness.mapped_required_fields)
 
         return "No additional required fields."
-
-    @staticmethod
-    def _readiness_status_text(status: ProcedureReadinessStatus) -> str:
-        """Return the user-facing readiness label."""
-
-        labels = {
-            ProcedureReadinessStatus.READY: "Ready",
-            ProcedureReadinessStatus.READY_WITH_WARNING: "Ready with Warning",
-            ProcedureReadinessStatus.BLOCKED: "Blocked",
-        }
-
-        return labels[status]
-
-    @staticmethod
-    def _readiness_badge_style(status: ProcedureReadinessStatus) -> str:
-        """Return simple readiness badge styling."""
-
-        if status == ProcedureReadinessStatus.READY:
-            background = "#198754"
-        elif status == ProcedureReadinessStatus.READY_WITH_WARNING:
-            background = "#d18b00"
-        else:
-            background = "#c62828"
-
-        return (
-            f"background-color: {background};"
-            "color: white;"
-            "border-radius: 5px;"
-            "padding: 6px 10px;"
-            "font-weight: 600;"
-        )
 
     def _clear_procedure_rows(self) -> None:
         """Remove all existing procedure rows."""

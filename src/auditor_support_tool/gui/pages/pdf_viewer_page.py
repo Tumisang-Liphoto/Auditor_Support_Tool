@@ -113,10 +113,19 @@ class PdfViewerPage(QWidget):
 
         self._return_route = return_route
 
-        if return_route == "about.manuals":
-            self._back_button.setText("Back to Manuals")
-        else:
-            self._back_button.setText("Back to Test Descriptions")
+        back_labels = {
+            "about.manuals": "Back to Manuals",
+            "about.test_descriptions": "Back to Test Descriptions",
+            "workspace.test_description": "Back to Test Description",
+            "workspace.audit_procedures": "Back to Audit Procedures",
+            "workspace.results": "Back to Results",
+        }
+        self._back_button.setText(
+            back_labels.get(
+                return_route,
+                "Back",
+            )
+        )
         self._title_label.setText(title)
         self._subtitle_label.setText(subtitle)
 

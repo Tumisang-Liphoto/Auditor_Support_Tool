@@ -1,7 +1,7 @@
-"""Bundled audit test-description catalogue."""
+"""Bundled audit test-description catalogue and contextual detail page."""
 
-import sys
-from dataclasses import dataclass
+from __future__ import annotations
+
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
@@ -16,43 +16,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-
-@dataclass(frozen=True, slots=True)
-class TestDescriptionDefinition:
-    """Description of a bundled audit-test document."""
-
-    test_code: str
-    title: str
-    category: str
-    description: str
-    file_name: str
-
-
-TEST_DESCRIPTIONS: tuple[TestDescriptionDefinition, ...] = (
-    TestDescriptionDefinition(
-        test_code="GL-001",
-        title="Duplicate Invoice Detection",
-        category="General Ledger",
-        description=(
-            "Identifies repeated invoice numbers that may require further audit scrutiny."
-        ),
-        file_name="GL-001-Duplicate-Invoice-Detection.pdf",
-    ),
-    TestDescriptionDefinition(
-        test_code="GL-003",
-        title="Weekend Postings",
-        category="General Ledger",
-        description=(
-            "Identifies general ledger transactions dated on Saturdays "
-            "or Sundays for further audit scrutiny."
-        ),
-        file_name="GL-003-Weekend-Postings.pdf",
-    ),
+from auditor_support_tool.core.test_description_catalogue import (
+    TEST_DESCRIPTIONS,
+    TestDescriptionDefinition,
+    description_document_path,
+    get_test_description_definition,
 )
 
 
 class TestDescriptionPage(QWidget):
-    """List and open bundled audit-test descriptions."""
+    """List descriptions or show one description in a caller-aware context."""
 
     document_requested = Signal(
         str,
@@ -60,10 +33,73 @@ class TestDescriptionPage(QWidget):
         str,
         str,
     )
+    back_requested = Signal(str)
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        page_route: str = "about.test_descriptions",
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
+
+        self._page_route = page_route
+        self._return_route: str | None = None
+        self._current_definition: TestDescriptionDefinition | None = None
+
         self._build_interface()
+        self.show_catalogue()
+
+    @property
+    def breadcrumb_title(self) -> str:
+        """Return the focused procedure title for breadcrumbs."""
+
+        definition = self._current_definition
+
+        if definition is None:
+            return "Test Description"
+
+        return f"{definition.test_code} {definition.title}"
+
+    def show_catalogue(self) -> None:
+        """Show the normal Help catalogue without a contextual Back button."""
+
+        self._return_route = None
+        self._current_definition = None
+
+        self._back_button.setVisible(False)
+        self._title.setText("Test Descriptions")
+        self._subtitle.setText(
+            "Review the purpose, data requirements, risks and limitations of available audit tests."
+        )
+
+        self._rebuild_cards(TEST_DESCRIPTIONS)
+
+    def show_test(
+        self,
+        test_code: str,
+        *,
+        return_route: str,
+    ) -> bool:
+        """Show one description and remember which page opened it."""
+
+        definition = get_test_description_definition(test_code)
+
+        if definition is None:
+            return False
+
+        self._return_route = return_route
+        self._current_definition = definition
+
+        self._back_button.setText(self._back_button_text(return_route))
+        self._back_button.setVisible(True)
+
+        self._title.setText("Test Description")
+        self._subtitle.setText(f"{definition.test_code} — {definition.title}")
+
+        self._rebuild_cards((definition,))
+
+        return True
 
     def _build_interface(self) -> None:
         root_layout = QVBoxLayout(self)
@@ -83,23 +119,51 @@ class TestDescriptionPage(QWidget):
         layout.setSpacing(18)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        title = QLabel("Test Descriptions")
-        title.setObjectName("pageTitle")
+        navigation_layout = QHBoxLayout()
+        navigation_layout.setSpacing(10)
 
-        subtitle = QLabel(
-            "Review the purpose, data requirements, risks and limitations of available audit tests."
-        )
-        subtitle.setObjectName("pageSubtitle")
-        subtitle.setWordWrap(True)
+        self._back_button = QPushButton("Back")
+        self._back_button.setObjectName("secondaryActionButton")
+        self._back_button.clicked.connect(self._go_back)
 
-        layout.addWidget(title)
-        layout.addWidget(subtitle)
+        navigation_layout.addWidget(self._back_button)
+        navigation_layout.addStretch(1)
 
-        for definition in TEST_DESCRIPTIONS:
-            layout.addWidget(self._build_description_card(definition))
+        self._title = QLabel()
+        self._title.setObjectName("pageTitle")
+
+        self._subtitle = QLabel()
+        self._subtitle.setObjectName("pageSubtitle")
+        self._subtitle.setWordWrap(True)
+
+        self._cards_container = QWidget()
+        self._cards_layout = QVBoxLayout(self._cards_container)
+        self._cards_layout.setContentsMargins(0, 0, 0, 0)
+        self._cards_layout.setSpacing(14)
+
+        layout.addLayout(navigation_layout)
+        layout.addWidget(self._title)
+        layout.addWidget(self._subtitle)
+        layout.addWidget(self._cards_container)
 
         scroll_area.setWidget(content)
         root_layout.addWidget(scroll_area)
+
+    def _rebuild_cards(
+        self,
+        definitions: tuple[TestDescriptionDefinition, ...],
+    ) -> None:
+        """Replace the visible description cards."""
+
+        while self._cards_layout.count():
+            item = self._cards_layout.takeAt(0)
+            widget = item.widget()
+
+            if widget is not None:
+                widget.deleteLater()
+
+        for definition in definitions:
+            self._cards_layout.addWidget(self._build_description_card(definition))
 
     def _build_description_card(
         self,
@@ -129,7 +193,7 @@ class TestDescriptionPage(QWidget):
         description.setObjectName("profileSectionDescription")
         description.setWordWrap(True)
 
-        path = self._test_descriptions_directory() / definition.file_name
+        path = description_document_path(definition)
 
         status = QLabel("Available" if path.is_file() else "Test description not yet available")
         status.setObjectName("formStatus")
@@ -179,25 +243,24 @@ class TestDescriptionPage(QWidget):
             str(path.resolve()),
             definition.title,
             f"{definition.test_code} | {definition.category}",
-            "about.test_descriptions",
+            self._page_route,
         )
+
+    def _go_back(self) -> None:
+        """Return to the page that opened this contextual description."""
+
+        if self._return_route is None:
+            return
+
+        self.back_requested.emit(self._return_route)
 
     @staticmethod
-    def _test_descriptions_directory() -> Path:
-        """Return the bundled General Ledger description directory."""
+    def _back_button_text(return_route: str) -> str:
+        """Return a useful contextual Back-button label."""
 
-        if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-            return (
-                Path(sys._MEIPASS)
-                / "auditor_support_tool"
-                / "resources"
-                / "test_descriptions"
-                / "general_ledger"
-            )
+        labels = {
+            "workspace.audit_procedures": "Back to Audit Procedures",
+            "workspace.results": "Back to Results",
+        }
 
-        return (
-            Path(__file__).resolve().parents[2]
-            / "resources"
-            / "test_descriptions"
-            / "general_ledger"
-        )
+        return labels.get(return_route, "Back")
