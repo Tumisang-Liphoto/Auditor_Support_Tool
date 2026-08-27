@@ -198,6 +198,27 @@ GENERAL_LEDGER_PROCEDURES: tuple[
         2,
         89,
         "Priority 1 - Nearly Ready",
+        description=(
+            "Identifies transactions entered and approved by the same "
+            "user for further audit scrutiny."
+        ),
+        required_fields=(
+            "entry_user",
+            "approval_user",
+        ),
+        helpful_fields=(
+            "posting_user",
+            "transaction_id",
+            "journal_number",
+            "transaction_date",
+            "posting_date",
+            "transaction_amount",
+            "account_code",
+            "transaction_description",
+            "approval_date",
+            "approval_timestamp",
+        ),
+        procedure_version="1.0",
     ),
     _entry(
         "GL011",

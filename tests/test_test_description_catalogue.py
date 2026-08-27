@@ -6,6 +6,7 @@ from auditor_support_tool.core.test_description_catalogue import (
     TEST_DESCRIPTIONS,
     description_document_path,
     get_test_description_definition,
+    has_test_description_document,
 )
 
 
@@ -29,6 +30,17 @@ def test_description_lookup_accepts_display_identifier() -> None:
     assert display is canonical
 
 
+def test_gl006_description_is_bundled() -> None:
+    """The implemented GL-006 procedure should expose its description PDF."""
+
+    definition = get_test_description_definition("GL006")
+
+    assert definition is not None
+    assert definition.test_code == "GL-006"
+    assert definition.title == "Segregation of Duties"
+    assert has_test_description_document("GL006") is True
+
+
 def test_unknown_test_description_returns_none() -> None:
     """Procedures without a bundled description should not be invented."""
 
@@ -44,4 +56,5 @@ def test_description_paths_use_catalogue_file_names() -> None:
     assert tuple(path.name for path in paths) == (
         "GL-001-Duplicate-Invoice-Detection.pdf",
         "GL-003-Weekend-Postings.pdf",
+        "GL-006-Segregation-of-Duties.pdf",
     )

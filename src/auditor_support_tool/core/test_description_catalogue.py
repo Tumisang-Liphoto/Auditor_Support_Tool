@@ -42,6 +42,16 @@ TEST_DESCRIPTIONS: tuple[TestDescriptionDefinition, ...] = (
         ),
         file_name="GL-003-Weekend-Postings.pdf",
     ),
+    TestDescriptionDefinition(
+        test_code="GL-006",
+        title="Segregation of Duties",
+        category="General Ledger",
+        description=(
+            "Identifies transactions entered and approved by the same "
+            "user for further audit scrutiny."
+        ),
+        file_name="GL-006-Segregation-of-Duties.pdf",
+    ),
 )
 
 

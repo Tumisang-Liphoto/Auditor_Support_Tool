@@ -382,4 +382,5 @@ def test_gl001_and_gl003_are_registered_as_executable_procedures() -> None:
     assert tuple(procedure.definition.procedure_id for procedure in registry.procedures) == (
         "GL001",
         "GL003",
+        "GL006",
     )

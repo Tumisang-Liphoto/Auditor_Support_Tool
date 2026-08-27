@@ -132,13 +132,26 @@ def test_gl001_execution_requirements_are_authoritative() -> None:
     assert entry.procedure_version == "1.0"
 
 
-def test_unresolved_procedure_requirements_are_not_invented() -> None:
-    """Procedures not yet formally defined should retain empty requirements."""
+def test_gl006_execution_requirements_are_authoritative() -> None:
+    """GL006 should expose its canonical execution requirements."""
 
     entry = require_general_ledger_procedure("GL006")
 
-    assert entry.required_fields == ()
-    assert entry.helpful_fields == ()
+    assert entry.required_fields == (
+        "entry_user",
+        "approval_user",
+    )
+    assert "posting_user" in entry.helpful_fields
+    assert "transaction_id" in entry.helpful_fields
+    assert "journal_number" in entry.helpful_fields
+    assert "transaction_date" in entry.helpful_fields
+    assert "posting_date" in entry.helpful_fields
+    assert "transaction_amount" in entry.helpful_fields
+    assert "account_code" in entry.helpful_fields
+    assert "transaction_description" in entry.helpful_fields
+    assert "approval_date" in entry.helpful_fields
+    assert "approval_timestamp" in entry.helpful_fields
+    assert entry.procedure_version == "1.0"
 
 
 def test_lookup_accepts_display_form_without_changing_identity() -> None:
