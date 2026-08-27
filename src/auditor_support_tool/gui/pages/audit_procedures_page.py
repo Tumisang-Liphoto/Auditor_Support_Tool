@@ -25,6 +25,13 @@ from auditor_support_tool.core.procedure_availability import (
 from auditor_support_tool.core.procedure_definition import (
     ProcedureDefinition,
 )
+from auditor_support_tool.core.procedure_execution_models import (
+    ProcedureExecutionStamp,
+)
+from auditor_support_tool.core.procedure_execution_status_service import (
+    ProcedureExecutionStatus,
+    ProcedureExecutionStatusService,
+)
 from auditor_support_tool.core.procedure_parameter_service import (
     ProcedureParameterValidationError,
     format_procedure_parameter_value,
@@ -39,6 +46,9 @@ from auditor_support_tool.core.procedure_registry import (
 )
 from auditor_support_tool.core.test_description_catalogue import (
     has_test_description_document,
+)
+from auditor_support_tool.core.test_engine_models import (
+    TestEngineStatus,
 )
 from auditor_support_tool.core.test_engine_service import (
     TestEngineService,
@@ -85,6 +95,7 @@ class AuditProceduresPage(QWidget):
             readiness_service=self._readiness_service
         )
         self._test_engine = TestEngineService(registry=procedure_registry)
+        self._execution_status_service = ProcedureExecutionStatusService()
 
         self._updating_dataset_selector = False
 
@@ -237,6 +248,9 @@ class AuditProceduresPage(QWidget):
         self._workspace_state.procedure_parameters_changed.connect(
             lambda _procedure_id: self._refresh_page()
         )
+        self._workspace_state.procedure_execution_changed.connect(
+            lambda _procedure_id, _dataset_id: self._refresh_page()
+        )
         self._workspace_state.workspace_cleared.connect(self._refresh_page)
 
     def _refresh_page(self) -> None:
@@ -317,10 +331,16 @@ class AuditProceduresPage(QWidget):
             return
 
         for item in available:
+            execution_status = self._procedure_execution_status(
+                definition=item.procedure.definition,
+                source=source,
+            )
+
             self._procedure_rows_layout.addWidget(
                 self._build_procedure_row(
                     item.procedure.definition,
                     item.readiness,
+                    execution_status,
                 )
             )
 
@@ -328,27 +348,42 @@ class AuditProceduresPage(QWidget):
         self,
         definition: ProcedureDefinition,
         readiness: ProcedureReadiness,
+        execution_status: ProcedureExecutionStatus,
     ) -> QFrame:
-        """Create one procedure row with a direct action."""
+        """Create one clearly separated procedure card with execution state."""
 
         row = QFrame()
-        row.setObjectName("datasetMappingStatusRow")
+        row.setObjectName("procedureCard")
 
         layout = QHBoxLayout(row)
-        layout.setContentsMargins(14, 12, 14, 12)
-        layout.setSpacing(14)
+        layout.setContentsMargins(18, 16, 18, 16)
+        layout.setSpacing(18)
 
         text_layout = QVBoxLayout()
-        text_layout.setSpacing(4)
+        text_layout.setSpacing(5)
+
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(10)
 
         name_label = QLabel(f"{definition.display_id}  {definition.name}")
         name_label.setObjectName("fieldLabel")
+
+        status_label = QLabel(self._execution_status_text(execution_status))
+        status_label.setObjectName("procedureExecutionStatus")
+        status_label.setProperty(
+            "status",
+            execution_status.value,
+        )
+
+        header_layout.addWidget(name_label)
+        header_layout.addStretch(1)
+        header_layout.addWidget(status_label)
 
         requirements_label = QLabel(self._readiness_message(readiness))
         requirements_label.setObjectName("fieldHint")
         requirements_label.setWordWrap(True)
 
-        text_layout.addWidget(name_label)
+        text_layout.addLayout(header_layout)
         text_layout.addWidget(requirements_label)
 
         if definition.parameter_definitions:
@@ -388,7 +423,7 @@ class AuditProceduresPage(QWidget):
             )
             actions_layout.addWidget(configure_button)
 
-        action_button = QPushButton("Run Test")
+        action_button = QPushButton(self._run_button_text(execution_status))
         action_button.setObjectName("primaryActionButton")
         action_button.setIcon(qta.icon("fa5s.play"))
         action_button.clicked.connect(
@@ -520,8 +555,78 @@ class AuditProceduresPage(QWidget):
             parameters=effective_parameters,
         )
 
+        if outcome.status == TestEngineStatus.COMPLETED and outcome.result is not None:
+            self._execution_status_service.remember_source_hash(
+                source_path,
+                outcome.result.context.source_sha256,
+            )
+            self._workspace_state.record_procedure_execution(
+                ProcedureExecutionStamp.from_context(outcome.result.context)
+            )
+
         self._clear_page_status()
         self.result_ready.emit(outcome)
+
+    def _procedure_execution_status(
+        self,
+        *,
+        definition: ProcedureDefinition,
+        source: PreparedAuditDataset,
+    ) -> ProcedureExecutionStatus:
+        """Return execution state for the current procedure and dataset."""
+
+        stamp = self._workspace_state.get_procedure_execution_stamp(
+            definition.procedure_id,
+            source.dataset_id,
+        )
+
+        if stamp is None:
+            return ProcedureExecutionStatus.NOT_RUN
+
+        source_path = self._workspace_state.source_path
+        identity = self._workspace_state.workspace_identity
+
+        if source_path is None or identity is None:
+            return ProcedureExecutionStatus.NEEDS_RERUN
+
+        try:
+            effective_parameters = resolve_procedure_parameters(
+                definition,
+                self._workspace_state.get_procedure_parameters(definition.procedure_id),
+            )
+        except (
+            ProcedureParameterValidationError,
+            TypeError,
+            ValueError,
+        ):
+            return ProcedureExecutionStatus.NEEDS_RERUN
+
+        audit_period_start = str(
+            getattr(
+                identity,
+                "audit_period_start",
+                "",
+            )
+            or ""
+        )
+        audit_period_end = str(
+            getattr(
+                identity,
+                "audit_period_end",
+                "",
+            )
+            or ""
+        )
+
+        return self._execution_status_service.evaluate(
+            definition=definition,
+            source=source,
+            source_path=source_path,
+            parameters=effective_parameters,
+            audit_period_start=audit_period_start,
+            audit_period_end=audit_period_end,
+            stamp=stamp,
+        )
 
     def _dataset_selection_changed(self, index: int) -> None:
         """Change the active dataset when the auditor selects another one."""
@@ -643,6 +748,34 @@ class AuditProceduresPage(QWidget):
             return "Required fields available: " + ", ".join(readiness.mapped_required_fields)
 
         return "No additional required fields."
+
+    @staticmethod
+    def _execution_status_text(
+        status: ProcedureExecutionStatus,
+    ) -> str:
+        """Return the concise procedure execution badge."""
+
+        labels = {
+            ProcedureExecutionStatus.NOT_RUN: "Not Run",
+            ProcedureExecutionStatus.COMPLETED: "✓ Completed",
+            ProcedureExecutionStatus.NEEDS_RERUN: "↻ Needs Re-run",
+        }
+
+        return labels[status]
+
+    @staticmethod
+    def _run_button_text(
+        status: ProcedureExecutionStatus,
+    ) -> str:
+        """Return the appropriate action for the current execution state."""
+
+        if status == ProcedureExecutionStatus.NOT_RUN:
+            return "Run Test"
+
+        if status == ProcedureExecutionStatus.NEEDS_RERUN:
+            return "Re-run Test"
+
+        return "Run Again"
 
     def _clear_procedure_rows(self) -> None:
         """Remove all existing procedure rows."""

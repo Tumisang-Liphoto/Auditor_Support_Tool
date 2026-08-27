@@ -791,6 +791,34 @@ def build_stylesheet(
             border-radius: 11px;
         }}
 
+        QFrame#procedureCard {{
+            background: {colors["surface"]};
+            border: 1px solid {colors["field_border"]};
+            border-radius: 9px;
+        }}
+
+        QLabel#procedureExecutionStatus {{
+            color: {colors["muted"]};
+            background: {colors["content"]};
+            border: 1px solid {colors["border"]};
+            border-radius: 8px;
+            padding: 4px 9px;
+            font-size: 9pt;
+            font-weight: 700;
+        }}
+
+        QLabel#procedureExecutionStatus[status="completed"] {{
+            color: {colors["success"]};
+            background: {colors["success_surface"]};
+            border-color: {colors["success"]};
+        }}
+
+        QLabel#procedureExecutionStatus[status="needs_rerun"] {{
+            color: {colors["warning"]};
+            background: {colors["warning_surface"]};
+            border-color: {colors["warning"]};
+        }}
+
         QLabel#profileSectionTitle {{
             color: {colors["text"]};
             font-size: 16pt;

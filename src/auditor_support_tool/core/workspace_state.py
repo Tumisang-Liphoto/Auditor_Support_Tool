@@ -16,6 +16,9 @@ from auditor_support_tool.core.data_profile_models import (
     DataProfile,
 )
 from auditor_support_tool.core.data_quality_models import DataQualityIssue
+from auditor_support_tool.core.procedure_execution_models import (
+    ProcedureExecutionStamp,
+)
 from auditor_support_tool.core.procedure_identity import (
     canonical_procedure_id,
 )
@@ -46,6 +49,7 @@ class WorkspaceState(QObject):
     transformation_history_changed = Signal()
     data_quality_issues_changed = Signal()
     procedure_parameters_changed = Signal(str)
+    procedure_execution_changed = Signal(str, str)
 
     workspace_cleared = Signal()
 
@@ -65,6 +69,10 @@ class WorkspaceState(QObject):
         self._transformation_history: list[TransformationRecord] = []
         self._data_quality_issues: list[DataQualityIssue] = []
         self._procedure_parameters: dict[str, dict[str, object]] = {}
+        self._procedure_execution_stamps: dict[
+            tuple[str, str],
+            ProcedureExecutionStamp,
+        ] = {}
 
         # Temporary compatibility properties for the existing pages.
         self._selected_worksheet: str | None = None
@@ -277,6 +285,110 @@ class WorkspaceState(QObject):
             procedure_id,
             {},
         )
+
+    @property
+    def procedure_execution_stamps(
+        self,
+    ) -> tuple[ProcedureExecutionStamp, ...]:
+        """Return all successful procedure execution stamps."""
+
+        return tuple(
+            self._procedure_execution_stamps[key]
+            for key in sorted(self._procedure_execution_stamps)
+        )
+
+    def get_procedure_execution_stamp(
+        self,
+        procedure_id: str,
+        dataset_id: str,
+    ) -> ProcedureExecutionStamp | None:
+        """Return the last successful execution for a procedure and dataset."""
+
+        canonical_id = canonical_procedure_id(procedure_id)
+        cleaned_dataset_id = dataset_id.strip()
+
+        if not cleaned_dataset_id:
+            raise ValueError("Dataset identifier is required.")
+
+        return self._procedure_execution_stamps.get(
+            (
+                canonical_id,
+                cleaned_dataset_id,
+            )
+        )
+
+    def record_procedure_execution(
+        self,
+        stamp: ProcedureExecutionStamp,
+        *,
+        mark_dirty: bool = True,
+    ) -> None:
+        """Record the last successful execution for one procedure and dataset."""
+
+        if self._workspace_identity is None:
+            raise ValueError(
+                "An active audit workspace is required before recording a procedure execution."
+            )
+
+        key = (
+            stamp.procedure_id,
+            stamp.dataset_id,
+        )
+
+        if self._procedure_execution_stamps.get(key) == stamp:
+            return
+
+        self._procedure_execution_stamps[key] = stamp
+
+        self.procedure_execution_changed.emit(
+            stamp.procedure_id,
+            stamp.dataset_id,
+        )
+
+        if mark_dirty:
+            self.mark_dirty()
+
+    def set_all_procedure_execution_stamps(
+        self,
+        stamps: tuple[ProcedureExecutionStamp, ...] | list[ProcedureExecutionStamp],
+        *,
+        mark_dirty: bool = True,
+    ) -> None:
+        """Replace successful execution stamps, primarily during workspace load."""
+
+        if self._workspace_identity is None:
+            raise ValueError(
+                "An active audit workspace is required before restoring procedure executions."
+            )
+
+        cleaned: dict[
+            tuple[str, str],
+            ProcedureExecutionStamp,
+        ] = {}
+
+        for stamp in stamps:
+            key = (
+                stamp.procedure_id,
+                stamp.dataset_id,
+            )
+            cleaned[key] = stamp
+
+        if cleaned == self._procedure_execution_stamps:
+            return
+
+        previous_keys = set(self._procedure_execution_stamps)
+        new_keys = set(cleaned)
+
+        self._procedure_execution_stamps = cleaned
+
+        for procedure_id, dataset_id in sorted(previous_keys | new_keys):
+            self.procedure_execution_changed.emit(
+                procedure_id,
+                dataset_id,
+            )
+
+        if mark_dirty:
+            self.mark_dirty()
 
     @property
     def selected_worksheet(self) -> str | None:
@@ -623,6 +735,9 @@ class WorkspaceState(QObject):
         procedure_parameter_ids = tuple(self._procedure_parameters)
         self._procedure_parameters = {}
 
+        procedure_execution_keys = tuple(self._procedure_execution_stamps)
+        self._procedure_execution_stamps = {}
+
         self._selected_worksheet = None
         self._loaded_table = None
         self._data_profile = None
@@ -644,6 +759,12 @@ class WorkspaceState(QObject):
 
         for procedure_id in procedure_parameter_ids:
             self.procedure_parameters_changed.emit(procedure_id)
+
+        for procedure_id, dataset_id in procedure_execution_keys:
+            self.procedure_execution_changed.emit(
+                procedure_id,
+                dataset_id,
+            )
 
         self.workspace_cleared.emit()
 

@@ -16,6 +16,9 @@ from auditor_support_tool.core.data_quality_models import (
     DataQualitySeverity,
 )
 from auditor_support_tool.core.paths import ApplicationPaths
+from auditor_support_tool.core.procedure_execution_models import (
+    ProcedureExecutionStamp,
+)
 from auditor_support_tool.core.source_integrity_service import (
     SourceIntegrityService,
     SourceIntegrityStatus,
@@ -118,6 +121,9 @@ class WorkspaceService:
             workbook_package=workbook_package_snapshot,
             field_mappings={},
             procedure_parameters=state.procedure_parameters,
+            procedure_execution_stamps=[
+                stamp.to_dict() for stamp in state.procedure_execution_stamps
+            ],
             transformation_history=[asdict(record) for record in state.transformation_history],
             data_quality_issues=[asdict(issue) for issue in state.data_quality_issues],
         )
@@ -330,6 +336,11 @@ class WorkspaceService:
             for raw_issue in document.data_quality_issues
         ]
 
+        procedure_execution_stamps = [
+            ProcedureExecutionStamp.from_dict(raw_stamp)
+            for raw_stamp in document.procedure_execution_stamps
+        ]
+
         state.start_workspace(
             document.identity,
             file_path=workspace_path,
@@ -351,6 +362,10 @@ class WorkspaceService:
         )
         state.set_all_procedure_parameters(
             document.procedure_parameters,
+            mark_dirty=False,
+        )
+        state.set_all_procedure_execution_stamps(
+            procedure_execution_stamps,
             mark_dirty=False,
         )
 
@@ -466,6 +481,13 @@ class WorkspaceService:
                 )
             )
 
+            procedure_execution_stamps = self._procedure_execution_stamps_from_raw(
+                raw_document.get(
+                    "procedure_execution_stamps",
+                    [],
+                )
+            )
+
             transformation_history = raw_document.get(
                 "transformation_history",
                 [],
@@ -519,9 +541,38 @@ class WorkspaceService:
             workbook_package=workbook_package,
             field_mappings=field_mappings,
             procedure_parameters=procedure_parameters,
+            procedure_execution_stamps=procedure_execution_stamps,
             transformation_history=transformation_history,
             data_quality_issues=data_quality_issues,
         )
+
+    @staticmethod
+    def _procedure_execution_stamps_from_raw(
+        raw_stamps: object,
+    ) -> list[dict[str, object]]:
+        """Validate saved successful procedure execution stamps."""
+
+        if not isinstance(raw_stamps, list):
+            raise TypeError("Procedure execution stamps must be an array.")
+
+        cleaned: list[dict[str, object]] = []
+
+        for raw_stamp in raw_stamps:
+            if not isinstance(raw_stamp, dict):
+                raise TypeError("Procedure execution stamp entries must be objects.")
+
+            try:
+                stamp = ProcedureExecutionStamp.from_dict(raw_stamp)
+            except (
+                KeyError,
+                TypeError,
+                ValueError,
+            ) as error:
+                raise TypeError(f"Invalid procedure execution stamp: {error}") from error
+
+            cleaned.append(stamp.to_dict())
+
+        return cleaned
 
     @staticmethod
     def _procedure_parameters_from_raw(
@@ -721,6 +772,11 @@ class WorkspaceService:
             self._procedure_parameters_from_raw(document.procedure_parameters)
         except TypeError as error:
             raise WorkspaceServiceError(f"Invalid procedure parameters: {error}") from error
+
+        try:
+            self._procedure_execution_stamps_from_raw(document.procedure_execution_stamps)
+        except TypeError as error:
+            raise WorkspaceServiceError(f"Invalid procedure execution stamps: {error}") from error
 
         if not document.identity.created_at.strip():
             raise WorkspaceServiceError("Workspace creation date is required.")
