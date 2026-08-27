@@ -6,6 +6,7 @@ from auditor_support_tool.core.procedure_registry import (
     ProcedureRegistry,
 )
 from auditor_support_tool.domains.financial_audit.general_ledger.procedures import (
+    duplicate_invoice_detection,
     weekend_transactions,
 )
 
@@ -15,6 +16,7 @@ def register_general_ledger_procedures(
 ) -> None:
     """Register all currently executable General Ledger procedures."""
 
+    registry.register(duplicate_invoice_detection.DuplicateInvoiceDetectionProcedure())
     registry.register(weekend_transactions.WeekendTransactionsProcedure())
 
 

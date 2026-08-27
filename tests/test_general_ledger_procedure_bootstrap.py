@@ -56,4 +56,7 @@ def test_bootstrap_registers_only_current_executable_procedures() -> None:
 
     registry = create_general_ledger_procedure_registry()
 
-    assert tuple(definition.procedure_id for definition in registry.definitions) == ("GL003",)
+    assert tuple(definition.procedure_id for definition in registry.definitions) == (
+        "GL001",
+        "GL003",
+    )

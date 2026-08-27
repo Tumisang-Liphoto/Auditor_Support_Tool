@@ -7,6 +7,9 @@ from collections.abc import Callable
 from auditor_support_tool.core.audit_procedure_models import (
     ProcedureResult,
 )
+from auditor_support_tool.presentation.gl001_result_presenter import (
+    present_gl001_result,
+)
 from auditor_support_tool.presentation.gl003_result_presenter import (
     present_gl003_result,
 )
@@ -25,6 +28,7 @@ ResultPresenter = Callable[
 ]
 
 _PRESENTERS: dict[str, ResultPresenter] = {
+    "GL001": present_gl001_result,
     "GL003": present_gl003_result,
 }
 
