@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "dataset_sheet": "General_Ledger",
+  "audit_period_start": "2023-04-01",
+  "audit_period_end": "2024-03-31",
+  "source_sha256": "874f53f56e59c57f919450875a82907c9822e8079b0306be9aea3963a0f03a34",
+  "field_mappings": [
+    {
+      "source_column": "Transaction Date",
+      "standard_field": "transaction_date",
+      "confirmed_type": "DATE"
+    },
+    {
+      "source_column": "Journal Number",
+      "standard_field": "journal_number",
+      "confirmed_type": "TEXT"
+    },
+    {
+      "source_column": "Account Code",
+      "standard_field": "account_code",
+      "confirmed_type": "TEXT"
+    },
+    {
+      "source_column": "Description",
+      "standard_field": "transaction_description",
+      "confirmed_type": "TEXT"
+    },
+    {
+      "source_column": "Debit Amount",
+      "standard_field": "debit_amount",
+      "confirmed_type": "DECIMAL"
+    },
+    {
+      "source_column": "Credit Amount",
+      "standard_field": "credit_amount",
+      "confirmed_type": "DECIMAL"
+    },
+    {
+      "source_column": "Net Amount",
+      "standard_field": "transaction_amount",
+      "confirmed_type": "DECIMAL"
+    },
+    {
+      "source_column": "Prepared By",
+      "standard_field": "entry_user",
+      "confirmed_type": "TEXT"
+    },
+    {
+      "source_column": "Approved By",
+      "standard_field": "approval_user",
+      "confirmed_type": "TEXT"
+    },
+    {
+      "source_column": "Source Module",
+      "standard_field": "journal_source",
+      "confirmed_type": "TEXT"
+    },
+    {
+      "source_column": "Vendor Number",
+      "standard_field": "vendor_code",
+      "confirmed_type": "TEXT"
+    },
+    {
+      "source_column": "Invoice Number",
+      "standard_field": "invoice_number",
+      "confirmed_type": "TEXT"
+    }
+  ],
+  "unmapped_source_columns": [
+    "Cost Centre",
+    "Employee Number"
+  ],
+  "notes": [
+    "The mappings cover all required and useful fields needed by the current GL-001, GL-003 and GL-006 regression baseline.",
+    "Journal Type and Vendor Name are intentionally not mapped because those source columns are not present in General_Ledger."
+  ]
+}
