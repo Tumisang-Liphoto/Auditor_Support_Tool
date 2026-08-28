@@ -22,6 +22,9 @@ from auditor_support_tool.core.prepared_audit_dataset import (
 from auditor_support_tool.core.procedure_availability import (
     ProcedureAvailabilityService,
 )
+from auditor_support_tool.core.procedure_dataset_resolution import (
+    ProcedureDatasetSource,
+)
 from auditor_support_tool.core.procedure_definition import (
     ProcedureDefinition,
 )
@@ -54,6 +57,7 @@ from auditor_support_tool.core.test_engine_service import (
     TestEngineService,
 )
 from auditor_support_tool.core.workbook_package import (
+    DatasetType,
     FieldMappingStatus,
     WorksheetDataset,
 )
@@ -216,9 +220,9 @@ class AuditProceduresPage(QWidget):
         heading.setObjectName("profileSectionTitle")
 
         description = QLabel(
-            "Only implemented procedures whose required fields are available "
-            "in the selected dataset are shown. Optional fields may enrich "
-            "results but do not block execution."
+            "Only implemented procedures whose required datasets and fields "
+            "are available are shown. Optional fields may enrich results but "
+            "do not block execution."
         )
         description.setObjectName("profileSectionDescription")
         description.setWordWrap(True)
@@ -317,10 +321,23 @@ class AuditProceduresPage(QWidget):
             return
 
         source = PreparedAuditDataset(dataset)
-
-        available = self._availability_service.available(
-            procedures=procedures,
+        active_source = ProcedureDatasetSource.create(
+            dataset_type=dataset.confirmed_dataset_type,
             source=source,
+        )
+        mapped_sources = tuple(
+            ProcedureDatasetSource.create(
+                dataset_type=mapped_dataset.confirmed_dataset_type,
+                source=PreparedAuditDataset(mapped_dataset),
+            )
+            for mapped_dataset in self._mapped_datasets()
+            if mapped_dataset.confirmed_dataset_type != DatasetType.UNCLASSIFIED
+        )
+
+        available = self._availability_service.available_for_workspace(
+            procedures=procedures,
+            active_source=active_source,
+            mapped_sources=mapped_sources,
         )
 
         if not available:
@@ -737,6 +754,28 @@ class AuditProceduresPage(QWidget):
     @staticmethod
     def _readiness_message(readiness: ProcedureReadiness) -> str:
         """Return concise field-readiness information."""
+
+        if readiness.dataset_readiness:
+            parts = []
+
+            for dataset in readiness.dataset_readiness:
+                dataset_name = dataset.dataset_type.value.replace("_", " ").title()
+
+                if not dataset.resolved:
+                    parts.append(f"{dataset_name}: unavailable")
+                    continue
+
+                fields = ", ".join(dataset.mapped_required_fields)
+
+                if fields:
+                    parts.append(f"{dataset_name}: {fields}")
+                else:
+                    parts.append(f"{dataset_name}: available")
+
+            if readiness.warnings:
+                return " | ".join(parts) + " | " + " ".join(readiness.warnings)
+
+            return "Required datasets available: " + " | ".join(parts)
 
         if readiness.missing_required_fields:
             return "Missing required field mapping: " + ", ".join(readiness.missing_required_fields)

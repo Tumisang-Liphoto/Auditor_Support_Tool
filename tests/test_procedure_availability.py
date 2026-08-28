@@ -15,11 +15,12 @@ class StubDefinition:
     """Minimal definition used by availability tests."""
 
     procedure_id: str
+    uses_dataset_requirements: bool = False
 
 
 @dataclass(frozen=True)
 class StubProcedure:
-    """Minimal implemented procedure used by availability tests."""
+    """Minimal executable procedure used by availability tests."""
 
     definition: StubDefinition
 
