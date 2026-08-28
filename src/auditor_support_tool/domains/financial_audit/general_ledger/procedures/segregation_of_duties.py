@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
+
 from auditor_support_tool.core.audit_execution_models import (
     ExecutionCancellationToken,
 )
@@ -31,6 +34,18 @@ _REASON_CODE = "SAME_ENTRY_AND_APPROVAL_USER"
 _REASON_TEXT = "Same user entered and approved transaction - further audit scrutiny required."
 
 
+@dataclass(slots=True)
+class _UserSelfApprovalStats:
+    """Descriptive statistics for one normalised self-approving user."""
+
+    display_user: str
+    self_approvals: int = 0
+    journals: set[str] = field(default_factory=set)
+    accounts: set[str] = field(default_factory=set)
+    transaction_amount_total: Decimal = Decimal("0")
+    transaction_amount_records: int = 0
+
+
 class SegregationOfDutiesProcedure:
     """Identify records entered and approved by the same mapped user."""
 
@@ -57,9 +72,9 @@ class SegregationOfDutiesProcedure:
         invalid_entry_users = 0
         invalid_approval_users = 0
 
-        conflicting_users: set[str] = set()
         affected_journals: set[str] = set()
         affected_accounts: set[str] = set()
+        user_stats: dict[str, _UserSelfApprovalStats] = {}
 
         helpful_availability: dict[str, bool] | None = None
 
@@ -104,20 +119,38 @@ class SegregationOfDutiesProcedure:
             if normalised_entry != normalised_approval:
                 continue
 
-            conflicting_users.add(normalised_entry)
-
             resolved_helpful = {
                 field_key: record.resolve(field_key) for field_key in self.definition.helpful_fields
             }
 
             journal_value = self._resolved_text(resolved_helpful.get("journal_number"))
             account_value = self._resolved_text(resolved_helpful.get("account_code"))
+            transaction_amount = self._resolved_decimal(resolved_helpful.get("transaction_amount"))
 
             if journal_value:
                 affected_journals.add(journal_value.casefold())
 
             if account_value:
                 affected_accounts.add(account_value.casefold())
+
+            display_user = self._resolved_text(entry_user) or normalised_entry
+            stats = user_stats.get(normalised_entry)
+
+            if stats is None:
+                stats = _UserSelfApprovalStats(display_user=display_user)
+                user_stats[normalised_entry] = stats
+
+            stats.self_approvals += 1
+
+            if journal_value:
+                stats.journals.add(journal_value.casefold())
+
+            if account_value:
+                stats.accounts.add(account_value.casefold())
+
+            if transaction_amount is not None:
+                stats.transaction_amount_total += transaction_amount
+                stats.transaction_amount_records += 1
 
             exceptions.append(
                 ProcedureExceptionRecord.create(
@@ -138,6 +171,7 @@ class SegregationOfDutiesProcedure:
             helpful_availability = {
                 "journal_number": False,
                 "account_code": False,
+                "transaction_amount": False,
             }
 
         exclusion_counts: dict[str, int] = {}
@@ -168,6 +202,13 @@ class SegregationOfDutiesProcedure:
                 + " contained unusable user data and were excluded from evaluation."
             )
 
+        user_analysis = self._user_analysis(
+            user_stats=user_stats,
+            exception_count=len(exceptions),
+        )
+
+        top_user = user_analysis[0] if user_analysis else None
+
         return ProcedureResult.create(
             context=context,
             population_count=source.record_count,
@@ -177,7 +218,13 @@ class SegregationOfDutiesProcedure:
             limitations=tuple(limitations),
             metrics={
                 "same_user_exceptions": len(exceptions),
-                "distinct_conflicting_users": len(conflicting_users),
+                "distinct_conflicting_users": len(user_stats),
+                "highest_self_approval_count": (int(top_user["self_approvals"]) if top_user else 0),
+                "top_user": str(top_user["user"]) if top_user else "",
+                "top_user_concentration_pct": (
+                    float(top_user["exception_share_pct"]) if top_user else 0.0
+                ),
+                "user_self_approval_analysis": user_analysis,
                 "journal_number_available": helpful_availability.get(
                     "journal_number",
                     False,
@@ -188,6 +235,10 @@ class SegregationOfDutiesProcedure:
                     False,
                 ),
                 "affected_accounts": len(affected_accounts),
+                "transaction_amount_available": helpful_availability.get(
+                    "transaction_amount",
+                    False,
+                ),
                 "blank_entry_user_count": blank_entry_users,
                 "blank_approval_user_count": blank_approval_users,
                 "invalid_entry_user_count": invalid_entry_users,
@@ -220,6 +271,41 @@ class SegregationOfDutiesProcedure:
         return values
 
     @staticmethod
+    def _user_analysis(
+        *,
+        user_stats: dict[str, _UserSelfApprovalStats],
+        exception_count: int,
+    ) -> tuple[dict[str, object], ...]:
+        """Return ranked descriptive analysis of self-approval by user."""
+
+        rows: list[dict[str, object]] = []
+
+        for normalised_user, stats in user_stats.items():
+            share = (stats.self_approvals / exception_count) * 100.0 if exception_count else 0.0
+
+            rows.append(
+                {
+                    "user": stats.display_user,
+                    "normalised_user": normalised_user,
+                    "self_approvals": stats.self_approvals,
+                    "exception_share_pct": share,
+                    "affected_journals": len(stats.journals),
+                    "affected_accounts": len(stats.accounts),
+                    "transaction_amount_total": stats.transaction_amount_total,
+                    "transaction_amount_records": stats.transaction_amount_records,
+                }
+            )
+
+        rows.sort(
+            key=lambda row: (
+                -int(row["self_approvals"]),
+                str(row["normalised_user"]),
+            )
+        )
+
+        return tuple(rows)
+
+    @staticmethod
     def _normalise_user(value: object | None) -> str:
         """Return the version 1.0 user comparison value."""
 
@@ -242,6 +328,23 @@ class SegregationOfDutiesProcedure:
         return text or None
 
     @staticmethod
+    def _resolved_decimal(
+        resolved: ResolvedFieldValue | None,
+    ) -> Decimal | None:
+        """Return a Decimal from one usable monetary value."""
+
+        if resolved is None or not resolved.is_usable or resolved.value is None:
+            return None
+
+        if isinstance(resolved.value, Decimal):
+            return resolved.value
+
+        try:
+            return Decimal(str(resolved.value).strip())
+        except InvalidOperation, ValueError:
+            return None
+
+    @staticmethod
     def _helpful_field_availability(
         record: AuditRecord,
     ) -> dict[str, bool]:
@@ -252,5 +355,6 @@ class SegregationOfDutiesProcedure:
             for field_key in (
                 "journal_number",
                 "account_code",
+                "transaction_amount",
             )
         }

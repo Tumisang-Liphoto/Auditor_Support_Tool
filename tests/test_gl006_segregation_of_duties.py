@@ -44,6 +44,7 @@ def create_prepared_source(
     tmp_path: Path,
     *,
     include_helpful_mapping: bool = True,
+    extra_rows: tuple[tuple[object, ...], ...] = (),
 ) -> tuple[Path, PreparedAuditDataset]:
     """Create a representative mapped population for GL-006."""
 
@@ -77,6 +78,9 @@ def create_prepared_source(
             "System account",
         ]
     )
+
+    for row in extra_rows:
+        worksheet.append(list(row))
 
     source_path = tmp_path / "gl006.xlsx"
     workbook.save(source_path)
@@ -283,3 +287,47 @@ def test_gl006_runs_through_generic_test_engine(tmp_path: Path) -> None:
     assert outcome.result is not None
     assert outcome.result.context.procedure_id == "GL006"
     assert outcome.result.exception_count == 4
+
+
+def test_gl006_ranks_users_by_self_approval_concentration(tmp_path: Path) -> None:
+    """Self-approval analysis should rank users and aggregate useful context."""
+
+    _source_path, source = create_prepared_source(
+        tmp_path,
+        extra_rows=(
+            (" alice ", "ALICE", "J008", 800, "4000", "Alice repeat"),
+            ("Alice", "alice", "J009", 900, "4100", "Alice repeat"),
+            ("Bob", "BOB", "J010", 1000, "5000", "Bob repeat"),
+        ),
+    )
+
+    result = SegregationOfDutiesProcedure().run(
+        context=create_context(source.dataset_id),
+        source=source,
+        cancellation_token=ExecutionCancellationToken(),
+    )
+
+    assert result.exception_count == 7
+    assert result.metrics["distinct_conflicting_users"] == 4
+    assert result.metrics["highest_self_approval_count"] == 3
+    assert result.metrics["top_user"] == "Alice"
+    assert result.metrics["top_user_concentration_pct"] == pytest.approx((3 / 7) * 100.0)
+    assert result.metrics["transaction_amount_available"] is True
+
+    analysis = result.metrics["user_self_approval_analysis"]
+
+    assert isinstance(analysis, tuple)
+    assert tuple(row["normalised_user"] for row in analysis) == (
+        "alice",
+        "bob",
+        "carol",
+        "system_batch",
+    )
+
+    alice = analysis[0]
+
+    assert alice["self_approvals"] == 3
+    assert alice["affected_journals"] == 3
+    assert alice["affected_accounts"] == 2
+    assert alice["transaction_amount_total"] == 1800
+    assert alice["transaction_amount_records"] == 3
