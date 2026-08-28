@@ -11,6 +11,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from auditor_support_tool.core.procedure_dataset_models import (
+    ProcedureDatasetRequirement,
+)
 from auditor_support_tool.core.procedure_definition import (
     ProcedureDefinition,
 )
@@ -21,6 +24,7 @@ from auditor_support_tool.core.procedure_parameter_models import (
     ProcedureParameterDefinition,
     ProcedureParameterType,
 )
+from auditor_support_tool.core.workbook_package import DatasetType
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +79,14 @@ class GeneralLedgerProcedureCatalogueEntry:
         return self.definition.helpful_fields
 
     @property
+    def dataset_requirements(
+        self,
+    ) -> tuple[ProcedureDatasetRequirement, ...]:
+        """Return dataset roles required by this procedure."""
+
+        return self.definition.dataset_requirements
+
+    @property
     def parameter_definitions(
         self,
     ) -> tuple[ProcedureParameterDefinition, ...]:
@@ -104,6 +116,7 @@ def _entry(
     description: str = "",
     required_fields: tuple[str, ...] = (),
     helpful_fields: tuple[str, ...] = (),
+    dataset_requirements: tuple[ProcedureDatasetRequirement, ...] = (),
     parameter_definitions: tuple[ProcedureParameterDefinition, ...] = (),
     procedure_version: str = "1.0",
 ) -> GeneralLedgerProcedureCatalogueEntry:
@@ -117,6 +130,7 @@ def _entry(
             description=description,
             required_fields=required_fields,
             helpful_fields=helpful_fields,
+            dataset_requirements=dataset_requirements,
             parameter_definitions=parameter_definitions,
             procedure_version=procedure_version,
         ),
@@ -226,6 +240,23 @@ GENERAL_LEDGER_PROCEDURES: tuple[
         3,
         88,
         "Priority 1 - Nearly Ready",
+        description=(
+            "Identifies General Ledger account codes that are not present in the Chart of Accounts."
+        ),
+        dataset_requirements=(
+            ProcedureDatasetRequirement.create(
+                role="general_ledger",
+                dataset_type=DatasetType.GENERAL_LEDGER,
+                required_fields=("account_code",),
+                primary=True,
+            ),
+            ProcedureDatasetRequirement.create(
+                role="chart_of_accounts",
+                dataset_type=DatasetType.CHART_OF_ACCOUNTS,
+                required_fields=("account_code",),
+            ),
+        ),
+        procedure_version="1.0",
     ),
     _entry(
         "GL024",

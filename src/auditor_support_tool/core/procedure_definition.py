@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from auditor_support_tool.core.procedure_dataset_models import (
+    ProcedureDatasetRequirement,
+)
 from auditor_support_tool.core.procedure_identity import (
     canonical_procedure_id,
     procedure_display_id,
@@ -28,6 +31,7 @@ class ProcedureDefinition:
 
     required_fields: tuple[str, ...] = ()
     helpful_fields: tuple[str, ...] = ()
+    dataset_requirements: tuple[ProcedureDatasetRequirement, ...] = ()
     parameter_definitions: tuple[ProcedureParameterDefinition, ...] = ()
 
     procedure_version: str = "1.0"
@@ -42,6 +46,7 @@ class ProcedureDefinition:
         description: str = "",
         required_fields: tuple[str, ...] = (),
         helpful_fields: tuple[str, ...] = (),
+        dataset_requirements: tuple[ProcedureDatasetRequirement, ...] = (),
         parameter_definitions: tuple[ProcedureParameterDefinition, ...] = (),
         procedure_version: str = "1.0",
     ) -> ProcedureDefinition:
@@ -73,7 +78,14 @@ class ProcedureDefinition:
             label="Helpful field",
         )
 
+        cleaned_dataset_requirements = _normalise_dataset_requirements(dataset_requirements)
         cleaned_parameter_definitions = _normalise_parameter_definitions(parameter_definitions)
+
+        if cleaned_dataset_requirements and (cleaned_required_fields or cleaned_helpful_fields):
+            raise ValueError(
+                "Dataset-aware procedures must declare fields inside "
+                "dataset requirements rather than top-level field lists."
+            )
 
         overlapping_fields = set(cleaned_required_fields) & set(cleaned_helpful_fields)
 
@@ -91,6 +103,7 @@ class ProcedureDefinition:
             description=cleaned_description,
             required_fields=cleaned_required_fields,
             helpful_fields=cleaned_helpful_fields,
+            dataset_requirements=cleaned_dataset_requirements,
             parameter_definitions=cleaned_parameter_definitions,
             procedure_version=cleaned_version,
         )
@@ -105,7 +118,45 @@ class ProcedureDefinition:
     def all_fields(self) -> tuple[str, ...]:
         """Return all standard fields relevant to this procedure."""
 
-        return self.required_fields + self.helpful_fields
+        if not self.dataset_requirements:
+            return self.required_fields + self.helpful_fields
+
+        fields: list[str] = []
+        seen: set[str] = set()
+
+        for requirement in self.dataset_requirements:
+            for field_key in requirement.all_fields:
+                if field_key in seen:
+                    continue
+
+                seen.add(field_key)
+                fields.append(field_key)
+
+        return tuple(fields)
+
+    @property
+    def uses_dataset_requirements(self) -> bool:
+        """Return whether the procedure uses dataset-aware requirements."""
+
+        return bool(self.dataset_requirements)
+
+    @property
+    def is_multi_dataset(self) -> bool:
+        """Return whether execution requires more than one dataset role."""
+
+        return len(self.dataset_requirements) > 1
+
+    @property
+    def primary_dataset_requirement(
+        self,
+    ) -> ProcedureDatasetRequirement | None:
+        """Return the primary dataset requirement when one is declared."""
+
+        for requirement in self.dataset_requirements:
+            if requirement.primary:
+                return requirement
+
+        return None
 
     @property
     def parameter_keys(self) -> tuple[str, ...]:
@@ -137,6 +188,36 @@ def _normalise_fields(
         cleaned_fields.append(cleaned_field)
 
     return tuple(cleaned_fields)
+
+
+def _normalise_dataset_requirements(
+    requirements: tuple[ProcedureDatasetRequirement, ...],
+) -> tuple[ProcedureDatasetRequirement, ...]:
+    """Validate dataset requirements and their stable role identifiers."""
+
+    cleaned: list[ProcedureDatasetRequirement] = []
+    seen_roles: set[str] = set()
+    primary_count = 0
+
+    for requirement in requirements:
+        if not isinstance(requirement, ProcedureDatasetRequirement):
+            raise TypeError("Dataset requirements must be ProcedureDatasetRequirement instances.")
+
+        if requirement.role in seen_roles:
+            raise ValueError(f"Dataset requirement role is duplicated: {requirement.role}.")
+
+        seen_roles.add(requirement.role)
+        cleaned.append(requirement)
+
+        if requirement.primary:
+            primary_count += 1
+
+    if cleaned and primary_count != 1:
+        raise ValueError(
+            "Dataset-aware procedures must declare exactly one primary dataset requirement."
+        )
+
+    return tuple(cleaned)
 
 
 def _normalise_parameter_definitions(
