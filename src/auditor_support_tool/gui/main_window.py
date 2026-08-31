@@ -46,6 +46,9 @@ from auditor_support_tool.gui.dialogs.new_workspace_dialog import (
     NewWorkspaceDialog,
 )
 from auditor_support_tool.gui.pages.about_page import AboutPage
+from auditor_support_tool.gui.pages.ai_browser_access_page import (
+    AIBrowserAccessPage,
+)
 from auditor_support_tool.gui.pages.appearance_page import AppearancePage
 from auditor_support_tool.gui.pages.audit_procedures_page import (
     AuditProceduresPage,
@@ -964,9 +967,15 @@ class MainWindow(QMainWindow):
             self._register_page(
                 route=route,
                 title=title,
-                page=PlaceholderPage(
-                    title=title,
-                    description=description,
+                page=(
+                    AIBrowserAccessPage(
+                        settings_file=self._settings_service.file_path,
+                    )
+                    if route == "settings.ai_browser"
+                    else PlaceholderPage(
+                        title=title,
+                        description=description,
+                    )
                 ),
             )
 
