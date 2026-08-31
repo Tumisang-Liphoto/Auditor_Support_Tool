@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 from auditor_support_tool.core.audit_execution_models import (
@@ -24,6 +24,11 @@ from auditor_support_tool.core.audit_record_source import (
 from auditor_support_tool.core.audit_run_context_service import (
     AuditRunContextError,
     AuditRunContextService,
+)
+from auditor_support_tool.core.procedure_dataset_resolution import (
+    ProcedureDatasetBundle,
+    ProcedureDatasetResolver,
+    ProcedureDatasetSource,
 )
 from auditor_support_tool.core.procedure_identity import (
     canonical_procedure_id,
@@ -52,11 +57,13 @@ class TestEngineService:
         *,
         registry: ProcedureRegistry,
         readiness_service: ProcedureReadinessService | None = None,
+        dataset_resolver: ProcedureDatasetResolver | None = None,
         run_context_service: AuditRunContextService | None = None,
         execution_service: AuditExecutionService | None = None,
     ) -> None:
         self._registry = registry
         self._readiness_service = readiness_service or ProcedureReadinessService()
+        self._dataset_resolver = dataset_resolver or ProcedureDatasetResolver()
         self._run_context_service = run_context_service or AuditRunContextService()
         self._execution_service = execution_service or AuditExecutionService()
 
@@ -69,6 +76,7 @@ class TestEngineService:
         audit_period_start: str = "",
         audit_period_end: str = "",
         parameters: Mapping[str, object] | None = None,
+        dataset_sources: Iterable[ProcedureDatasetSource] = (),
         cancellation_token: ExecutionCancellationToken | None = None,
     ) -> TestEngineOutcome:
         """Run one registered procedure through the complete engine pipeline."""
@@ -87,10 +95,48 @@ class TestEngineService:
 
         definition = procedure.definition
 
-        readiness = self._readiness_service.check(
-            definition=definition,
-            source=source,
-        )
+        execution_source: AuditRecordSource = source
+
+        if definition.uses_dataset_requirements:
+            dataset_sources_tuple = tuple(dataset_sources)
+            active_candidates = tuple(
+                candidate
+                for candidate in dataset_sources_tuple
+                if candidate.source.dataset_id == source.dataset_id
+            )
+
+            if len(active_candidates) != 1:
+                return TestEngineOutcome(
+                    procedure_id=canonical_id,
+                    dataset_id=source.dataset_id,
+                    status=TestEngineStatus.FAILED,
+                    error_message=(
+                        "Dataset-aware procedure execution requires exactly one "
+                        "mapped dataset descriptor for the active dataset."
+                    ),
+                )
+
+            active_source = ProcedureDatasetSource.create(
+                dataset_type=active_candidates[0].dataset_type,
+                source=source,
+            )
+            resolution = self._dataset_resolver.resolve(
+                definition=definition,
+                active_source=active_source,
+                available_sources=dataset_sources_tuple,
+            )
+            readiness = self._readiness_service.check_datasets(
+                definition=definition,
+                resolution=resolution,
+            )
+
+            if readiness.can_run:
+                execution_source = ProcedureDatasetBundle.create(resolution)
+        else:
+            readiness = self._readiness_service.check(
+                definition=definition,
+                source=source,
+            )
 
         if not readiness.can_run:
             return TestEngineOutcome(
@@ -99,7 +145,8 @@ class TestEngineService:
                 status=TestEngineStatus.BLOCKED,
                 readiness=readiness,
                 error_message=(
-                    "The procedure cannot run because required standard fields are unavailable."
+                    "The procedure cannot run because required datasets or "
+                    "standard fields are unavailable."
                 ),
             )
 
@@ -125,7 +172,7 @@ class TestEngineService:
         try:
             context = self._run_context_service.build(
                 request=request,
-                record_source=source,
+                record_source=execution_source,
                 source_path=source_path,
                 procedure_version=(definition.procedure_version),
                 audit_period_start=audit_period_start,
@@ -165,7 +212,7 @@ class TestEngineService:
         try:
             execution = self._execution_service.execute(
                 request=request,
-                source=source,
+                source=execution_source,
                 runner=runner,
                 cancellation_token=cancellation_token,
             )

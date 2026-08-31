@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+import hashlib
+import json
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 
 from auditor_support_tool.core.audit_record_source import AuditRecordSource
@@ -103,6 +105,143 @@ class ProcedureDatasetResolution:
             return dataset.source.source
 
         return None
+
+
+@dataclass(frozen=True, slots=True)
+class ProcedureDatasetBundle:
+    """Resolved multi-dataset input exposed through the normal source contract.
+
+    The bundle delegates the standard ``AuditRecordSource`` population
+    interface to the declared primary dataset. Multi-dataset procedures can
+    additionally obtain reference sources by their generic role identifiers.
+    The mapping fingerprint combines every resolved role, so a change to any
+    participating dataset mapping makes the execution reproducibility stamp
+    stale.
+    """
+
+    resolution: ProcedureDatasetResolution
+    _primary_source: AuditRecordSource
+    _mapping_fingerprint: str
+
+    @classmethod
+    def create(
+        cls,
+        resolution: ProcedureDatasetResolution,
+    ) -> ProcedureDatasetBundle:
+        """Create a bundle only from a complete dataset resolution."""
+
+        if not resolution.complete:
+            raise ValueError("A procedure dataset bundle requires a complete dataset resolution.")
+
+        primary = resolution.primary
+
+        if primary is None or primary.source is None:
+            raise ValueError("A procedure dataset bundle requires one resolved primary dataset.")
+
+        return cls(
+            resolution=resolution,
+            _primary_source=primary.source.source,
+            _mapping_fingerprint=_combined_mapping_fingerprint(resolution),
+        )
+
+    @property
+    def dataset_id(self) -> str:
+        """Return the primary dataset identifier."""
+
+        return self._primary_source.dataset_id
+
+    @property
+    def record_count(self) -> int:
+        """Return the primary population count."""
+
+        return self._primary_source.record_count
+
+    @property
+    def standard_fields(self) -> tuple[str, ...]:
+        """Return standard fields exposed by the primary population."""
+
+        return self._primary_source.standard_fields
+
+    @property
+    def mapping_fingerprint(self) -> str:
+        """Return a fingerprint covering every resolved dataset role."""
+
+        return self._mapping_fingerprint
+
+    @property
+    def roles(self) -> tuple[str, ...]:
+        """Return resolved dataset role identifiers in definition order."""
+
+        return tuple(dataset.requirement.role for dataset in self.resolution.datasets)
+
+    def has_field(
+        self,
+        standard_field_key: str,
+    ) -> bool:
+        """Return whether the primary dataset exposes one standard field."""
+
+        return self._primary_source.has_field(standard_field_key)
+
+    def iter_records(self) -> Iterator:
+        """Yield records from the primary procedure population."""
+
+        return self._primary_source.iter_records()
+
+    def source_for_role(
+        self,
+        role: str,
+    ) -> AuditRecordSource | None:
+        """Return a resolved source by its generic procedure role."""
+
+        return self.resolution.source_for_role(role)
+
+    def require_source(
+        self,
+        role: str,
+    ) -> AuditRecordSource:
+        """Return a resolved role source or raise a clear procedure error."""
+
+        source = self.source_for_role(role)
+
+        if source is None:
+            cleaned_role = role.strip().lower()
+            raise KeyError(
+                f"No resolved procedure dataset source is available for role '{cleaned_role}'."
+            )
+
+        return source
+
+
+def _combined_mapping_fingerprint(
+    resolution: ProcedureDatasetResolution,
+) -> str:
+    """Return a deterministic SHA-256 over every resolved dataset mapping."""
+
+    manifest: list[dict[str, object]] = []
+
+    for dataset in resolution.datasets:
+        if dataset.source is None:
+            raise ValueError("Cannot fingerprint an unresolved procedure dataset role.")
+
+        manifest.append(
+            {
+                "role": dataset.requirement.role,
+                "dataset_type": dataset.requirement.dataset_type.value,
+                "primary": dataset.requirement.primary,
+                "dataset_id": dataset.source.source.dataset_id,
+                "mapping_fingerprint": (dataset.source.source.mapping_fingerprint),
+            }
+        )
+
+    manifest.sort(key=lambda item: str(item["role"]))
+
+    payload = json.dumps(
+        manifest,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+    return hashlib.sha256(payload).hexdigest()
 
 
 class ProcedureDatasetResolver:

@@ -23,6 +23,8 @@ from auditor_support_tool.core.procedure_availability import (
     ProcedureAvailabilityService,
 )
 from auditor_support_tool.core.procedure_dataset_resolution import (
+    ProcedureDatasetBundle,
+    ProcedureDatasetResolution,
     ProcedureDatasetSource,
 )
 from auditor_support_tool.core.procedure_definition import (
@@ -325,14 +327,7 @@ class AuditProceduresPage(QWidget):
             dataset_type=dataset.confirmed_dataset_type,
             source=source,
         )
-        mapped_sources = tuple(
-            ProcedureDatasetSource.create(
-                dataset_type=mapped_dataset.confirmed_dataset_type,
-                source=PreparedAuditDataset(mapped_dataset),
-            )
-            for mapped_dataset in self._mapped_datasets()
-            if mapped_dataset.confirmed_dataset_type != DatasetType.UNCLASSIFIED
-        )
+        mapped_sources = self._procedure_dataset_sources()
 
         available = self._availability_service.available_for_workspace(
             procedures=procedures,
@@ -351,6 +346,7 @@ class AuditProceduresPage(QWidget):
             execution_status = self._procedure_execution_status(
                 definition=item.procedure.definition,
                 source=source,
+                dataset_resolution=item.dataset_resolution,
             )
 
             self._procedure_rows_layout.addWidget(
@@ -570,6 +566,7 @@ class AuditProceduresPage(QWidget):
             audit_period_start=audit_period_start,
             audit_period_end=audit_period_end,
             parameters=effective_parameters,
+            dataset_sources=self._procedure_dataset_sources(),
         )
 
         if outcome.status == TestEngineStatus.COMPLETED and outcome.result is not None:
@@ -589,6 +586,7 @@ class AuditProceduresPage(QWidget):
         *,
         definition: ProcedureDefinition,
         source: PreparedAuditDataset,
+        dataset_resolution: ProcedureDatasetResolution | None = None,
     ) -> ProcedureExecutionStatus:
         """Return execution state for the current procedure and dataset."""
 
@@ -635,9 +633,20 @@ class AuditProceduresPage(QWidget):
             or ""
         )
 
+        status_source = source
+
+        if definition.uses_dataset_requirements:
+            if dataset_resolution is None or not dataset_resolution.complete:
+                return ProcedureExecutionStatus.NEEDS_RERUN
+
+            try:
+                status_source = ProcedureDatasetBundle.create(dataset_resolution)
+            except ValueError:
+                return ProcedureExecutionStatus.NEEDS_RERUN
+
         return self._execution_status_service.evaluate(
             definition=definition,
-            source=source,
+            source=status_source,
             source_path=source_path,
             parameters=effective_parameters,
             audit_period_start=audit_period_start,
@@ -685,6 +694,20 @@ class AuditProceduresPage(QWidget):
             dataset
             for dataset in self._workspace_state.selected_datasets
             if dataset.mapping_status in self._MAPPING_COMPLETE
+        )
+
+    def _procedure_dataset_sources(
+        self,
+    ) -> tuple[ProcedureDatasetSource, ...]:
+        """Return mapped datasets with generic type metadata for the Test Engine."""
+
+        return tuple(
+            ProcedureDatasetSource.create(
+                dataset_type=dataset.confirmed_dataset_type,
+                source=PreparedAuditDataset(dataset),
+            )
+            for dataset in self._mapped_datasets()
+            if dataset.confirmed_dataset_type != DatasetType.UNCLASSIFIED
         )
 
     def _parameter_summary(
