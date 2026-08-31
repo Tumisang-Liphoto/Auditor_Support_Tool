@@ -26,6 +26,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from auditor_support_tool.core.audit_procedure_report_builder import (
+    AuditProcedureReportBuilder,
+)
 from auditor_support_tool.core.procedure_registry import (
     ProcedureRegistry,
 )
@@ -35,6 +38,9 @@ from auditor_support_tool.core.test_engine_models import (
 )
 from auditor_support_tool.core.workspace_state import (
     WorkspaceState,
+)
+from auditor_support_tool.gui.dialogs.audit_procedure_report_dialog import (
+    AuditProcedureReportDialog,
 )
 from auditor_support_tool.presentation.result_dashboard_models import (
     DashboardIndicator,
@@ -182,6 +188,7 @@ class ResultsPage(QWidget):
 
         self._workspace_state = workspace_state
         self._procedure_registry = procedure_registry
+        self._report_builder = AuditProcedureReportBuilder()
         self._outcome: TestEngineOutcome | None = None
         self._presentation: ResultDashboardPresentation | None = None
         self._procedure_breadcrumb_title = "Procedure"
@@ -241,6 +248,9 @@ class ResultsPage(QWidget):
 
         self._empty_state.setVisible(False)
         self._result_content.setVisible(True)
+        self._view_report_button.setEnabled(
+            outcome.status == TestEngineStatus.COMPLETED and outcome.result is not None
+        )
 
     def clear_result(self) -> None:
         """Clear the current result."""
@@ -330,6 +340,13 @@ class ResultsPage(QWidget):
         back_button.setIcon(qta.icon("fa5s.arrow-left"))
         back_button.clicked.connect(lambda: self.back_requested.emit("workspace.audit_procedures"))
 
+        self._view_report_button = QPushButton("View Audit Report")
+        self._view_report_button.setObjectName("primaryActionButton")
+        self._view_report_button.setIcon(qta.icon("fa5s.file-alt"))
+        self._view_report_button.setEnabled(False)
+        self._view_report_button.setToolTip("Open the complete structured audit procedure report.")
+        self._view_report_button.clicked.connect(self._show_audit_report)
+
         self._export_button = QPushButton("Export Result")
         self._export_button.setObjectName("secondaryActionButton")
         self._export_button.setIcon(qta.icon("fa5s.download"))
@@ -347,6 +364,7 @@ class ResultsPage(QWidget):
 
         layout.addWidget(back_button)
         layout.addStretch(1)
+        layout.addWidget(self._view_report_button)
         layout.addWidget(self._export_button)
         layout.addWidget(more_button)
 
@@ -1466,8 +1484,35 @@ class ResultsPage(QWidget):
     ) -> None:
         """Show the page before a result has been selected."""
 
+        self._view_report_button.setEnabled(False)
         self._empty_state.setVisible(True)
         self._result_content.setVisible(False)
+
+    def _show_audit_report(
+        self,
+    ) -> None:
+        """Build and display the authoritative report for the current run."""
+
+        outcome = self._outcome
+
+        if (
+            outcome is None
+            or outcome.status != TestEngineStatus.COMPLETED
+            or outcome.result is None
+        ):
+            return
+
+        procedure = self._procedure_registry.require(outcome.procedure_id)
+        report = self._report_builder.build(
+            definition=procedure.definition,
+            result=outcome.result,
+        )
+
+        dialog = AuditProcedureReportDialog(
+            report=report,
+            parent=self,
+        )
+        dialog.exec()
 
     def _emit_export_requested(
         self,
