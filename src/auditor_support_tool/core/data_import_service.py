@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from openpyxl import load_workbook
+from openpyxl.worksheet._read_only import ReadOnlyWorksheet
 
 from auditor_support_tool.core.data_models import (
     SOURCE_ROW_FIELD,
@@ -106,29 +107,51 @@ class DataImportService:
             raise DataImportError(f"Unable to inspect Excel workbook: {error}") from error
 
         try:
-            worksheets = tuple(
-                WorksheetInfo(
-                    name=worksheet.title,
-                    position=index,
-                    maximum_row=worksheet.max_row,
-                    maximum_column=worksheet.max_column,
-                    estimated_data_rows=max(
-                        worksheet.max_row - 1,
-                        0,
-                    ),
+            worksheets = []
+            for index, worksheet in enumerate(workbook.worksheets, start=1):
+                maximum_row, maximum_column = self._worksheet_bounds(worksheet)
+                worksheets.append(
+                    WorksheetInfo(
+                        name=worksheet.title,
+                        position=index,
+                        maximum_row=maximum_row,
+                        maximum_column=maximum_column,
+                        estimated_data_rows=max(
+                            maximum_row - 1,
+                            0,
+                        ),
+                    )
                 )
-                for index, worksheet in enumerate(
-                    workbook.worksheets,
-                    start=1,
-                )
-            )
         finally:
             workbook.close()
 
         if not worksheets:
             raise DataImportError("The Excel workbook does not contain any worksheets.")
 
-        return worksheets
+        return tuple(worksheets)
+
+    @staticmethod
+    def _worksheet_bounds(worksheet: ReadOnlyWorksheet) -> tuple[int, int]:
+        """Recover missing or placeholder dimensions without retaining worksheet rows."""
+
+        maximum_row, maximum_column = worksheet.max_row, worksheet.max_column
+        if (
+            isinstance(maximum_row, int)
+            and maximum_row > 0
+            and isinstance(maximum_column, int)
+            and maximum_column > 0
+            and (maximum_row, maximum_column) != (1, 1)
+        ):
+            return maximum_row, maximum_column
+
+        # Some producers omit dimensions or write A1:A1 for a larger sheet.
+        # Remove those bounds so iteration cannot silently truncate the content.
+        worksheet.reset_dimensions()
+        maximum_row, maximum_column = 1, 1
+        for row_number, row in enumerate(worksheet.iter_rows(values_only=True), start=1):
+            maximum_row = row_number
+            maximum_column = max(maximum_column, len(row))
+        return maximum_row, maximum_column
 
     def _inspect_csv(
         self,
@@ -175,11 +198,14 @@ class DataImportService:
             else:
                 worksheet = workbook.worksheets[0]
 
-            if header_row > worksheet.max_row:
+            maximum_row, maximum_column = self._worksheet_bounds(worksheet)
+            if header_row > maximum_row:
                 raise DataImportError("The selected header row is beyond the worksheet data.")
 
             row_iterator = worksheet.iter_rows(
                 min_row=header_row,
+                max_row=maximum_row,
+                max_col=maximum_column,
                 values_only=True,
             )
 
