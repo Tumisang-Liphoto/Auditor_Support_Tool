@@ -143,8 +143,8 @@ class AuditProceduresPage(QWidget):
         title.setObjectName("pageTitle")
 
         subtitle = QLabel(
-            "Run audit procedures supported by the currently prepared and "
-            "mapped data. Availability is checked automatically."
+            "Select a procedure and run it against the mapped audit data. "
+            "The application checks readiness automatically."
         )
         subtitle.setObjectName("pageSubtitle")
         subtitle.setWordWrap(True)
@@ -183,22 +183,22 @@ class AuditProceduresPage(QWidget):
         heading = QLabel("Dataset")
         heading.setObjectName("profileSectionTitle")
 
-        description = QLabel(
-            "The active mapped dataset is selected automatically. "
-            "Change it only when the current audit contains more than one dataset."
+        self._dataset_description = QLabel(
+            "Complete Field Mapping to make a dataset available for audit procedures."
         )
-        description.setObjectName("profileSectionDescription")
-        description.setWordWrap(True)
+        self._dataset_description.setObjectName("profileSectionDescription")
+        self._dataset_description.setWordWrap(True)
 
         self._dataset_selector = QComboBox()
         self._dataset_selector.setEnabled(False)
+        self._dataset_selector.setVisible(False)
 
-        self._dataset_summary = QLabel("No mapped dataset is available.")
+        self._dataset_summary = QLabel("No dataset is ready. Complete Field Mapping first.")
         self._dataset_summary.setObjectName("fieldHint")
         self._dataset_summary.setWordWrap(True)
 
         layout.addWidget(heading)
-        layout.addWidget(description)
+        layout.addWidget(self._dataset_description)
         layout.addWidget(self._dataset_selector)
         layout.addWidget(self._dataset_summary)
 
@@ -218,13 +218,12 @@ class AuditProceduresPage(QWidget):
         self._procedures_layout.setContentsMargins(30, 24, 30, 24)
         self._procedures_layout.setSpacing(14)
 
-        heading = QLabel("Available Procedures")
+        heading = QLabel("Procedures")
         heading.setObjectName("profileSectionTitle")
 
         description = QLabel(
-            "Only implemented procedures whose required datasets and fields "
-            "are available are shown. Optional fields may enrich results but "
-            "do not block execution."
+            "Only implemented procedures that are ready for the selected dataset "
+            "are shown. Optional fields may enrich results but do not block a run."
         )
         description.setObjectName("profileSectionDescription")
         description.setWordWrap(True)
@@ -268,7 +267,7 @@ class AuditProceduresPage(QWidget):
         dataset = self._active_mapped_dataset()
 
         if dataset is None:
-            self._dataset_summary.setText("No mapped dataset is available.")
+            self._dataset_summary.setText("No dataset is ready. Complete Field Mapping first.")
             self._clear_procedure_rows()
 
             empty_label = QLabel("Complete Field Mapping before running audit procedures.")
@@ -304,7 +303,7 @@ class AuditProceduresPage(QWidget):
             elif self._dataset_selector.count() > 0:
                 self._dataset_selector.setCurrentIndex(0)
 
-            self._dataset_selector.setEnabled(self._dataset_selector.count() > 1)
+            self._update_dataset_selector_presentation()
         finally:
             self._updating_dataset_selector = False
 
@@ -336,7 +335,10 @@ class AuditProceduresPage(QWidget):
         )
 
         if not available:
-            empty_label = QLabel("No audit procedures are available for the currently mapped data.")
+            empty_label = QLabel(
+                "No procedures are ready for this dataset. "
+                "Review Field Mapping if you expected a procedure to appear."
+            )
             empty_label.setObjectName("fieldHint")
             empty_label.setWordWrap(True)
             self._procedure_rows_layout.addWidget(empty_label)
@@ -408,7 +410,7 @@ class AuditProceduresPage(QWidget):
         actions_layout = QHBoxLayout()
         actions_layout.setSpacing(8)
 
-        description_button = QPushButton("Test Description")
+        description_button = QPushButton("About Test")
         description_button.setObjectName("secondaryActionButton")
         description_button.setIcon(qta.icon("fa5s.book-open"))
 
@@ -654,6 +656,28 @@ class AuditProceduresPage(QWidget):
             stamp=stamp,
         )
 
+    def _update_dataset_selector_presentation(self) -> None:
+        """Show dataset choice only when the auditor actually has a choice."""
+
+        count = self._dataset_selector.count()
+        has_choice = count > 1
+
+        self._dataset_selector.setVisible(has_choice)
+        self._dataset_selector.setEnabled(has_choice)
+
+        if count == 0:
+            self._dataset_description.setText(
+                "Complete Field Mapping to make a dataset available for audit procedures."
+            )
+        elif has_choice:
+            self._dataset_description.setText(
+                "Choose the mapped dataset whose audit procedures you want to review."
+            )
+        else:
+            self._dataset_description.setText(
+                "Audit procedures will run against this mapped dataset."
+            )
+
     def _dataset_selection_changed(self, index: int) -> None:
         """Change the active dataset when the auditor selects another one."""
 
@@ -774,42 +798,86 @@ class AuditProceduresPage(QWidget):
             f"| Records: {dataset.loaded_table.record_count:,}"
         )
 
-    @staticmethod
-    def _readiness_message(readiness: ProcedureReadiness) -> str:
-        """Return concise field-readiness information."""
+    @classmethod
+    def _readiness_message(cls, readiness: ProcedureReadiness) -> str:
+        """Return concise auditor-facing readiness information."""
 
         if readiness.dataset_readiness:
-            parts = []
+            parts: list[str] = []
 
             for dataset in readiness.dataset_readiness:
-                dataset_name = dataset.dataset_type.value.replace("_", " ").title()
+                dataset_name = cls._friendly_field_name(dataset.dataset_type.value)
 
                 if not dataset.resolved:
                     parts.append(f"{dataset_name}: unavailable")
                     continue
 
-                fields = ", ".join(dataset.mapped_required_fields)
+                fields = ", ".join(
+                    f"{cls._friendly_field_name(field)} ✓"
+                    for field in dataset.mapped_required_fields
+                )
 
                 if fields:
                     parts.append(f"{dataset_name}: {fields}")
                 else:
-                    parts.append(f"{dataset_name}: available")
+                    parts.append(f"{dataset_name}: ready")
+
+            message = "Required data: " + " | ".join(parts)
 
             if readiness.warnings:
-                return " | ".join(parts) + " | " + " ".join(readiness.warnings)
+                message += " | " + " ".join(readiness.warnings)
 
-            return "Required datasets available: " + " | ".join(parts)
+            return message
 
         if readiness.missing_required_fields:
-            return "Missing required field mapping: " + ", ".join(readiness.missing_required_fields)
+            missing = ", ".join(
+                cls._friendly_field_name(field) for field in readiness.missing_required_fields
+            )
+            return "Needs setup: " + missing
+
+        if readiness.mapped_required_fields:
+            mapped = ", ".join(
+                f"{cls._friendly_field_name(field)} ✓" for field in readiness.mapped_required_fields
+            )
+            message = "Required fields: " + mapped
+
+            if readiness.warnings:
+                message += " | " + " ".join(readiness.warnings)
+
+            return message
 
         if readiness.warnings:
             return " ".join(readiness.warnings)
 
-        if readiness.mapped_required_fields:
-            return "Required fields available: " + ", ".join(readiness.mapped_required_fields)
+        return "Ready to run."
 
-        return "No additional required fields."
+    @staticmethod
+    def _friendly_field_name(field_key: str) -> str:
+        """Convert canonical field keys into concise auditor-facing labels."""
+
+        def _title(part: str) -> str:
+            words = part.replace("-", "_").split("_")
+            labels: list[str] = []
+
+            for word in words:
+                lowered = word.casefold()
+
+                if lowered == "id":
+                    labels.append("ID")
+                elif lowered == "gl":
+                    labels.append("GL")
+                elif lowered == "vat":
+                    labels.append("VAT")
+                else:
+                    labels.append(word.capitalize())
+
+            return " ".join(labels)
+
+        if "." not in field_key:
+            return _title(field_key)
+
+        dataset_key, field_name = field_key.split(".", 1)
+        return f"{_title(dataset_key)}: {_title(field_name)}"
 
     @staticmethod
     def _execution_status_text(
@@ -818,7 +886,7 @@ class AuditProceduresPage(QWidget):
         """Return the concise procedure execution badge."""
 
         labels = {
-            ProcedureExecutionStatus.NOT_RUN: "Not Run",
+            ProcedureExecutionStatus.NOT_RUN: "Ready to Run",
             ProcedureExecutionStatus.COMPLETED: "✓ Completed",
             ProcedureExecutionStatus.NEEDS_RERUN: "↻ Needs Re-run",
         }
@@ -832,10 +900,10 @@ class AuditProceduresPage(QWidget):
         """Return the appropriate action for the current execution state."""
 
         if status == ProcedureExecutionStatus.NOT_RUN:
-            return "Run Test"
+            return "Run"
 
         if status == ProcedureExecutionStatus.NEEDS_RERUN:
-            return "Re-run Test"
+            return "Re-run"
 
         return "Run Again"
 
