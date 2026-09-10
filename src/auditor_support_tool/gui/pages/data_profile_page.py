@@ -112,7 +112,7 @@ class DataProfilePage(QWidget):
         layout.setContentsMargins(30, 24, 30, 24)
         layout.setSpacing(14)
 
-        heading = QLabel("Population Summary")
+        heading = QLabel("Dataset Summary")
         heading.setObjectName("profileSectionTitle")
 
         description = QLabel(
@@ -123,7 +123,7 @@ class DataProfilePage(QWidget):
         description.setObjectName("profileSectionDescription")
         description.setWordWrap(True)
 
-        dataset_label = QLabel("Dataset being reviewed")
+        dataset_label = QLabel("Dataset")
         dataset_label.setObjectName("fieldLabel")
 
         self._dataset_selector = QComboBox()
@@ -151,15 +151,15 @@ class DataProfilePage(QWidget):
         summary_items = (
             ("Source file", self._source_file_value),
             (
-                "Original worksheet",
+                "Source",
                 self._worksheet_value,
             ),
             (
-                "Confirmed dataset name",
+                "Dataset name",
                 self._dataset_name_value,
             ),
             (
-                "Confirmed dataset type",
+                "Dataset type",
                 self._dataset_type_value,
             ),
             ("Records", self._records_value),
@@ -243,16 +243,22 @@ class DataProfilePage(QWidget):
             (
                 "Position",
                 "Column",
-                "Detected Type",
+                "Type",
                 "Records",
                 "Populated",
                 "Blank",
                 "Complete",
                 "Distinct",
-                "Duplicate Values",
-                "Sample Values",
+                "Repeated Values",
+                "Sample",
             )
         )
+
+        # Position and repeated population counts remain available internally,
+        # but the normal profile view focuses on column-level quality signals.
+        self._columns_table.setColumnHidden(0, True)
+        self._columns_table.setColumnHidden(3, True)
+        self._columns_table.setColumnHidden(4, True)
 
         self._columns_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._columns_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -280,7 +286,7 @@ class DataProfilePage(QWidget):
         actions_layout = QHBoxLayout()
         actions_layout.addStretch(1)
 
-        self._continue_button = QPushButton("Confirm Profiles and Continue")
+        self._continue_button = QPushButton("Continue to Data Preparation")
         self._continue_button.setObjectName("primaryActionButton")
         self._continue_button.setEnabled(False)
 
@@ -389,8 +395,8 @@ class DataProfilePage(QWidget):
             )
             self._records_value.setText(f"{table.record_count:,}")
             self._columns_value.setText(f"{table.column_count:,}")
-            self._blank_cells_value.setText("â€”")
-            self._columns_with_blanks_value.setText("â€”")
+            self._blank_cells_value.setText("—")
+            self._columns_with_blanks_value.setText("—")
             self._columns_table.setRowCount(0)
 
             self._set_summary_status(
@@ -480,14 +486,13 @@ class DataProfilePage(QWidget):
         self._columns_table.setSortingEnabled(True)
 
         self._set_summary_status(
-            ("The selected dataset profile is available."),
+            ("Profile ready."),
             "success",
         )
 
         self._table_status.setText(
-            f"{len(profile.columns):,} source "
-            "column(s) were profiled. No audit "
-            "tests have been run."
+            f"{self._column_count_text(len(profile.columns))} profiled. "
+            "No audit tests have been run."
         )
 
     def _populate_column_row(
@@ -541,7 +546,7 @@ class DataProfilePage(QWidget):
             self._blank_cells_value,
             self._columns_with_blanks_value,
         ):
-            label.setText("â€”")
+            label.setText("—")
 
     def _set_summary_status(
         self,
@@ -558,8 +563,13 @@ class DataProfilePage(QWidget):
         self._summary_status.style().polish(self._summary_status)
 
     @staticmethod
+    def _column_count_text(count: int) -> str:
+        noun = "column" if count == 1 else "columns"
+        return f"{count:,} {noun}"
+
+    @staticmethod
     def _summary_value() -> QLabel:
-        label = QLabel("â€”")
+        label = QLabel("—")
         label.setObjectName("fieldHint")
         return label
 
@@ -574,7 +584,7 @@ class DataProfilePage(QWidget):
         values: tuple[Any, ...],
     ) -> str:
         if not values:
-            return "â€”"
+            return "—"
 
         return " | ".join(DataProfilePage._format_value(value) for value in values)
 
