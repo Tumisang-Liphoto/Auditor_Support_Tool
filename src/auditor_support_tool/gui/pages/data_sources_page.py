@@ -90,7 +90,7 @@ class DataSourcesPage(QWidget):
 
         subtitle = QLabel(
             "Select a workbook, load its available worksheets and choose "
-            "the datasets that will form part of the audit workspace."
+            "the datasets that will form part of the current audit."
         )
         subtitle.setObjectName("pageSubtitle")
         subtitle.setWordWrap(True)
@@ -143,7 +143,7 @@ class DataSourcesPage(QWidget):
         self._load_package_button.setObjectName("primaryActionButton")
         self._load_package_button.setEnabled(False)
 
-        self._clear_button = QPushButton("Clear Workspace")
+        self._clear_button = QPushButton("Clear Audit")
         self._clear_button.setObjectName("secondaryActionButton")
         self._clear_button.setEnabled(False)
 
@@ -399,7 +399,7 @@ class DataSourcesPage(QWidget):
                 dataset_type_item = QTableWidgetItem("Not analysed")
                 records_item = self._centred_item(f"{worksheet.estimated_data_rows:,}")
                 columns_item = self._centred_item(f"{worksheet.maximum_column:,}")
-                confidence_item = self._centred_item("â€”")
+                confidence_item = self._centred_item("—")
 
                 status_text = "Ready for analysis" if worksheet.estimated_data_rows > 0 else "Empty"
                 status_item = self._centred_item(status_text)
@@ -901,10 +901,10 @@ class DataSourcesPage(QWidget):
         self._source_path = None
 
         self._path_field.clear()
-        self._file_type_value.setText("â€”")
-        self._file_size_value.setText("â€”")
-        self._worksheet_count_value.setText("â€”")
-        self._loaded_dataset_count_value.setText("â€”")
+        self._file_type_value.setText("—")
+        self._file_size_value.setText("—")
+        self._worksheet_count_value.setText("—")
+        self._loaded_dataset_count_value.setText("—")
 
         self._navigator_table.clearContents()
         self._navigator_table.setRowCount(0)
@@ -955,7 +955,7 @@ class DataSourcesPage(QWidget):
             "success",
         )
         self._set_navigator_status(
-            (f"{len(package.datasets):,} dataset(s) are available in the workspace."),
+            (f"{len(package.datasets):,} dataset(s) are available in the current audit."),
             "success",
         )
 
@@ -985,7 +985,7 @@ class DataSourcesPage(QWidget):
 
     @staticmethod
     def _metadata_value() -> QLabel:
-        label = QLabel("â€”")
+        label = QLabel("—")
         label.setObjectName("fieldHint")
         return label
 

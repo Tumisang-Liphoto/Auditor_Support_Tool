@@ -252,34 +252,12 @@ class Sidebar(QFrame):
             ...,
         ] = (
             (
-                "Engagements",
-                "fa5s.briefcase",
-                (
-                    (
-                        "All Engagements",
-                        "engagements.all",
-                    ),
-                    (
-                        "New Engagement",
-                        "engagements.new",
-                    ),
-                    (
-                        "Archived Engagements",
-                        "engagements.archived",
-                    ),
-                ),
-            ),
-            (
-                "Audit Workspace",
+                "Current Audit",
                 "fa5s.tasks",
                 (
                     (
-                        "New Workspace",
+                        "New Audit",
                         "workspace.new",
-                    ),
-                    (
-                        "Engagement Overview",
-                        "workspace.overview",
                     ),
                     (
                         "Data Sources",
@@ -305,28 +283,6 @@ class Sidebar(QFrame):
                         "Results",
                         "workspace.results",
                     ),
-                    (
-                        "Investigation",
-                        "workspace.investigation",
-                    ),
-                ),
-            ),
-            (
-                "Reports",
-                "fa5s.file-alt",
-                (
-                    (
-                        "Generate Reports",
-                        "reports.generate",
-                    ),
-                    (
-                        "Export Results",
-                        "reports.export",
-                    ),
-                    (
-                        "Previous Reports",
-                        "reports.previous",
-                    ),
                 ),
             ),
             (
@@ -342,46 +298,8 @@ class Sidebar(QFrame):
                         "settings.appearance",
                     ),
                     (
-                        "Data && Storage",
-                        "settings.data_storage",
-                    ),
-                    (
-                        "AI Browser Access",
+                        "AI Integration",
                         "settings.ai_browser",
-                    ),
-                    (
-                        "Backup && Restore",
-                        "settings.backup_restore",
-                    ),
-                    (
-                        "Reset Application",
-                        "settings.reset",
-                    ),
-                    (
-                        "Diagnostics",
-                        "settings.diagnostics",
-                    ),
-                ),
-            ),
-            (
-                "About",
-                "fa5s.info-circle",
-                (
-                    (
-                        "Overview",
-                        "about.overview",
-                    ),
-                    (
-                        "Updates",
-                        "settings.updates",
-                    ),
-                    (
-                        "Manuals",
-                        "about.manuals",
-                    ),
-                    (
-                        "Test Descriptions",
-                        "about.test_descriptions",
                     ),
                 ),
             ),

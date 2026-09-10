@@ -72,7 +72,7 @@ class ProcedureParametersDialog(QDialog):
         title.setObjectName("dialogTitle")
 
         description = QLabel(
-            "These settings are saved with the audit workspace and recorded "
+            "These settings are saved with the audit and recorded "
             "with the procedure run. Optional settings may be left blank."
         )
         description.setObjectName("fieldHint")

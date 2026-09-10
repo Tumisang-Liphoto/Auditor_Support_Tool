@@ -47,7 +47,7 @@ class WorkspaceContextPanel(QFrame):
         )
         layout.setSpacing(5)
 
-        eyebrow = QLabel("WORKSPACE")
+        eyebrow = QLabel("CURRENT AUDIT")
         eyebrow.setObjectName("workspaceContextEyebrow")
 
         heading_layout = QHBoxLayout()
@@ -112,7 +112,7 @@ class WorkspaceContextPanel(QFrame):
                 "name",
                 "",
             )
-            or "Active Workspace"
+            or "Current Audit"
         )
 
         audit_year = str(
@@ -176,7 +176,7 @@ class WorkspaceContextPanel(QFrame):
         if audit_year:
             return f"FY {audit_year} Audit"
 
-        return "Audit workspace"
+        return "Current Audit"
 
     @staticmethod
     def _period_text(

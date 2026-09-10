@@ -185,7 +185,7 @@ class AuditProceduresPage(QWidget):
 
         description = QLabel(
             "The active mapped dataset is selected automatically. "
-            "Change it only when the workspace contains more than one dataset."
+            "Change it only when the current audit contains more than one dataset."
         )
         description.setObjectName("profileSectionDescription")
         description.setWordWrap(True)
@@ -512,14 +512,14 @@ class AuditProceduresPage(QWidget):
 
         if source_path is None:
             self._set_page_status(
-                "The workspace source file is not available.",
+                "The audit source file is not available.",
                 "error",
             )
             return
 
         if identity is None:
             self._set_page_status(
-                "No active audit workspace is available.",
+                "No active audit is available.",
                 "error",
             )
             return

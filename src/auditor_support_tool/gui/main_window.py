@@ -229,6 +229,10 @@ class MainWindow(QMainWindow):
             self._create_new_workspace()
             return
 
+        if route == "workspace.open":
+            self._open_workspace()
+            return
+
         self.show_route(route)
 
     def _toggle_sidebar(self) -> None:
@@ -243,13 +247,13 @@ class MainWindow(QMainWindow):
         self._sidebar_toggle_button.setToolTip(tooltip)
 
     def _save_workspace(self) -> bool:
-        """Save the active audit workspace."""
+        """Save the active audit."""
 
         if not self._workspace_state.has_workspace:
             QMessageBox.information(
                 self,
-                "No Active Workspace",
-                "Create or open an audit workspace before saving.",
+                "No Active Audit",
+                "Create or open an audit before saving.",
             )
             return False
 
@@ -261,12 +265,12 @@ class MainWindow(QMainWindow):
         except WorkspaceServiceError as error:
             QMessageBox.critical(
                 self,
-                "Workspace Save Failed",
+                "Audit Save Failed",
                 str(error),
             )
             return False
 
-        self.statusBar().showMessage(f"Workspace saved: {saved_path.name}")
+        self.statusBar().showMessage(f"Audit saved: {saved_path.name}")
 
         return True
 
@@ -278,8 +282,8 @@ class MainWindow(QMainWindow):
         if identity is None:
             QMessageBox.information(
                 self,
-                "No Active Workspace",
-                "Create or open an audit workspace before saving.",
+                "No Active Audit",
+                "Create or open an audit before saving.",
             )
             return False
 
@@ -291,9 +295,9 @@ class MainWindow(QMainWindow):
 
         selected_path, _selected_filter = QFileDialog.getSaveFileName(
             self,
-            "Save Audit Workspace",
+            "Save Audit",
             str(initial_path),
-            "Auditor Support Tool Workspace (*.astworkspace)",
+            "Auditor Support Tool Audit (*.astworkspace)",
         )
 
         if not selected_path:
@@ -307,13 +311,13 @@ class MainWindow(QMainWindow):
         except WorkspaceServiceError as error:
             QMessageBox.critical(
                 self,
-                "Workspace Save Failed",
+                "Audit Save Failed",
                 str(error),
             )
             return False
 
         self.statusBar().showMessage(
-            f"Workspace saved: {saved_path.name}This is now the active workspace file."
+            f"Audit saved: {saved_path.name}. This is now the active audit file."
         )
 
         return True
@@ -325,11 +329,11 @@ class MainWindow(QMainWindow):
             return True
 
         identity = self._workspace_state.workspace_identity
-        workspace_name = identity.name if identity is not None else "the current workspace"
+        workspace_name = identity.name if identity is not None else "the current audit"
 
         message_box = QMessageBox(self)
         message_box.setIcon(QMessageBox.Icon.Warning)
-        message_box.setWindowTitle("Unsaved Workspace Changes")
+        message_box.setWindowTitle("Unsaved Audit Changes")
         message_box.setText(f"{workspace_name} contains unsaved changes.")
         message_box.setInformativeText("Do you want to save the changes before continuing?")
 
@@ -362,7 +366,7 @@ class MainWindow(QMainWindow):
 
         safe_name = safe_name.rstrip(". ")
 
-        return safe_name or "Audit Workspace"
+        return safe_name or "Audit"
 
     def _create_new_workspace(self) -> None:
         """Create and activate a new audit workspace."""
@@ -385,7 +389,7 @@ class MainWindow(QMainWindow):
         self.show_route("workspace.data_sources")
 
         self.statusBar().showMessage(
-            f"Created workspace: {identity.name}. The workspace has not yet been saved."
+            f"Created audit: {identity.name}. The audit has not yet been saved."
         )
 
     def _build_menu_bar(self) -> None:
@@ -401,22 +405,22 @@ class MainWindow(QMainWindow):
         file_menu.setObjectName("applicationMenu")
 
         new_workspace_action = QAction(
-            "New Workspace",
+            "New Audit",
             self,
         )
         new_workspace_action.setShortcut(QKeySequence("Ctrl+N"))
-        new_workspace_action.setStatusTip("Create a new audit workspace.")
+        new_workspace_action.setStatusTip("Create a new audit.")
         new_workspace_action.triggered.connect(self._create_new_workspace)
 
         self._menu_actions["new_workspace"] = new_workspace_action
         file_menu.addAction(new_workspace_action)
 
         open_workspace_action = QAction(
-            "Open Workspace...",
+            "Open Audit...",
             self,
         )
         open_workspace_action.setShortcut(QKeySequence("Ctrl+O"))
-        open_workspace_action.setStatusTip("Open a previously saved audit workspace.")
+        open_workspace_action.setStatusTip("Open a previously saved audit.")
         open_workspace_action.triggered.connect(self._open_workspace)
 
         self._menu_actions["open_workspace"] = open_workspace_action
@@ -425,23 +429,23 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
 
         save_workspace_action = QAction(
-            "Save Workspace",
+            "Save Audit",
             self,
         )
         save_workspace_action.setShortcut(QKeySequence("Ctrl+S"))
-        save_workspace_action.setStatusTip("Save the active audit workspace.")
+        save_workspace_action.setStatusTip("Save the active audit.")
         save_workspace_action.triggered.connect(self._save_workspace)
 
         self._menu_actions["save_workspace"] = save_workspace_action
         file_menu.addAction(save_workspace_action)
 
         save_workspace_as_action = QAction(
-            "Save Workspace As...",
+            "Save Audit As...",
             self,
         )
         save_workspace_as_action.setShortcut(QKeySequence("Ctrl+Shift+S"))
         save_workspace_as_action.setStatusTip(
-            "Save the active audit workspace to another location."
+            "Save the active audit to another location."
         )
         save_workspace_as_action.triggered.connect(self._save_workspace_as)
 
@@ -451,11 +455,11 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
 
         close_workspace_action = QAction(
-            "Close Workspace",
+            "Close Audit",
             self,
         )
         close_workspace_action.setShortcut(QKeySequence("Ctrl+W"))
-        close_workspace_action.setStatusTip("Close the active audit workspace.")
+        close_workspace_action.setStatusTip("Close the active audit.")
         close_workspace_action.triggered.connect(self._close_workspace)
 
         self._menu_actions["close_workspace"] = close_workspace_action
@@ -565,23 +569,12 @@ class MainWindow(QMainWindow):
             )
         )
 
-        settings_menu.addSeparator()
-
         settings_menu.addAction(
             self._create_route_action(
-                key="data_storage",
-                text="Data && Storage",
-                route="settings.data_storage",
-                status_tip="Review application data and storage locations.",
-            )
-        )
-
-        settings_menu.addAction(
-            self._create_route_action(
-                key="diagnostics",
-                text="Diagnostics",
-                route="settings.diagnostics",
-                status_tip="Review application diagnostics.",
+                key="ai_browser",
+                text="AI Integration",
+                route="settings.ai_browser",
+                status_tip="Configure the approved AI analysis integration.",
             )
         )
 
@@ -683,7 +676,7 @@ class MainWindow(QMainWindow):
         """Create and register all application pages."""
 
         dashboard = DashboardPage()
-        dashboard.route_requested.connect(self.show_route)
+        dashboard.route_requested.connect(self._handle_sidebar_selection)
 
         self._register_page(
             route="dashboard",
@@ -878,7 +871,7 @@ class MainWindow(QMainWindow):
                 "Data Sources",
                 (
                     "Register Excel and CSV source files and "
-                    "select datasets for the audit workspace."
+                    "select datasets for the current audit."
                 ),
             ),
             (
@@ -1115,7 +1108,7 @@ class MainWindow(QMainWindow):
 
             if results_page is not None and results_page.outcome is not None:
                 return (
-                    "Audit Workspace",
+                    "Current Audit",
                     "Audit Procedures",
                     results_page.procedure_breadcrumb_title,
                     "Results",
@@ -1130,7 +1123,7 @@ class MainWindow(QMainWindow):
 
             if page is not None:
                 return (
-                    "Audit Workspace",
+                    "Current Audit",
                     "Audit Procedures",
                     page.breadcrumb_title,
                     "Test Description",
@@ -1138,7 +1131,7 @@ class MainWindow(QMainWindow):
 
         if route.startswith("workspace."):
             return (
-                "Audit Workspace",
+                "Current Audit",
                 title,
             )
 
@@ -1264,16 +1257,16 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Profile updated for {profile_name}.")
 
     def _open_workspace(self) -> None:
-        """Open a previously saved audit workspace."""
+        """Open a previously saved audit."""
 
         if not self._confirm_workspace_transition():
             return
 
         selected_path, _selected_filter = QFileDialog.getOpenFileName(
             self,
-            "Open Audit Workspace",
+            "Open Audit",
             str(self._workspace_service.default_workspace_directory),
-            "Auditor Support Tool Workspace (*.astworkspace)",
+            "Auditor Support Tool Audit (*.astworkspace)",
         )
 
         if not selected_path:
@@ -1292,12 +1285,12 @@ class MainWindow(QMainWindow):
             warning.setIcon(QMessageBox.Icon.Warning)
             warning.setWindowTitle("Source Integrity Warning")
             warning.setText(
-                "The saved workspace source file no longer matches "
-                "the SHA-256 hash recorded when the workspace was saved."
+                "The saved audit source file no longer matches "
+                "the SHA-256 hash recorded when the audit was saved."
             )
             warning.setInformativeText(
                 "This may mean the source data was changed outside the "
-                "Auditor Support Tool. Open the workspace only if you "
+                "Auditor Support Tool. Open the audit only if you "
                 "understand and accept this integrity exception."
             )
             warning.setDetailedText(
@@ -1322,7 +1315,7 @@ class MainWindow(QMainWindow):
             except WorkspaceServiceError as retry_error:
                 QMessageBox.critical(
                     self,
-                    "Workspace Open Failed",
+                    "Audit Open Failed",
                     str(retry_error),
                 )
                 return
@@ -1332,7 +1325,7 @@ class MainWindow(QMainWindow):
         except WorkspaceServiceError as error:
             QMessageBox.critical(
                 self,
-                "Workspace Open Failed",
+                "Audit Open Failed",
                 str(error),
             )
             return
@@ -1340,18 +1333,18 @@ class MainWindow(QMainWindow):
         self.show_route("workspace.data_sources")
 
         if integrity_mismatch_accepted:
-            self._show_readiness_warning("Workspace opened with a source integrity warning.")
+            self._show_readiness_warning("Audit opened with a source integrity warning.")
         else:
-            self.statusBar().showMessage(f"Workspace opened: {document.identity.name}")
+            self.statusBar().showMessage(f"Audit opened: {document.identity.name}")
 
     def _close_workspace(self) -> None:
-        """Close the active audit workspace."""
+        """Close the active audit."""
 
         if not self._workspace_state.has_workspace:
             QMessageBox.information(
                 self,
-                "No Active Workspace",
-                "There is no audit workspace currently open.",
+                "No Active Audit",
+                "There is no audit currently open.",
             )
             return
 
@@ -1361,7 +1354,7 @@ class MainWindow(QMainWindow):
         self._workspace_state.clear()
         self.show_route("dashboard")
 
-        self.statusBar().showMessage("Audit workspace closed.")
+        self.statusBar().showMessage("Audit closed.")
 
     def closeEvent(
         self,

@@ -29,7 +29,7 @@ class NewWorkspaceDialog(QDialog):
 
         self._workspace_identity: WorkspaceIdentity | None = None
 
-        self.setWindowTitle("New Audit Workspace")
+        self.setWindowTitle("New Audit")
         self.setModal(True)
         self.setMinimumWidth(540)
 
@@ -48,12 +48,12 @@ class NewWorkspaceDialog(QDialog):
         root_layout.setContentsMargins(20, 20, 20, 20)
         root_layout.setSpacing(16)
 
-        title = QLabel("Create a New Audit Workspace")
+        title = QLabel("Create New Audit")
         title.setObjectName("dialogTitle")
 
         description = QLabel(
-            "Enter the basic information for the audit workspace. "
-            "The workspace can be saved after it has been created."
+            "Enter the basic information for this audit. "
+            "You can save the audit after it has been created."
         )
         description.setObjectName("dialogDescription")
         description.setWordWrap(True)
@@ -147,12 +147,12 @@ class NewWorkspaceDialog(QDialog):
 
         self._description_input = QPlainTextEdit()
         self._description_input.setPlaceholderText(
-            "Optional notes about the purpose or scope of the workspace."
+            "Optional notes about the purpose or scope of the audit."
         )
         self._description_input.setMaximumHeight(110)
 
         form_layout.addRow(
-            "Workspace name:",
+            "Audit name:",
             self._workspace_name_input,
         )
         form_layout.addRow(
@@ -195,7 +195,7 @@ class NewWorkspaceDialog(QDialog):
         create_button = self._button_box.button(QDialogButtonBox.StandardButton.Ok)
 
         if create_button is not None:
-            create_button.setText("Create Workspace")
+            create_button.setText("Create Audit")
             create_button.setDefault(True)
 
         self._button_box.accepted.connect(self._accept_workspace)
@@ -276,8 +276,8 @@ class NewWorkspaceDialog(QDialog):
         if not workspace_name:
             QMessageBox.warning(
                 self,
-                "Workspace Name Required",
-                "Enter a name for the audit workspace.",
+                "Audit Name Required",
+                "Enter a name for the audit.",
             )
             self._workspace_name_input.setFocus()
             return
@@ -301,7 +301,7 @@ class NewWorkspaceDialog(QDialog):
         except ValueError as error:
             QMessageBox.warning(
                 self,
-                "Invalid Workspace",
+                "Invalid Audit",
                 str(error),
             )
             return
