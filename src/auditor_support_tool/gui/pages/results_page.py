@@ -1225,7 +1225,7 @@ class ResultsPage(QWidget):
             }:
                 mode = QHeaderView.ResizeMode.Stretch
             else:
-                mode = QHeaderView.ResizeMode.ResizeToContents
+                mode = QHeaderView.ResizeMode.Interactive
 
             header.setSectionResizeMode(
                 index,
@@ -1450,6 +1450,13 @@ class ResultsPage(QWidget):
                     column_index,
                     item,
                 )
+
+        # Fit columns only after every cell is installed. ResizeToContents mode
+        # repeatedly measures the growing table during individual setItem calls.
+        header = self._exceptions_table.horizontalHeader()
+        for column_index in range(len(table.columns)):
+            if header.sectionResizeMode(column_index) == QHeaderView.ResizeMode.Interactive:
+                self._exceptions_table.resizeColumnToContents(column_index)
 
         total_matches = len(self._filtered_rows)
         total_rows = len(table.rows)
