@@ -116,7 +116,7 @@ def test_search_and_filter_intersection_and_empty_state(page):
     assert_visible_rows(page, rows[:50])
     page._search_input.setText("  inv-029  ")
     assert_visible_rows(page, rows[58:60])
-    assert page._table_count_label.text() == "2 of 120 transactions"
+    assert page._table_count_label.text() == "2 of 120 exceptions"
     page._search_input.setText("no matching transaction")
     assert_visible_rows(page, ())
     assert page._page_label.text() == "Page 1 of 1"
@@ -200,3 +200,35 @@ def test_exploration_preserves_result_and_full_report(page, monkeypatch):
     assert page.outcome.result is result
     assert result == snapshot
     assert captured == [before]
+
+
+def test_placeholder_result_actions_are_hidden(page):
+    """Unavailable actions should not occupy the normal auditor workflow."""
+
+    assert page._export_button.isHidden()
+
+
+def test_empty_filters_are_not_shown(page):
+    """A filter should only be offered when it can select at least one exception."""
+
+    filter_keys = {button.property("filter_key") for button in page._filter_button_group.buttons()}
+
+    assert "same_vendor" in filter_keys
+    assert "multiple_vendors" in filter_keys
+    assert "not_assessable" not in filter_keys
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    (
+        ("12", True),
+        ("0", True),
+        ("N/A", False),
+        ("n/a", False),
+        ("Not available", False),
+        ("—", False),
+        ("", False),
+    ),
+)
+def test_display_availability_hides_only_unavailable_values(value, expected):
+    assert results_page.ResultsPage._display_value_is_available(value) is expected

@@ -355,12 +355,14 @@ class ResultsPage(QWidget):
             "Result export will be enabled when export support is added."
         )
         self._export_button.clicked.connect(self._emit_export_requested)
+        self._export_button.setVisible(False)
 
         more_button = QToolButton()
         more_button.setObjectName("resultMoreButton")
         more_button.setIcon(qta.icon("fa5s.ellipsis-h"))
         more_button.setToolTip("Additional result actions")
         more_button.setEnabled(False)
+        more_button.setVisible(False)
 
         layout.addWidget(back_button)
         layout.addStretch(1)
@@ -392,9 +394,8 @@ class ResultsPage(QWidget):
         heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         detail = QLabel(
-            "Run an audit procedure to view "
-            "its analysis, risk indicators "
-            "and supporting transactions."
+            "Run an audit procedure to review its exceptions, analysis "
+            "and supporting source records."
         )
         detail.setObjectName("profileSectionDescription")
         detail.setWordWrap(True)
@@ -726,7 +727,7 @@ class ResultsPage(QWidget):
         heading_column = QVBoxLayout()
         heading_column.setSpacing(3)
 
-        self._exceptions_heading = QLabel("Detailed Exceptions")
+        self._exceptions_heading = QLabel("Exceptions Requiring Review")
         self._exceptions_heading.setObjectName("resultSectionTitle")
 
         self._exceptions_description = QLabel(
@@ -740,7 +741,7 @@ class ResultsPage(QWidget):
 
         self._search_input = QLineEdit()
         self._search_input.setObjectName("formInput")
-        self._search_input.setPlaceholderText("Search transactions")
+        self._search_input.setPlaceholderText("Search exceptions")
         self._search_input.setClearButtonEnabled(True)
         self._search_input.setMinimumWidth(230)
         self._search_input.textChanged.connect(self._apply_table_view)
@@ -859,6 +860,7 @@ class ResultsPage(QWidget):
         evidence_button = QPushButton("View Evidence Details")
         evidence_button.setObjectName("secondaryActionButton")
         evidence_button.setEnabled(False)
+        evidence_button.setVisible(False)
 
         layout.addWidget(icon)
         layout.addWidget(
@@ -964,9 +966,15 @@ class ResultsPage(QWidget):
     ) -> None:
         """Render a procedure-neutral dashboard model."""
 
+        visible_metrics = tuple(
+            metric
+            for metric in presentation.metrics
+            if self._display_value_is_available(metric.value)
+        )
+
         for index, card in enumerate(self._metric_cards):
-            if index < len(presentation.metrics):
-                card.set_content(presentation.metrics[index])
+            if index < len(visible_metrics):
+                card.set_content(visible_metrics[index])
                 card.setVisible(True)
             else:
                 card.setVisible(False)
@@ -1025,6 +1033,7 @@ class ResultsPage(QWidget):
         ):
             card.set_content(metric)
 
+        self._risk_panel.setVisible(True)
         self._risk_heading.setText("Audit Analysis")
         self._risk_description.setText(
             outcome.error_message or ("The procedure did not produce a completed result.")
@@ -1042,7 +1051,7 @@ class ResultsPage(QWidget):
             (),
         )
 
-        self._exceptions_heading.setText("Detailed Exceptions")
+        self._exceptions_heading.setText("Exceptions Requiring Review")
         self._exceptions_description.setText("No completed result is available.")
         self._exceptions_table.clear()
         self._exceptions_table.setRowCount(0)
@@ -1058,15 +1067,33 @@ class ResultsPage(QWidget):
 
         self._clear_layout(self._risk_items_layout)
 
-        if not presentation.risk_indicators:
-            message = QLabel("No additional risk indicators are defined for this result.")
-            message.setObjectName("resultSectionDescription")
-            message.setWordWrap(True)
-            self._risk_items_layout.addWidget(message)
+        available_indicators = tuple(
+            indicator
+            for indicator in presentation.risk_indicators
+            if indicator.available and self._display_value_is_available(indicator.value)
+        )
+        unavailable_indicators = tuple(
+            indicator
+            for indicator in presentation.risk_indicators
+            if indicator not in available_indicators
+        )
+
+        self._risk_panel.setVisible(bool(available_indicators))
+
+        if not available_indicators:
             return
 
-        for indicator in presentation.risk_indicators:
+        for indicator in available_indicators:
             self._risk_items_layout.addWidget(self._build_indicator_card(indicator))
+
+        if unavailable_indicators:
+            unavailable_label = QLabel(
+                "Not evaluated in this run: "
+                + ", ".join(indicator.title for indicator in unavailable_indicators)
+            )
+            unavailable_label.setObjectName("resultSectionDescription")
+            unavailable_label.setWordWrap(True)
+            self._risk_items_layout.addWidget(unavailable_label)
 
     def _build_indicator_card(
         self,
@@ -1247,7 +1274,14 @@ class ResultsPage(QWidget):
         filters_group = QActionGroup(filters_menu)
         filters_group.setExclusive(True)
 
-        for index, table_filter in enumerate(table.filters):
+        applicable_filters = tuple(
+            table_filter
+            for table_filter in table.filters
+            if table_filter.key == "all"
+            or any(table_filter.key in row.groups for row in table.rows)
+        )
+
+        for index, table_filter in enumerate(applicable_filters):
             button = QPushButton(table_filter.label)
             button.setObjectName("secondaryActionButton")
             button.setCheckable(True)
@@ -1275,7 +1309,8 @@ class ResultsPage(QWidget):
                 action.setChecked(True)
 
         self._filters_button.setMenu(filters_menu)
-        self._filters_button.setEnabled(bool(table.filters))
+        self._filters_button.setEnabled(len(applicable_filters) > 1)
+        self._filters_button.setVisible(len(applicable_filters) > 1)
 
     def _rebuild_column_menu(
         self,
@@ -1461,7 +1496,7 @@ class ResultsPage(QWidget):
         total_matches = len(self._filtered_rows)
         total_rows = len(table.rows)
 
-        self._table_count_label.setText(f"{total_matches:,} of {total_rows:,} transactions")
+        self._table_count_label.setText(f"{total_matches:,} of {total_rows:,} exceptions")
         self._page_label.setText(f"Page {self._current_page} of {page_count}")
 
         self._previous_page_button.setEnabled(self._current_page > 1)
@@ -1541,6 +1576,17 @@ class ResultsPage(QWidget):
 
             if widget is not None:
                 widget.deleteLater()
+
+    @staticmethod
+    def _display_value_is_available(value: str) -> bool:
+        """Return whether a presentation value is useful as visible analysis."""
+
+        return value.strip().casefold() not in {
+            "",
+            "n/a",
+            "not available",
+            "—",
+        }
 
     @staticmethod
     def _format_period(
