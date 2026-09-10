@@ -4,6 +4,7 @@ import re
 from difflib import SequenceMatcher
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -137,23 +138,29 @@ class FieldMappingPage(QWidget):
         heading.setObjectName("profileSectionTitle")
 
         description = QLabel(
-            "Only datasets confirmed in Data Preparation are available for field mapping."
+            "Only datasets marked Ready in Data Preparation are available here. "
+            "Review each proposed mapping before confirming it."
         )
         description.setObjectName("profileSectionDescription")
         description.setWordWrap(True)
 
-        dataset_label = QLabel("Dataset being mapped")
+        dataset_label = QLabel("Dataset")
         dataset_label.setObjectName("fieldLabel")
 
         self._dataset_selector = QComboBox()
         self._dataset_selector.setEnabled(False)
 
-        self._dataset_summary = QLabel("No prepared dataset is available.")
+        self._dataset_summary = QLabel(
+            "No dataset is ready for mapping. Complete Data Preparation first."
+        )
         self._dataset_summary.setObjectName("fieldHint")
         self._dataset_summary.setWordWrap(True)
 
-        status_heading = QLabel("Dataset mapping status")
+        status_heading = QLabel("Mapping progress")
         status_heading.setObjectName("fieldLabel")
+
+        self._dataset_progress = QLabel("0 of 0 datasets complete")
+        self._dataset_progress.setObjectName("fieldHint")
 
         self._dataset_status_container = QFrame()
         self._dataset_status_container.setObjectName("datasetMappingStatusContainer")
@@ -167,6 +174,7 @@ class FieldMappingPage(QWidget):
         layout.addWidget(self._dataset_selector)
         layout.addWidget(self._dataset_summary)
         layout.addWidget(status_heading)
+        layout.addWidget(self._dataset_progress)
         layout.addWidget(self._dataset_status_container)
 
         return card
@@ -183,18 +191,17 @@ class FieldMappingPage(QWidget):
         layout.setContentsMargins(30, 24, 30, 24)
         layout.setSpacing(14)
 
-        heading = QLabel("Source-to-Standard Field Mapping")
+        heading = QLabel("Map Fields")
         heading.setObjectName("profileSectionTitle")
 
         description = QLabel(
-            "Each standard field may only be mapped once within "
-            "a dataset. Review the suggested mappings and change "
-            "them where necessary before confirming the dataset."
+            "Match each prepared field to the audit field that represents the same "
+            "information. Proposed mappings must be reviewed before confirming the dataset."
         )
         description.setObjectName("profileSectionDescription")
         description.setWordWrap(True)
 
-        self._active_dataset_heading = QLabel("Mapping dataset: No dataset selected")
+        self._active_dataset_heading = QLabel("Mapping: No dataset selected")
         self._active_dataset_heading.setObjectName("profileSectionTitle")
         self._active_dataset_heading.setWordWrap(True)
 
@@ -202,11 +209,11 @@ class FieldMappingPage(QWidget):
         self._mapping_table.setColumnCount(5)
         self._mapping_table.setHorizontalHeaderLabels(
             (
-                "Prepared Name",
-                "Prepared Type",
-                "Standard Audit Field",
-                "Description",
-                "Mapping Status",
+                "Prepared Field",
+                "Type",
+                "Audit Field",
+                "What the Audit Field Means",
+                "Status",
             )
         )
         self._mapping_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -235,11 +242,11 @@ class FieldMappingPage(QWidget):
         actions_layout = QHBoxLayout()
         actions_layout.setSpacing(10)
 
-        self._reset_button = QPushButton("Reset Dataset Mapping")
+        self._reset_button = QPushButton("Reset Mapping")
         self._reset_button.setObjectName("secondaryActionButton")
         self._reset_button.setEnabled(False)
 
-        self._confirm_button = QPushButton("Confirm Dataset Mapping")
+        self._confirm_button = QPushButton("Confirm Mapping")
         self._confirm_button.setObjectName("primaryActionButton")
         self._confirm_button.setEnabled(False)
 
@@ -253,7 +260,9 @@ class FieldMappingPage(QWidget):
         actions_layout.addWidget(self._confirm_button)
         actions_layout.addWidget(self._continue_button)
 
-        self._mapping_status = QLabel("Select a prepared dataset to begin mapping.")
+        self._mapping_status = QLabel(
+            "Complete Data Preparation to make a dataset available for mapping."
+        )
         self._mapping_status.setObjectName("formStatus")
         self._mapping_status.setProperty(
             "status",
@@ -295,10 +304,12 @@ class FieldMappingPage(QWidget):
             self._mapping_table.setRowCount(0)
             self._adjust_mapping_table_height()
 
-            self._dataset_summary.setText("No prepared dataset is available.")
-            self._active_dataset_heading.setText("Mapping dataset: No dataset selected")
+            self._dataset_summary.setText(
+                "No dataset is ready for mapping. Complete Data Preparation first."
+            )
+            self._active_dataset_heading.setText("Mapping: No dataset selected")
             self._set_mapping_status(
-                "Select a prepared dataset to begin.",
+                "Complete Data Preparation to make a dataset available for mapping.",
                 "neutral",
             )
 
@@ -313,6 +324,17 @@ class FieldMappingPage(QWidget):
         self._set_action_buttons_enabled(True)
         self._update_confirm_button(dataset)
         self._update_continue_button()
+
+        if self._mapping_status.text() in {
+            "Complete Data Preparation to make a dataset available for mapping.",
+            "Select a prepared dataset to begin.",
+            "Select a prepared dataset to begin mapping.",
+        }:
+            self._set_mapping_status(
+                "Review the proposed mappings, correct any that are wrong, "
+                "then select Confirm Mapping.",
+                "neutral",
+            )
 
     def _refresh_dataset_selector(self) -> None:
         prepared_datasets = tuple(
@@ -358,9 +380,15 @@ class FieldMappingPage(QWidget):
                 widget.deleteLater()
 
         datasets = self._prepared_datasets()
+        complete_count = sum(
+            dataset.mapping_status in self._FINAL_MAPPING_STATUSES for dataset in datasets
+        )
+        self._dataset_progress.setText(self._dataset_progress_text(complete_count, len(datasets)))
 
         if not datasets:
-            empty_label = QLabel("No datasets have completed Data Preparation.")
+            empty_label = QLabel(
+                "No datasets are ready for mapping. Complete Data Preparation first."
+            )
             empty_label.setObjectName("fieldHint")
             empty_label.setWordWrap(True)
             self._dataset_status_layout.addWidget(empty_label)
@@ -414,13 +442,13 @@ class FieldMappingPage(QWidget):
         dataset_type = dataset.confirmed_dataset_type.value.replace("_", " ").title()
 
         self._dataset_summary.setText(
-            f"Worksheet: "
+            f"Source: "
             f"{dataset.original_worksheet_name} | "
             f"Type: {dataset_type} | "
-            f"Included columns: "
+            f"Included fields: "
             f"{len(dataset.included_columns):,}"
         )
-        self._active_dataset_heading.setText(f"Mapping dataset: {dataset.confirmed_display_name}")
+        self._active_dataset_heading.setText(f"Mapping: {dataset.confirmed_display_name}")
 
     def _populate_mapping_table(
         self,
@@ -604,21 +632,29 @@ class FieldMappingPage(QWidget):
             column.column_id,
             "",
         )
-        used_keys = {
-            field_key
+        used_by_column = {
+            field_key: mapped_column_id
             for mapped_column_id, field_key in dataset.field_mappings.items()
             if mapped_column_id != column.column_id and field_key
         }
 
         for field in catalogue:
-            if field.key in used_keys:
-                continue
+            mapped_column_id = used_by_column.get(field.key)
+            used_by = None
 
-            label = field.display_name
+            if mapped_column_id is not None:
+                mapped_column = dataset.get_column(mapped_column_id)
+                used_by = (
+                    mapped_column.confirmed_name
+                    if mapped_column is not None
+                    else "another prepared field"
+                )
 
-            mapping_combo.addItem(
-                label,
-                field.key,
+            self._add_mapping_option(
+                mapping_combo,
+                label=field.display_name,
+                field_key=field.key,
+                used_by=used_by,
             )
 
         mapped_index = mapping_combo.findData(mapped_key)
@@ -638,7 +674,10 @@ class FieldMappingPage(QWidget):
         description_item.setToolTip(description_text)
 
         mapping_status_item = self._centred_item(
-            "Mapped" if mapped_field is not None else "Not Mapped"
+            self._row_mapping_status(
+                dataset.mapping_status,
+                mapped=mapped_field is not None,
+            )
         )
 
         self._mapping_table.setItem(
@@ -666,6 +705,36 @@ class FieldMappingPage(QWidget):
             4,
             mapping_status_item,
         )
+
+    @staticmethod
+    def _add_mapping_option(
+        combo: QComboBox,
+        *,
+        label: str,
+        field_key: str,
+        used_by: str | None = None,
+    ) -> None:
+        display_label = label
+
+        if used_by:
+            display_label = f"{label} — already mapped to {used_by}"
+
+        combo.addItem(display_label, field_key)
+
+        if not used_by:
+            return
+
+        model = combo.model()
+
+        if isinstance(model, QStandardItemModel):
+            item = model.item(combo.count() - 1)
+
+            if item is not None:
+                item.setEnabled(False)
+                item.setToolTip(
+                    f"{label} is already mapped to {used_by}. "
+                    "Change or remove that mapping first to use this audit field here."
+                )
 
     def _mapping_changed(self) -> None:
         if self._updating_mapping_table:
@@ -810,20 +879,18 @@ class FieldMappingPage(QWidget):
 
         if status == FieldMappingStatus.NOT_APPLICABLE:
             confirmation_message = (
-                "No standard-field catalogue is defined for "
+                "No audit-field catalogue is defined for "
                 f"'{dataset.confirmed_display_name}'. Mapping "
-                "was recorded as Not Applicable."
+                "is not applicable."
             )
             confirmation_style = "success"
         elif status == FieldMappingStatus.CONFIRMED_WITH_WARNINGS:
             confirmation_message = (
-                f"Field mapping for '{dataset.confirmed_display_name}' was confirmed with warnings."
+                f"Mapping for '{dataset.confirmed_display_name}' is ready with warnings."
             )
             confirmation_style = "neutral"
         else:
-            confirmation_message = (
-                f"Field mapping for '{dataset.confirmed_display_name}' was confirmed."
-            )
+            confirmation_message = f"Mapping for '{dataset.confirmed_display_name}' is ready."
             confirmation_style = "success"
 
         next_dataset = self._next_unreviewed_dataset(current_dataset_id=dataset.dataset_id)
@@ -888,7 +955,7 @@ class FieldMappingPage(QWidget):
         if incomplete_datasets:
             self._set_mapping_status(
                 (
-                    "Confirm field mapping for every prepared "
+                    "Confirm mapping for every prepared "
                     "dataset before continuing. Review: "
                     f"{', '.join(incomplete_datasets)}."
                 ),
@@ -898,7 +965,7 @@ class FieldMappingPage(QWidget):
 
         if not self._prepared_datasets():
             self._set_mapping_status(
-                ("No prepared dataset is available for field mapping."),
+                ("No dataset is ready for mapping. Complete Data Preparation first."),
                 "error",
             )
             return
@@ -919,19 +986,19 @@ class FieldMappingPage(QWidget):
         if status == FieldMappingStatus.CONFIRMED:
             background = "#198754"
             hover = "#157347"
-            text = "Confirmed"
+            text = "Ready"
         elif status == FieldMappingStatus.CONFIRMED_WITH_WARNINGS:
             background = "#d18b00"
             hover = "#b97800"
-            text = "Confirmed with Warnings"
+            text = "Ready with Warnings"
         elif status == FieldMappingStatus.NOT_APPLICABLE:
             background = "#198754"
             hover = "#157347"
             text = "Not Applicable"
         else:
-            background = "#c62828"
-            hover = "#a91f1f"
-            text = "Confirm Dataset Mapping"
+            self._confirm_button.setText("Confirm Mapping")
+            self._confirm_button.setStyleSheet("")
+            return
 
         self._confirm_button.setText(text)
         self._confirm_button.setStyleSheet(
@@ -1053,6 +1120,26 @@ class FieldMappingPage(QWidget):
         self._refresh_status_style(self._mapping_status)
 
     @staticmethod
+    def _dataset_progress_text(complete: int, total: int) -> str:
+        noun = "dataset" if total == 1 else "datasets"
+        return f"{complete:,} of {total:,} {noun} complete"
+
+    @classmethod
+    def _row_mapping_status(
+        cls,
+        dataset_status: FieldMappingStatus,
+        *,
+        mapped: bool,
+    ) -> str:
+        if not mapped:
+            return "Not mapped"
+
+        if dataset_status in cls._FINAL_MAPPING_STATUSES:
+            return "Confirmed"
+
+        return "Proposed"
+
+    @staticmethod
     def _mapping_status_badge_style(
         status: FieldMappingStatus,
     ) -> str:
@@ -1062,8 +1149,10 @@ class FieldMappingPage(QWidget):
             background = "#d18b00"
         elif status == FieldMappingStatus.NOT_APPLICABLE:
             background = "#198754"
-        else:
+        elif status == FieldMappingStatus.REVIEW_REQUIRED:
             background = "#c62828"
+        else:
+            background = "#6c757d"
 
         return (
             f"background-color: {background};"
@@ -1078,12 +1167,12 @@ class FieldMappingPage(QWidget):
         status: FieldMappingStatus,
     ) -> str:
         labels = {
-            FieldMappingStatus.NOT_STARTED: ("Not Started"),
-            FieldMappingStatus.IN_PROGRESS: ("In Progress"),
-            FieldMappingStatus.CONFIRMED: ("Confirmed"),
-            FieldMappingStatus.CONFIRMED_WITH_WARNINGS: ("Confirmed with Warnings"),
-            FieldMappingStatus.REVIEW_REQUIRED: ("Review Required"),
-            FieldMappingStatus.NOT_APPLICABLE: ("Not Applicable"),
+            FieldMappingStatus.NOT_STARTED: "Ready to review",
+            FieldMappingStatus.IN_PROGRESS: "Needs confirmation",
+            FieldMappingStatus.CONFIRMED: "Ready",
+            FieldMappingStatus.CONFIRMED_WITH_WARNINGS: "Ready with warnings",
+            FieldMappingStatus.REVIEW_REQUIRED: "Needs attention",
+            FieldMappingStatus.NOT_APPLICABLE: "Not applicable",
         }
 
         return labels[status]
