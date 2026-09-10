@@ -124,24 +124,26 @@ class DataPreparationPage(QWidget):
         heading.setObjectName("profileSectionTitle")
 
         description = QLabel(
-            "Select a dataset confirmed in Data Sources. Preparation "
-            "decisions are stored separately for each dataset."
+            "Review each dataset and confirm how its columns should be used before field mapping."
         )
         description.setObjectName("profileSectionDescription")
         description.setWordWrap(True)
 
-        dataset_label = QLabel("Dataset being prepared")
+        dataset_label = QLabel("Dataset")
         dataset_label.setObjectName("fieldLabel")
 
         self._dataset_selector = QComboBox()
         self._dataset_selector.setEnabled(False)
 
-        self._dataset_summary = QLabel("No confirmed dataset is available.")
+        self._dataset_summary = QLabel("No dataset is available. Complete Data Sources first.")
         self._dataset_summary.setObjectName("fieldHint")
         self._dataset_summary.setWordWrap(True)
 
-        status_heading = QLabel("Dataset preparation status")
+        status_heading = QLabel("Preparation progress")
         status_heading.setObjectName("fieldLabel")
+
+        self._dataset_progress = QLabel("0 of 0 datasets ready")
+        self._dataset_progress.setObjectName("fieldHint")
 
         self._dataset_status_container = QFrame()
         self._dataset_status_container.setObjectName("datasetPreparationStatusContainer")
@@ -155,6 +157,7 @@ class DataPreparationPage(QWidget):
         layout.addWidget(self._dataset_selector)
         layout.addWidget(self._dataset_summary)
         layout.addWidget(status_heading)
+        layout.addWidget(self._dataset_progress)
         layout.addWidget(self._dataset_status_container)
 
         return card
@@ -175,9 +178,8 @@ class DataPreparationPage(QWidget):
         heading.setObjectName("profileSectionTitle")
 
         description = QLabel(
-            "The source column remains unchanged. Prepared names and "
-            "confirmed data types define how the data will be interpreted "
-            "during field mapping and audit testing."
+            "Review the column name, whether it should be included, and how "
+            "its data type should be interpreted."
         )
         description.setObjectName("profileSectionDescription")
         description.setWordWrap(True)
@@ -194,12 +196,17 @@ class DataPreparationPage(QWidget):
                 "Source Column",
                 "Prepared Name",
                 "Detected Type",
-                "Confirmed Type",
+                "Use As",
                 "Changed",
                 "Warning",
                 "Status",
             )
         )
+        # "Changed" and row-level "Status" remain available internally, but
+        # they add noise when every untouched row still requires dataset confirmation.
+        self._columns_table.setColumnHidden(5, True)
+        self._columns_table.setColumnHidden(7, True)
+
         self._columns_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._columns_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._columns_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -226,11 +233,11 @@ class DataPreparationPage(QWidget):
         actions_layout = QHBoxLayout()
         actions_layout.setSpacing(10)
 
-        self._include_all_button = QPushButton("Include All Columns")
+        self._include_all_button = QPushButton("Select All")
         self._include_all_button.setObjectName("secondaryActionButton")
         self._include_all_button.setEnabled(False)
 
-        self._exclude_all_button = QPushButton("Exclude All Columns")
+        self._exclude_all_button = QPushButton("Clear Selection")
         self._exclude_all_button.setObjectName("secondaryActionButton")
         self._exclude_all_button.setEnabled(False)
 
@@ -238,7 +245,7 @@ class DataPreparationPage(QWidget):
         self._reset_button.setObjectName("secondaryActionButton")
         self._reset_button.setEnabled(False)
 
-        self._confirm_dataset_button = QPushButton("Confirm Dataset Preparation")
+        self._confirm_dataset_button = QPushButton("Confirm Dataset")
         self._confirm_dataset_button.setObjectName("primaryActionButton")
         self._confirm_dataset_button.setEnabled(False)
 
@@ -297,8 +304,8 @@ class DataPreparationPage(QWidget):
             self._columns_table.setRowCount(0)
             self._adjust_columns_table_height()
 
-            self._dataset_summary.setText("No confirmed dataset is available.")
-            self._active_dataset_heading.setText("Preparing dataset: No dataset selected")
+            self._dataset_summary.setText("No dataset is available. Complete Data Sources first.")
+            self._active_dataset_heading.setText("Preparing: No dataset selected")
             self._set_preparation_status(
                 "Select a confirmed dataset to begin.",
                 "neutral",
@@ -313,6 +320,15 @@ class DataPreparationPage(QWidget):
         self._set_action_buttons_enabled(True)
         self._update_confirm_button(dataset)
         self._update_continue_button()
+
+        if self._preparation_status.text() in {
+            "Select a dataset to begin preparation.",
+            "Select a confirmed dataset to begin.",
+        }:
+            self._set_preparation_status(
+                "Review the dataset columns, then select Confirm Dataset.",
+                "neutral",
+            )
 
     def _refresh_dataset_selector(self) -> None:
         confirmed_datasets = tuple(
@@ -354,9 +370,13 @@ class DataPreparationPage(QWidget):
                 widget.deleteLater()
 
         datasets = self._confirmed_source_datasets()
+        ready_count = sum(
+            dataset.preparation_status in self._CONFIRMED_STATUSES for dataset in datasets
+        )
+        self._dataset_progress.setText(self._dataset_progress_text(ready_count, len(datasets)))
 
         if not datasets:
-            empty_label = QLabel("No datasets have been confirmed in Data Sources.")
+            empty_label = QLabel("No datasets are available. Complete Data Sources first.")
             empty_label.setObjectName("fieldHint")
             empty_label.setWordWrap(True)
             self._dataset_status_layout.addWidget(empty_label)
@@ -411,12 +431,12 @@ class DataPreparationPage(QWidget):
         dataset_type = dataset.confirmed_dataset_type.value.replace("_", " ").title()
 
         self._dataset_summary.setText(
-            f"Worksheet: {dataset.original_worksheet_name} | "
+            f"Source: {dataset.original_worksheet_name} | "
             f"Type: {dataset_type} | "
             f"Records: {dataset.record_count:,} | "
             f"Columns: {dataset.column_count:,}"
         )
-        self._active_dataset_heading.setText(f"Preparing dataset: {dataset.confirmed_display_name}")
+        self._active_dataset_heading.setText(f"Preparing: {dataset.confirmed_display_name}")
 
     def _populate_columns_table(
         self,
@@ -527,7 +547,7 @@ class DataPreparationPage(QWidget):
         type_combo.currentIndexChanged.connect(self._confirmed_type_changed)
 
         changed_item = self._centred_item("Yes" if column.was_changed else "No")
-        warning_item = QTableWidgetItem(column.validation_warning or "â€”")
+        warning_item = QTableWidgetItem(column.validation_warning or "—")
         status_item = self._centred_item(self._status_label(column.status))
 
         self._columns_table.setItem(
@@ -842,11 +862,11 @@ class DataPreparationPage(QWidget):
 
         if status == PreparationStatus.CONFIRMED_WITH_WARNINGS:
             confirmation_message = (
-                f"'{dataset.confirmed_display_name}' was confirmed with data-type warnings."
+                f"'{dataset.confirmed_display_name}' is ready with data-type warnings."
             )
             confirmation_style = "neutral"
         else:
-            confirmation_message = f"'{dataset.confirmed_display_name}' preparation was confirmed."
+            confirmation_message = f"'{dataset.confirmed_display_name}' is ready."
             confirmation_style = "success"
 
         next_dataset = self._next_unreviewed_dataset(current_dataset_id=dataset.dataset_id)
@@ -934,15 +954,15 @@ class DataPreparationPage(QWidget):
         if status == PreparationStatus.CONFIRMED:
             background = "#198754"
             hover = "#157347"
-            text = "Confirmed"
+            text = "Ready"
         elif status == PreparationStatus.CONFIRMED_WITH_WARNINGS:
             background = "#d18b00"
             hover = "#b97800"
-            text = "Confirmed with Warnings"
+            text = "Ready with Warnings"
         else:
-            background = "#c62828"
-            hover = "#a91f1f"
-            text = "Confirm Dataset Preparation"
+            self._confirm_dataset_button.setText("Confirm Dataset")
+            self._confirm_dataset_button.setStyleSheet("")
+            return
 
         self._confirm_dataset_button.setText(text)
         self._confirm_dataset_button.setStyleSheet(
@@ -1070,8 +1090,10 @@ class DataPreparationPage(QWidget):
             background = "#198754"
         elif status == PreparationStatus.CONFIRMED_WITH_WARNINGS:
             background = "#d18b00"
-        else:
+        elif status == PreparationStatus.REVIEW_REQUIRED:
             background = "#c62828"
+        else:
+            background = "#6c757d"
 
         return (
             f"background-color: {background};"
@@ -1099,14 +1121,19 @@ class DataPreparationPage(QWidget):
         ).title()
 
     @staticmethod
+    def _dataset_progress_text(ready: int, total: int) -> str:
+        noun = "dataset" if total == 1 else "datasets"
+        return f"{ready:,} of {total:,} {noun} ready"
+
+    @staticmethod
     def _status_label(
         status: PreparationStatus,
     ) -> str:
         labels = {
-            PreparationStatus.NOT_REVIEWED: "Review Required",
-            PreparationStatus.CONFIRMED: "Confirmed",
-            PreparationStatus.CONFIRMED_WITH_WARNINGS: ("Confirmed with Warnings"),
-            PreparationStatus.REVIEW_REQUIRED: "Review Required",
+            PreparationStatus.NOT_REVIEWED: "Needs confirmation",
+            PreparationStatus.CONFIRMED: "Ready",
+            PreparationStatus.CONFIRMED_WITH_WARNINGS: "Ready with warnings",
+            PreparationStatus.REVIEW_REQUIRED: "Needs attention",
             PreparationStatus.EXCLUDED: "Excluded",
         }
 
