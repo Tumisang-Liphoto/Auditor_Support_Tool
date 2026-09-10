@@ -116,36 +116,34 @@ class DataSourcesPage(QWidget):
         layout.setContentsMargins(30, 24, 30, 24)
         layout.setSpacing(14)
 
-        heading = QLabel("Get Data")
+        heading = QLabel("Select File")
         heading.setObjectName("profileSectionTitle")
 
-        description = QLabel(
-            "Select an Excel workbook or CSV file, then load and analyse "
-            "its available worksheets before reviewing them in Navigator."
-        )
+        description = QLabel("Select an Excel workbook or CSV file, then load its data.")
         description.setObjectName("profileSectionDescription")
         description.setWordWrap(True)
 
-        path_label = QLabel("Selected source")
+        path_label = QLabel("Selected file")
         path_label.setObjectName("fieldLabel")
 
         self._path_field = QLineEdit()
         self._path_field.setReadOnly(True)
-        self._path_field.setPlaceholderText("No source file selected")
+        self._path_field.setPlaceholderText("No file selected")
 
         button_layout = QHBoxLayout()
         button_layout.setSpacing(10)
 
-        self._browse_button = QPushButton("Get Data")
+        self._browse_button = QPushButton("Select File")
         self._browse_button.setObjectName("primaryActionButton")
 
-        self._load_package_button = QPushButton("Load and Analyse Workbook")
+        self._load_package_button = QPushButton("Load Data")
         self._load_package_button.setObjectName("primaryActionButton")
         self._load_package_button.setEnabled(False)
 
         self._clear_button = QPushButton("Clear Audit")
         self._clear_button.setObjectName("secondaryActionButton")
         self._clear_button.setEnabled(False)
+        self._clear_button.setVisible(False)
 
         button_layout.addWidget(self._browse_button)
         button_layout.addWidget(self._load_package_button)
@@ -224,12 +222,12 @@ class DataSourcesPage(QWidget):
         layout.setContentsMargins(30, 24, 30, 24)
         layout.setSpacing(14)
 
-        heading = QLabel("Navigator")
+        heading = QLabel("Select Data to Include")
         heading.setObjectName("profileSectionTitle")
 
         description = QLabel(
-            "Select the worksheets to include, review their suggested "
-            "names and dataset types, then confirm the completed selection."
+            "Choose the datasets for this audit. Review the dataset name and type "
+            "before continuing."
         )
         description.setObjectName("profileSectionDescription")
         description.setWordWrap(True)
@@ -239,7 +237,7 @@ class DataSourcesPage(QWidget):
         self._navigator_table.setHorizontalHeaderLabels(
             (
                 "Include",
-                "Original Worksheet",
+                "Source",
                 "Dataset Name",
                 "Dataset Type",
                 "Records",
@@ -248,6 +246,10 @@ class DataSourcesPage(QWidget):
                 "Status",
             )
         )
+        # Confidence and preparation status remain part of the internal workbook
+        # model, but they are implementation details at this stage of the workflow.
+        self._navigator_table.setColumnHidden(6, True)
+        self._navigator_table.setColumnHidden(7, True)
         self._navigator_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._navigator_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._navigator_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -269,15 +271,15 @@ class DataSourcesPage(QWidget):
         actions_layout = QHBoxLayout()
         actions_layout.setSpacing(10)
 
-        self._select_all_button = QPushButton("Include All")
+        self._select_all_button = QPushButton("Select All")
         self._select_all_button.setObjectName("secondaryActionButton")
         self._select_all_button.setEnabled(False)
 
-        self._exclude_all_button = QPushButton("Exclude All")
+        self._exclude_all_button = QPushButton("Clear Selection")
         self._exclude_all_button.setObjectName("secondaryActionButton")
         self._exclude_all_button.setEnabled(False)
 
-        self._confirm_button = QPushButton("Confirm and Continue")
+        self._confirm_button = QPushButton("Continue to Data Profile")
         self._confirm_button.setObjectName("primaryActionButton")
         self._confirm_button.setEnabled(False)
 
@@ -350,7 +352,7 @@ class DataSourcesPage(QWidget):
         self._display_source_metadata(source_info)
         self._display_inspected_worksheets(source_info)
 
-        self._load_package_button.setText("Load and Analyse Workbook")
+        self._set_load_button_mode(reload=False)
         self._load_package_button.setEnabled(True)
         self._clear_button.setEnabled(True)
         self._select_all_button.setEnabled(False)
@@ -358,14 +360,14 @@ class DataSourcesPage(QWidget):
         self._confirm_button.setEnabled(False)
 
         self._set_source_status(
-            "Source file inspected successfully.",
+            "File selected and ready to load.",
             "success",
         )
         self._set_navigator_status(
             (
                 f"{len(source_info.worksheets):,} source "
-                "item(s) found. Load and analyse the workbook "
-                "before making final selections."
+                "item(s) found. Load the data to review dataset "
+                "names and types."
             ),
             "neutral",
         )
@@ -450,13 +452,15 @@ class DataSourcesPage(QWidget):
     def _load_workbook_package(self) -> None:
         if self._source_path is None:
             self._set_navigator_status(
-                ("Select a source file before loading the workbook."),
+                ("Select a file before loading data."),
                 "error",
             )
             return
 
+        was_reload = self._load_package_button.text() == "Reload Data"
+
         self._load_package_button.setEnabled(False)
-        self._load_package_button.setText("Loading and Analysingâ€¦")
+        self._load_package_button.setText("Loading…")
 
         try:
             package = self._package_service.build_package(self._source_path)
@@ -466,35 +470,35 @@ class DataSourcesPage(QWidget):
             TypeError,
             ValueError,
         ) as error:
+            self._set_load_button_mode(reload=was_reload)
+            self._load_package_button.setEnabled(True)
             self._set_navigator_status(
-                (f"Unable to load the workbook package: {error}"),
+                (f"Unable to load data: {error}"),
                 "error",
             )
             return
-        finally:
-            self._load_package_button.setText("Reload Workbook")
-            self._load_package_button.setEnabled(True)
 
         if not package.datasets:
+            self._set_load_button_mode(reload=was_reload)
+            self._load_package_button.setEnabled(True)
             self._set_navigator_status(
                 ("No non-empty datasets were found in the selected source."),
                 "error",
             )
             return
 
+        self._load_package_button.setEnabled(True)
+
         self._workspace_state.set_workbook_package(package)
 
-        self._set_source_status(
-            "Workbook package loaded successfully.",
-            "success",
-        )
+        self._set_load_button_mode(reload=True)
+        self._set_source_status("", "neutral")
         self._set_navigator_status(
             (
-                f"{len(package.datasets):,} non-empty "
-                "dataset(s) were loaded and profiled. "
-                "Review the selections before continuing."
+                f"{self._dataset_count_text(len(package.datasets))} available. "
+                "Review which datasets to include, their names and types, then continue."
             ),
-            "success",
+            "neutral",
         )
 
     def _refresh_loaded_package(self) -> None:
@@ -799,7 +803,7 @@ class DataSourcesPage(QWidget):
 
         if package is None:
             self._set_navigator_status(
-                ("Load and analyse a workbook before continuing."),
+                ("Load data before continuing."),
                 "error",
             )
             return
@@ -859,7 +863,7 @@ class DataSourcesPage(QWidget):
         self._workspace_state.workbook_package_changed.emit()
 
         self._set_navigator_status(
-            (f"{len(selected_datasets):,} dataset(s) confirmed. Opening Data Profile."),
+            f"{self._dataset_count_text(len(selected_datasets))} selected.",
             "success",
         )
 
@@ -888,7 +892,8 @@ class DataSourcesPage(QWidget):
         self,
         source_info: SourceFileInfo,
     ) -> None:
-        self._path_field.setText(str(source_info.path))
+        self._path_field.setText(source_info.path.name)
+        self._path_field.setToolTip(str(source_info.path))
         self._file_type_value.setText(source_info.file_type.upper())
         self._file_size_value.setText(self._format_file_size(source_info.file_size_bytes))
         self._worksheet_count_value.setText(f"{len(source_info.worksheets):,}")
@@ -901,6 +906,7 @@ class DataSourcesPage(QWidget):
         self._source_path = None
 
         self._path_field.clear()
+        self._path_field.setToolTip("")
         self._file_type_value.setText("—")
         self._file_size_value.setText("—")
         self._worksheet_count_value.setText("—")
@@ -909,7 +915,7 @@ class DataSourcesPage(QWidget):
         self._navigator_table.clearContents()
         self._navigator_table.setRowCount(0)
 
-        self._load_package_button.setText("Load and Analyse Workbook")
+        self._set_load_button_mode(reload=False)
         self._load_package_button.setEnabled(False)
         self._select_all_button.setEnabled(False)
         self._exclude_all_button.setEnabled(False)
@@ -942,21 +948,18 @@ class DataSourcesPage(QWidget):
         if package is None:
             self._display_inspected_worksheets(source_info)
             self._set_source_status(
-                "Source file is ready for analysis.",
+                "File selected and ready to load.",
                 "success",
             )
             return
 
-        self._load_package_button.setText("Reload Workbook")
+        self._set_load_button_mode(reload=True)
         self._refresh_loaded_package()
 
-        self._set_source_status(
-            "Workbook package is loaded.",
-            "success",
-        )
+        self._set_source_status("", "neutral")
         self._set_navigator_status(
-            (f"{len(package.datasets):,} dataset(s) are available in the current audit."),
-            "success",
+            f"{self._dataset_count_text(len(package.datasets))} available in the current audit.",
+            "neutral",
         )
 
     def _set_source_status(
@@ -965,6 +968,7 @@ class DataSourcesPage(QWidget):
         status: str,
     ) -> None:
         self._source_status.setText(message)
+        self._source_status.setVisible(bool(message))
         self._source_status.setProperty(
             "status",
             status,
@@ -982,6 +986,19 @@ class DataSourcesPage(QWidget):
             status,
         )
         self._refresh_status_style(self._navigator_status)
+
+    def _set_load_button_mode(self, *, reload: bool) -> None:
+        self._load_package_button.setText("Reload Data" if reload else "Load Data")
+        self._load_package_button.setObjectName(
+            "secondaryActionButton" if reload else "primaryActionButton"
+        )
+        self._load_package_button.style().unpolish(self._load_package_button)
+        self._load_package_button.style().polish(self._load_package_button)
+
+    @staticmethod
+    def _dataset_count_text(count: int) -> str:
+        noun = "dataset" if count == 1 else "datasets"
+        return f"{count:,} {noun}"
 
     @staticmethod
     def _metadata_value() -> QLabel:
