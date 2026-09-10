@@ -458,6 +458,83 @@ class WorkspaceState(QObject):
         self.workspace_identity_changed.emit()
         self.workspace_file_changed.emit()
 
+    def update_workspace_identity(
+        self,
+        updated_identity: WorkspaceIdentity,
+    ) -> tuple[str, ...]:
+        """Replace editable audit details while preserving audit identity and history."""
+
+        current = self._workspace_identity
+
+        if current is None:
+            raise ValueError("An active audit is required before updating audit details.")
+
+        if updated_identity.workspace_id != current.workspace_id:
+            raise ValueError("Audit details must belong to the active audit.")
+
+        cleaned = deepcopy(updated_identity)
+        cleaned.name = cleaned.name.strip()
+
+        if not cleaned.name:
+            raise ValueError("Workspace name is required.")
+
+        detail_fields = (
+            "name",
+            "auditee_name",
+            "audit_year",
+            "audit_period_start",
+            "audit_period_end",
+            "audit_domain",
+            "audit_area",
+            "lead_auditor",
+            "description",
+        )
+
+        for field_name in detail_fields[1:]:
+            setattr(
+                cleaned,
+                field_name,
+                str(getattr(cleaned, field_name)).strip(),
+            )
+
+        cleaned.validate_audit_period()
+
+        if self.has_workbook_package and cleaned.audit_domain != current.audit_domain:
+            raise ValueError("Audit domain cannot be changed after source data has been loaded.")
+
+        changed_fields = tuple(
+            field_name
+            for field_name in detail_fields
+            if getattr(current, field_name) != getattr(cleaned, field_name)
+        )
+
+        if not changed_fields:
+            return ()
+
+        old_details = {field_name: getattr(current, field_name) for field_name in detail_fields}
+        new_details = {field_name: getattr(cleaned, field_name) for field_name in detail_fields}
+
+        # Editing descriptive details must never create a new audit identity.
+        cleaned.workspace_id = current.workspace_id
+        cleaned.created_at = current.created_at
+        cleaned.modified_at = current.modified_at
+
+        self._workspace_identity = cleaned
+        self.record_transformation(
+            action="audit_details_updated",
+            old_value=old_details,
+            new_value=new_details,
+            details={
+                "changed_fields": list(changed_fields),
+                "audit_period_changed": bool(
+                    {"audit_period_start", "audit_period_end"} & set(changed_fields)
+                ),
+            },
+        )
+        self.workspace_identity_changed.emit()
+
+        return changed_fields
+
     def set_workspace_file_path(
         self,
         file_path: Path | None,

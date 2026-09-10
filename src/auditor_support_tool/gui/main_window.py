@@ -106,8 +106,10 @@ class MainWindow(QMainWindow):
         self._workspace_readiness_service = WorkspaceReadinessService()
 
         self._workspace_state.workspace_identity_changed.connect(self._update_window_title)
+        self._workspace_state.workspace_identity_changed.connect(self._update_workspace_actions)
         self._workspace_state.workspace_dirty_changed.connect(self._update_window_title)
         self._workspace_state.workspace_file_changed.connect(self._update_window_title)
+        self._workspace_state.workspace_cleared.connect(self._update_workspace_actions)
 
         self._profile_required = not self._settings_service.is_profile_complete()
 
@@ -130,6 +132,7 @@ class MainWindow(QMainWindow):
         self._readiness_warning_timer.timeout.connect(self._clear_readiness_warning)
 
         self._build_interface()
+        self._update_workspace_actions()
 
         if self._profile_required:
             self.show_route("settings.user_profile")
@@ -392,6 +395,68 @@ class MainWindow(QMainWindow):
             f"Created audit: {identity.name}. The audit has not yet been saved."
         )
 
+    def _edit_workspace_details(self) -> None:
+        """Edit descriptive details for the active audit."""
+
+        identity = self._workspace_state.workspace_identity
+
+        if identity is None:
+            QMessageBox.information(
+                self,
+                "No Active Audit",
+                "Create or open an audit before editing its details.",
+            )
+            return
+
+        dialog = NewWorkspaceDialog(
+            self,
+            existing_identity=identity,
+            lock_audit_domain=self._workspace_state.has_workbook_package,
+        )
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        updated_identity = dialog.workspace_identity
+
+        if updated_identity is None:
+            return
+
+        try:
+            changed_fields = self._workspace_state.update_workspace_identity(updated_identity)
+        except ValueError as error:
+            QMessageBox.warning(
+                self,
+                "Audit Details Not Updated",
+                str(error),
+            )
+            return
+
+        if not changed_fields:
+            self.statusBar().showMessage("No audit details were changed.")
+            return
+
+        period_changed = bool({"audit_period_start", "audit_period_end"} & set(changed_fields))
+
+        if period_changed:
+            # Do not leave a result from the previous audit period on screen.
+            self._results_page.clear_result()
+            self.statusBar().showMessage(
+                "Audit details updated. The audit period changed; "
+                "previous procedure runs may require re-run."
+            )
+            return
+
+        self.statusBar().showMessage("Audit details updated.")
+
+    def _update_workspace_actions(self) -> None:
+        """Enable audit-specific actions only while an audit is active."""
+
+        edit_action = self._menu_actions.get("edit_workspace")
+
+        if edit_action is not None:
+            edit_action.setEnabled(self._workspace_state.has_workspace)
+
     def _build_menu_bar(self) -> None:
         """Create the application menu bar and keyboard shortcuts."""
 
@@ -426,6 +491,18 @@ class MainWindow(QMainWindow):
         self._menu_actions["open_workspace"] = open_workspace_action
         file_menu.addAction(open_workspace_action)
 
+        edit_workspace_action = QAction(
+            "Edit Audit Details...",
+            self,
+        )
+        edit_workspace_action.setStatusTip(
+            "Review or update the active audit's details and audit period."
+        )
+        edit_workspace_action.triggered.connect(self._edit_workspace_details)
+
+        self._menu_actions["edit_workspace"] = edit_workspace_action
+        file_menu.addAction(edit_workspace_action)
+
         file_menu.addSeparator()
 
         save_workspace_action = QAction(
@@ -444,9 +521,7 @@ class MainWindow(QMainWindow):
             self,
         )
         save_workspace_as_action.setShortcut(QKeySequence("Ctrl+Shift+S"))
-        save_workspace_as_action.setStatusTip(
-            "Save the active audit to another location."
-        )
+        save_workspace_as_action.setStatusTip("Save the active audit to another location.")
         save_workspace_as_action.triggered.connect(self._save_workspace_as)
 
         self._menu_actions["save_workspace_as"] = save_workspace_as_action
@@ -869,10 +944,7 @@ class MainWindow(QMainWindow):
             (
                 "workspace.data_sources",
                 "Data Sources",
-                (
-                    "Register Excel and CSV source files and "
-                    "select datasets for the current audit."
-                ),
+                ("Register Excel and CSV source files and select datasets for the current audit."),
             ),
             (
                 "workspace.data_profile",
