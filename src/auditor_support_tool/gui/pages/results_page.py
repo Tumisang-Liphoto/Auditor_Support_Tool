@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from pathlib import Path
 
 import qtawesome as qta
-from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QAction, QActionGroup
+from PySide6.QtCore import QSize, Qt, QUrl, Signal
+from PySide6.QtGui import QAction, QActionGroup, QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
@@ -16,6 +17,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMenu,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -42,6 +44,9 @@ from auditor_support_tool.core.workspace_state import (
 from auditor_support_tool.gui.dialogs.audit_procedure_report_dialog import (
     AuditProcedureReportDialog,
 )
+from auditor_support_tool.gui.workers.openwebui_report_handoff_worker import (
+    OpenWebUIReportHandoffWorker,
+)
 from auditor_support_tool.presentation.result_dashboard_models import (
     DashboardIndicator,
     DashboardMetric,
@@ -52,6 +57,19 @@ from auditor_support_tool.presentation.result_dashboard_models import (
 )
 from auditor_support_tool.presentation.result_presenter_registry import (
     present_result,
+)
+from auditor_support_tool.services.audit_report_ai_handoff import (
+    AuditReportAIHandoffService,
+)
+from auditor_support_tool.services.openwebui_client import (
+    OpenWebUIAnalysisResult,
+    OpenWebUIClient,
+)
+from auditor_support_tool.services.openwebui_settings_service import (
+    OpenWebUISettingsService,
+)
+from auditor_support_tool.services.windows_credential_service import (
+    WindowsCredentialService,
 )
 
 
@@ -182,6 +200,7 @@ class ResultsPage(QWidget):
         *,
         workspace_state: WorkspaceState,
         procedure_registry: ProcedureRegistry,
+        settings_file: Path | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -189,6 +208,18 @@ class ResultsPage(QWidget):
         self._workspace_state = workspace_state
         self._procedure_registry = procedure_registry
         self._report_builder = AuditProcedureReportBuilder()
+        self._ai_handoff_service: AuditReportAIHandoffService | None = None
+
+        if settings_file is not None:
+            self._ai_handoff_service = AuditReportAIHandoffService(
+                settings_service=OpenWebUISettingsService(
+                    settings_file=settings_file,
+                    credential_store=WindowsCredentialService(),
+                ),
+                client=OpenWebUIClient(),
+            )
+
+        self._ai_handoff_worker: OpenWebUIReportHandoffWorker | None = None
         self._outcome: TestEngineOutcome | None = None
         self._presentation: ResultDashboardPresentation | None = None
         self._procedure_breadcrumb_title = "Procedure"
@@ -248,8 +279,12 @@ class ResultsPage(QWidget):
 
         self._empty_state.setVisible(False)
         self._result_content.setVisible(True)
-        self._view_report_button.setEnabled(
+        report_available = (
             outcome.status == TestEngineStatus.COMPLETED and outcome.result is not None
+        )
+        self._view_report_button.setEnabled(report_available)
+        self._send_report_to_ai_button.setEnabled(
+            report_available and self._ai_handoff_service is not None
         )
 
     def clear_result(self) -> None:
@@ -340,6 +375,16 @@ class ResultsPage(QWidget):
         back_button.setIcon(qta.icon("fa5s.arrow-left"))
         back_button.clicked.connect(lambda: self.back_requested.emit("workspace.audit_procedures"))
 
+        self._send_report_to_ai_button = QPushButton("Send Report to AI")
+        self._send_report_to_ai_button.setObjectName("secondaryActionButton")
+        self._send_report_to_ai_button.setIcon(qta.icon("fa5s.robot"))
+        self._send_report_to_ai_button.setEnabled(False)
+        self._send_report_to_ai_button.setToolTip(
+            "Send the completed audit procedure report to the "
+            "configured internal OpenWebUI for further analysis."
+        )
+        self._send_report_to_ai_button.clicked.connect(self._send_report_to_ai)
+
         self._view_report_button = QPushButton("View Audit Report")
         self._view_report_button.setObjectName("primaryActionButton")
         self._view_report_button.setIcon(qta.icon("fa5s.file-alt"))
@@ -365,6 +410,7 @@ class ResultsPage(QWidget):
         layout.addWidget(back_button)
         layout.addStretch(1)
         layout.addWidget(self._view_report_button)
+        layout.addWidget(self._send_report_to_ai_button)
         layout.addWidget(self._export_button)
         layout.addWidget(more_button)
 
@@ -1492,6 +1538,7 @@ class ResultsPage(QWidget):
         """Show the page before a result has been selected."""
 
         self._view_report_button.setEnabled(False)
+        self._send_report_to_ai_button.setEnabled(False)
         self._empty_state.setVisible(True)
         self._result_content.setVisible(False)
 
@@ -1520,6 +1567,126 @@ class ResultsPage(QWidget):
             parent=self,
         )
         dialog.exec()
+
+    def _send_report_to_ai(
+        self,
+    ) -> None:
+        """Confirm and send the current completed report to OpenWebUI."""
+
+        if self._ai_handoff_service is None:
+            QMessageBox.information(
+                self,
+                "AI Integration Unavailable",
+                ("OpenWebUI integration is not configured for this application session."),
+            )
+            return
+
+        if self._ai_handoff_worker is not None and self._ai_handoff_worker.isRunning():
+            return
+
+        outcome = self._outcome
+
+        if (
+            outcome is None
+            or outcome.status != TestEngineStatus.COMPLETED
+            or outcome.result is None
+        ):
+            return
+
+        procedure = self._procedure_registry.require(outcome.procedure_id)
+        report = self._report_builder.build(
+            definition=procedure.definition,
+            result=outcome.result,
+        )
+
+        confirmation = QMessageBox(self)
+        confirmation.setIcon(QMessageBox.Icon.Question)
+        confirmation.setWindowTitle("Send Audit Report to AI")
+        confirmation.setText(
+            f"Send {report.identity.display_id} — {report.identity.name} to the internal OpenWebUI?"
+        )
+        confirmation.setInformativeText(
+            "The AI will receive the completed structured audit "
+            "procedure report, including "
+            f"{report.summary.exception_count:,} exception record(s), "
+            "procedure metrics, limitations and source-row references.\n\n"
+            "The original source workbook will NOT be sent."
+        )
+        confirmation.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
+        )
+        confirmation.setDefaultButton(QMessageBox.StandardButton.Cancel)
+
+        if confirmation.exec() != QMessageBox.StandardButton.Yes:
+            return
+
+        self._send_report_to_ai_button.setEnabled(False)
+        self._send_report_to_ai_button.setText("Sending Report…")
+
+        self._ai_handoff_worker = OpenWebUIReportHandoffWorker(
+            service=self._ai_handoff_service,
+            report=report,
+        )
+        self._ai_handoff_worker.completed.connect(self._handle_ai_handoff_completed)
+        self._ai_handoff_worker.failed.connect(self._handle_ai_handoff_failed)
+        self._ai_handoff_worker.finished.connect(self._handle_ai_handoff_finished)
+        self._ai_handoff_worker.start()
+
+    def _handle_ai_handoff_completed(
+        self,
+        result: OpenWebUIAnalysisResult,
+    ) -> None:
+        """Offer to open the persistent OpenWebUI analysis conversation."""
+
+        answer = QMessageBox.question(
+            self,
+            "Audit Report Sent to AI",
+            (
+                "The audit report was sent successfully and a "
+                "persistent OpenWebUI analysis conversation was created.\n\n"
+                "Open the AI analysis now?"
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+
+        if answer == QMessageBox.StandardButton.Yes:
+            QDesktopServices.openUrl(QUrl(result.chat_url))
+
+    def _handle_ai_handoff_failed(
+        self,
+        message: str,
+    ) -> None:
+        """Show a controlled handoff failure without affecting the result."""
+
+        QMessageBox.warning(
+            self,
+            "Send Report to AI Failed",
+            message,
+        )
+
+    def _handle_ai_handoff_finished(
+        self,
+    ) -> None:
+        """Restore the Results action after background handoff completes."""
+
+        worker = self._ai_handoff_worker
+        self._ai_handoff_worker = None
+
+        if worker is not None:
+            worker.deleteLater()
+
+        outcome = self._outcome
+        report_available = (
+            outcome is not None
+            and outcome.status == TestEngineStatus.COMPLETED
+            and outcome.result is not None
+        )
+
+        self._send_report_to_ai_button.setText("Send Report to AI")
+        self._send_report_to_ai_button.setEnabled(
+            report_available and self._ai_handoff_service is not None
+        )
 
     def _emit_export_requested(
         self,

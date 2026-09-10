@@ -827,6 +827,7 @@ class MainWindow(QMainWindow):
         self._results_page = ResultsPage(
             workspace_state=self._workspace_state,
             procedure_registry=self._procedure_registry,
+            settings_file=self._settings_service.file_path,
         )
         self._results_page.back_requested.connect(self.show_route)
 

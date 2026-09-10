@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -26,6 +27,7 @@ from auditor_support_tool.gui.workers.openwebui_connection_worker import (
 from auditor_support_tool.services.openwebui_client import (
     OpenWebUIClient,
     OpenWebUIConnectionResult,
+    OpenWebUIModel,
 )
 from auditor_support_tool.services.openwebui_settings_service import (
     OpenWebUISettings,
@@ -55,6 +57,7 @@ class AIBrowserAccessPage(QWidget):
         )
         self._client = OpenWebUIClient()
         self._worker: OpenWebUIConnectionWorker | None = None
+        self._saved_default_model = ""
 
         self._build_interface()
         self._load_settings()
@@ -63,12 +66,7 @@ class AIBrowserAccessPage(QWidget):
         self,
     ) -> None:
         root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(
-            0,
-            0,
-            0,
-            0,
-        )
+        root_layout.setContentsMargins(0, 0, 0, 0)
 
         scroll_area = QScrollArea()
         scroll_area.setObjectName("pageScrollArea")
@@ -80,12 +78,7 @@ class AIBrowserAccessPage(QWidget):
         content.setObjectName("pageContent")
 
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(
-            40,
-            32,
-            40,
-            32,
-        )
+        layout.setContentsMargins(40, 32, 40, 32)
         layout.setSpacing(18)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
@@ -116,21 +109,16 @@ class AIBrowserAccessPage(QWidget):
         card = self._create_card()
 
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(
-            30,
-            24,
-            30,
-            24,
-        )
+        layout.setContentsMargins(30, 24, 30, 24)
         layout.setSpacing(14)
 
         heading = QLabel("OpenWebUI Connection")
         heading.setObjectName("profileSectionTitle")
 
         description = QLabel(
-            "The address and enable/disable preference are stored locally. "
-            "The API key remains in the Windows credential vault for the "
-            "current Windows user."
+            "The address, enabled state and default analysis model are stored "
+            "locally. The API key remains in the Windows credential vault for "
+            "the current Windows user."
         )
         description.setObjectName("profileSectionDescription")
         description.setWordWrap(True)
@@ -140,14 +128,8 @@ class AIBrowserAccessPage(QWidget):
         form = QGridLayout()
         form.setHorizontalSpacing(20)
         form.setVerticalSpacing(12)
-        form.setColumnMinimumWidth(
-            0,
-            150,
-        )
-        form.setColumnStretch(
-            1,
-            1,
-        )
+        form.setColumnMinimumWidth(0, 150)
+        form.setColumnStretch(1, 1)
 
         self._base_url_input = QLineEdit()
         self._base_url_input.setPlaceholderText("Example: http://server-name:3000")
@@ -157,26 +139,31 @@ class AIBrowserAccessPage(QWidget):
         self._api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
         self._api_key_input.setPlaceholderText("Leave blank to keep the currently saved API key")
 
+        self._model_input = QComboBox()
+        self._model_input.setEnabled(False)
+        self._model_input.addItem(
+            "Test connection to load available models",
+            "",
+        )
+
         form.addWidget(
             self._field_label("OpenWebUI address"),
             0,
             0,
         )
-        form.addWidget(
-            self._base_url_input,
-            0,
-            1,
-        )
+        form.addWidget(self._base_url_input, 0, 1)
         form.addWidget(
             self._field_label("API key"),
             1,
             0,
         )
+        form.addWidget(self._api_key_input, 1, 1)
         form.addWidget(
-            self._api_key_input,
-            1,
-            1,
+            self._field_label("Default analysis model"),
+            2,
+            0,
         )
+        form.addWidget(self._model_input, 2, 1)
 
         actions = QHBoxLayout()
         actions.setSpacing(10)
@@ -217,12 +204,7 @@ class AIBrowserAccessPage(QWidget):
         card = self._create_card()
 
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(
-            30,
-            24,
-            30,
-            24,
-        )
+        layout.setContentsMargins(30, 24, 30, 24)
         layout.setSpacing(10)
 
         heading = QLabel("Connection Status")
@@ -252,12 +234,7 @@ class AIBrowserAccessPage(QWidget):
         card = self._create_card()
 
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(
-            30,
-            24,
-            30,
-            24,
-        )
+        layout.setContentsMargins(30, 24, 30, 24)
         layout.setSpacing(10)
 
         heading = QLabel("Access and Audit Guidance")
@@ -266,8 +243,8 @@ class AIBrowserAccessPage(QWidget):
         guidance = QLabel(
             "Use an API key created from your own approved OpenWebUI account. "
             "The API key acts with that account's OpenWebUI permissions. "
-            "Opening OpenWebUI launches the configured service in your default "
-            "browser; browser login is managed by OpenWebUI itself.\n\n"
+            "The selected default model will be used when a completed audit "
+            "procedure report is sent for AI analysis.\n\n"
             "AI output is advisory. Auditors remain responsible for reviewing "
             "evidence, corroborating explanations and exercising professional "
             "judgement before reaching an audit conclusion."
@@ -288,6 +265,14 @@ class AIBrowserAccessPage(QWidget):
         self._enabled_input.setChecked(settings.enabled)
         self._base_url_input.setText(settings.base_url)
         self._api_key_input.clear()
+        self._saved_default_model = settings.default_model
+
+        if self._saved_default_model:
+            self._model_input.clear()
+            self._model_input.addItem(
+                (f"{self._saved_default_model} (saved — test connection to verify)"),
+                self._saved_default_model,
+            )
 
         self._refresh_credential_status()
 
@@ -299,6 +284,7 @@ class AIBrowserAccessPage(QWidget):
                 OpenWebUISettings(
                     enabled=self._enabled_input.isChecked(),
                     base_url=self._base_url_input.text(),
+                    default_model=str(self._model_input.currentData() or ""),
                 )
             )
 
@@ -311,6 +297,7 @@ class AIBrowserAccessPage(QWidget):
                 )
 
             self._base_url_input.setText(saved.base_url)
+            self._saved_default_model = saved.default_model
             self._api_key_input.clear()
         except (
             ValueError,
@@ -375,6 +362,50 @@ class AIBrowserAccessPage(QWidget):
             result.message,
             "success" if result.success else "error",
         )
+
+        if result.success:
+            self._populate_models(result.models)
+
+    def _populate_models(
+        self,
+        models: tuple[OpenWebUIModel, ...],
+    ) -> None:
+        current_model = str(self._model_input.currentData() or "") or self._saved_default_model
+
+        self._model_input.blockSignals(True)
+
+        try:
+            self._model_input.clear()
+
+            for model in models:
+                label = (
+                    model.name
+                    if model.name == model.model_id
+                    else f"{model.name} ({model.model_id})"
+                )
+                self._model_input.addItem(
+                    label,
+                    model.model_id,
+                )
+
+            if not models:
+                self._model_input.addItem(
+                    "No models available",
+                    "",
+                )
+                self._model_input.setEnabled(False)
+                return
+
+            self._model_input.setEnabled(True)
+
+            selected_index = self._model_input.findData(current_model)
+
+            if selected_index < 0:
+                selected_index = 0
+
+            self._model_input.setCurrentIndex(selected_index)
+        finally:
+            self._model_input.blockSignals(False)
 
     def _handle_worker_finished(
         self,
