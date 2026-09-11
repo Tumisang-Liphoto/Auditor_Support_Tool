@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.parse import urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from auditor_support_tool.services.openwebui_settings_service import (
     normalize_openwebui_url,
@@ -19,6 +20,27 @@ class OpenWebUIConnectionResult:
     success: bool
     message: str
     model_count: int = 0
+
+
+class _TransportPolicyError(URLError):
+    """Safe, non-secret transport-policy failure."""
+
+
+class _CredentialRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if req.has_header("Authorization"):
+            old = urlsplit(req.full_url)
+            new = urlsplit(newurl)
+            if (
+                new.scheme.lower() != "https"
+                or (old.hostname, old.port or 443) != (new.hostname, new.port or 443)
+                or new.username
+                or new.password
+            ):
+                raise _TransportPolicyError(
+                    "Authenticated OpenWebUI redirects require HTTPS and the same server."
+                )
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 class OpenWebUIClient:
@@ -45,27 +67,35 @@ class OpenWebUIClient:
         normalized_url = normalize_openwebui_url(base_url)
         cleaned_key = api_key.strip()
 
-        if not cleaned_key:
+        if cleaned_key and urlsplit(normalized_url).scheme != "https":
             return OpenWebUIConnectionResult(
                 success=False,
-                message=("No OpenWebUI API key is configured for this address."),
+                message=(
+                    "API keys require an HTTPS OpenWebUI address. "
+                    "Remove the API key or configure HTTPS."
+                ),
             )
 
+        headers = {"Accept": "application/json"}
+        if cleaned_key:
+            headers["Authorization"] = f"Bearer {cleaned_key}"
         request = Request(
             f"{normalized_url}/api/models",
-            headers={
-                "Accept": "application/json",
-                "Authorization": (f"Bearer {cleaned_key}"),
-            },
+            headers=headers,
             method="GET",
         )
 
         try:
-            with urlopen(
+            with build_opener(_CredentialRedirectHandler()).open(
                 request,
                 timeout=self._timeout_seconds,
             ) as response:
                 payload = json.loads(response.read().decode("utf-8"))
+        except _TransportPolicyError:
+            return OpenWebUIConnectionResult(
+                success=False,
+                message="Authenticated OpenWebUI redirects require HTTPS and the same server.",
+            )
         except HTTPError as error:
             if error.code in {
                 401,
@@ -83,13 +113,11 @@ class OpenWebUIClient:
                 success=False,
                 message=(f"OpenWebUI returned HTTP {error.code} while testing the connection."),
             )
-        except (URLError, TimeoutError) as error:
+        except (URLError, TimeoutError):
             return OpenWebUIConnectionResult(
                 success=False,
                 message=(
-                    "OpenWebUI could not be reached. "
-                    "Check the address, network or VPN connection. "
-                    f"Details: {error}"
+                    "OpenWebUI could not be reached. Check the address, network or VPN connection. "
                 ),
             )
         except (

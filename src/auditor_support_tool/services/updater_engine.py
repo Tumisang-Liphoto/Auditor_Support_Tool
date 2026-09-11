@@ -2,6 +2,7 @@
 
 import argparse
 import ctypes
+import logging
 import os
 import shutil
 import subprocess
@@ -117,7 +118,7 @@ def prune_backups(backup_root: Path) -> None:
         reverse=True,
     )
     for old_backup in backups[UPDATE_BACKUP_RETENTION:]:
-        shutil.rmtree(old_backup, ignore_errors=True)
+        shutil.rmtree(old_backup)
 
 
 def launch_application(
@@ -152,6 +153,26 @@ def restore_backup(backup: Path, target: Path) -> None:
     copy_directory(backup, target)
 
 
+def _stop_update_child(process: subprocess.Popen[bytes]) -> None:
+    """Stop only the child we launched, and confirm exit before restoration."""
+    if process.poll() is not None:
+        return
+    try:
+        process.terminate()
+    except OSError:
+        if process.poll() is None:
+            raise
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=5)
+
+
+class _HealthCheckFailed(RuntimeError):
+    pass
+
+
 def run_update(args: argparse.Namespace) -> int:
     source = Path(args.source).resolve()
     target = Path(args.target).resolve()
@@ -164,27 +185,50 @@ def run_update(args: argparse.Namespace) -> int:
         raise RuntimeError("The staged update manifest is missing.")
 
     backup = create_backup(target, backup_root, args.version)
+    process = None
     try:
         copy_directory(source, target)
         health_marker.unlink(missing_ok=True)
         process = launch_application(app_executable, health_marker, args.health_token)
         if not wait_for_health(health_marker, process):
-            if process.poll() is None:
-                process.terminate()
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
+            raise _HealthCheckFailed("The new application did not become healthy.")
+    except Exception as original_error:
+        try:
+            if process is not None:
+                _stop_update_child(process)
             restore_backup(backup, target)
+        except Exception as recovery_error:
+            raise RuntimeError(
+                f"Update failed: {original_error}. Recovery could not complete: "
+                f"{recovery_error}. Backup retained at {backup}. "
+                "The installation may be incomplete; do not delete the backup."
+            ) from recovery_error
+        try:
             subprocess.Popen([str(app_executable)], cwd=str(target))
+        except Exception as launch_error:
+            raise RuntimeError(
+                f"Update failed: {original_error}. The previous installation was restored "
+                f"but could not be restarted. Backup retained at {backup}."
+            ) from launch_error
+        if isinstance(original_error, _HealthCheckFailed):
             return 2
-        prune_backups(backup_root)
-        shutil.rmtree(source, ignore_errors=True)
-        return 0
-    except Exception:
-        restore_backup(backup, target)
-        subprocess.Popen([str(app_executable)], cwd=str(target))
-        raise
+        raise RuntimeError(
+            f"Update failed: {original_error}. The previous installation was restored. "
+            f"Backup retained at {backup}."
+        ) from original_error
+
+    # Commit point: the new application is healthy. Cleanup must never roll it back.
+    for label, cleanup in (
+        ("backup pruning", lambda: prune_backups(backup_root)),
+        ("staging cleanup", lambda: shutil.rmtree(source)),
+    ):
+        try:
+            cleanup()
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "Update succeeded, but %s failed. Retained files may need manual cleanup.", label
+            )
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
