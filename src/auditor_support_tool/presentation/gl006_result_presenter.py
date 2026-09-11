@@ -383,7 +383,7 @@ def _amount_summary_value(row: dict[str, object]) -> str:
 
     try:
         return f"{Decimal(str(value)):,.2f}"
-    except InvalidOperation, ValueError:
+    except (InvalidOperation, ValueError):
         return "N/A"
 
 
@@ -426,7 +426,7 @@ def _as_int(value: object) -> int:
 
     try:
         return int(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return 0
 
 
@@ -438,5 +438,5 @@ def _as_float(value: object) -> float:
 
     try:
         return float(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return 0.0

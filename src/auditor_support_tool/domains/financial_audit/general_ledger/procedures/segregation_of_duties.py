@@ -341,7 +341,7 @@ class SegregationOfDutiesProcedure:
 
         try:
             return Decimal(str(resolved.value).strip())
-        except InvalidOperation, ValueError:
+        except (InvalidOperation, ValueError):
             return None
 
     @staticmethod

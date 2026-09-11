@@ -248,7 +248,7 @@ class UpdateService:
 
                 try:
                     size = int(raw_asset.get("size", 0))
-                except TypeError, ValueError:
+                except (TypeError, ValueError):
                     size = 0
 
                 raw_digest = raw_asset.get("digest")

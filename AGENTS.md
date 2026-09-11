@@ -134,8 +134,10 @@ run it when those instructions prohibit its effects.
 - Do not rewrite Git history.
 - Before proposing a commit, report test results, a Git diff summary and Git status.
 
-## Compatibility issue to resolve
+## Python compatibility
 
-Project metadata currently advertises Python 3.12 support, while some source syntax
-requires Python 3.14. Resolve metadata/runtime compatibility and validate supported
-versions. This is a current technical issue, not a permanent architecture rule.
+The supported source range is Python >=3.12,<3.15. Source syntax and Ruff target
+Python 3.12; keep multiple exception types parenthesised. Grammar/static checks
+for Python 3.12 and 3.13 do not establish runtime compatibility. Runtime validation
+must be recorded separately for each installed interpreter; do not claim a fully
+validated release matrix until installation and tests pass on all three versions.

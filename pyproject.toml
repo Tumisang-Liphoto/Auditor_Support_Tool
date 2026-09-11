@@ -32,6 +32,8 @@ classifiers = [
     "Operating System :: Microsoft :: Windows :: Windows 10",
     "Operating System :: Microsoft :: Windows :: Windows 11",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14"
 ]
 
@@ -42,7 +44,8 @@ dependencies = [
     "duckdb",
     "openpyxl",
     "python-docx",
-    "packaging"
+    "packaging",
+    "certifi"
 ]
 
 [project.optional-dependencies]
@@ -68,7 +71,7 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 
 [tool.ruff]
-target-version = "py314"
+target-version = "py312"
 line-length = 100
 
 [tool.ruff.lint]

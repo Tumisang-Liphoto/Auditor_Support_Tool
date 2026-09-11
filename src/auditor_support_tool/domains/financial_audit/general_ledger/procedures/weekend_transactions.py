@@ -580,7 +580,7 @@ class WeekendTransactionsProcedure:
 
         try:
             return Decimal(str(value))
-        except InvalidOperation, ValueError:
+        except (InvalidOperation, ValueError):
             return None
 
     @staticmethod

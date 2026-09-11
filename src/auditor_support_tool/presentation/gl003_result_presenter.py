@@ -580,7 +580,7 @@ def _as_int(
 
     try:
         return int(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return 0
 
 
