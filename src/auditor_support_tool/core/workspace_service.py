@@ -141,37 +141,29 @@ class WorkspaceService:
             raise WorkspaceServiceError("A workspace file path is required for the first save.")
 
         workspace_path = self._normalise_workspace_path(target_path)
-        workspace_path.parent.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-
-        source_reference: WorkspaceSourceReference | None = None
-        workbook_snapshot: dict[str, object] | None = None
-
-        if state.workbook_package is not None:
-            source_reference = self._persist_workspace_source(
-                state,
-                workspace_path,
-            )
-            workbook_snapshot = self._workbook_package_service.snapshot_package(
-                state.workbook_package
-            )
-        elif state.source_path is not None:
-            source_reference = self._persist_workspace_source(
-                state,
-                workspace_path,
-            )
-
-        document = self.build_document(
-            state,
-            source_reference=source_reference,
-            workbook_package_snapshot=workbook_snapshot,
-        )
-        saved_path = self.save_document(
-            document=document,
-            file_path=workspace_path,
-        )
+        created_sources: list[Path] = []
+        try:
+            # Validate metadata before creating any managed source assets.
+            document = self.build_document(state)
+            self._validate_document(document)
+            if state.source_path is not None:
+                document.source = self._persist_workspace_source(
+                    state, workspace_path, created_sources=created_sources
+                )
+            # Source assets are immutable. Replacing this document is the only
+            # commit point; the previous document still refers to untouched bytes.
+            saved_path = self.save_document(document=document, file_path=workspace_path)
+        except (OSError, TypeError, ValueError, WorkspaceServiceError) as error:
+            cleanup_errors = []
+            for source in created_sources:
+                try:
+                    source.unlink(missing_ok=True)
+                except OSError as cleanup_error:
+                    cleanup_errors.append(str(cleanup_error))
+            detail = f"Could not save workspace: {error}"
+            if cleanup_errors:
+                detail += " Unreferenced source cleanup failed: " + "; ".join(cleanup_errors)
+            raise WorkspaceServiceError(detail) from error
 
         state.set_workspace_file_path(saved_path)
         state.mark_saved()
@@ -221,6 +213,7 @@ class WorkspaceService:
             TypeError,
             ValueError,
             json.JSONDecodeError,
+            WorkspaceServiceError,
         ) as error:
             self._remove_file_if_present(temporary_path)
 
@@ -816,8 +809,10 @@ class WorkspaceService:
         self,
         state: WorkspaceState,
         workspace_path: Path,
+        *,
+        created_sources: list[Path],
     ) -> WorkspaceSourceReference:
-        """Copy the active source into the workspace companion folder."""
+        """Prepare immutable source bytes without replacing a saved source."""
 
         source_path = state.source_path
 
@@ -827,14 +822,14 @@ class WorkspaceService:
         source_path = source_path.expanduser().resolve()
 
         if not source_path.is_file():
-            existing_managed_path = self._managed_source_path(
-                workspace_path,
-                source_path.name,
-            )
-
-            if existing_managed_path.is_file():
-                source_path = existing_managed_path
-            else:
+            # After a previous save the original external file may be gone.
+            # Resolve the actual committed reference, including versioned paths.
+            saved_workspace = state.workspace_file_path
+            if saved_workspace is not None and saved_workspace.is_file():
+                saved_source = self.load_document(saved_workspace).source
+                if saved_source is not None:
+                    source_path = self._resolve_workspace_source_path(saved_source, saved_workspace)
+            if not source_path.is_file():
                 raise WorkspaceServiceError(
                     f"The workspace source file is no longer available: {source_path}"
                 )
@@ -844,19 +839,41 @@ class WorkspaceService:
             source_path.name,
         )
 
+        loaded_hashes = (
+            {dataset.loaded_table.source_sha256 for dataset in state.workbook_package.datasets}
+            if state.workbook_package is not None
+            else set()
+        )
         try:
-            managed_path.parent.mkdir(
-                parents=True,
-                exist_ok=True,
-            )
-
-            if source_path != managed_path:
-                self._copy_source_if_needed(
-                    source_path,
-                    managed_path,
+            source_hash = self._source_integrity_service.sha256_file(source_path)
+            if state.workbook_package is not None and (
+                len(loaded_hashes) != 1
+                or not all(loaded_hashes)
+                or source_hash not in loaded_hashes
+            ):
+                raise WorkspaceServiceError(
+                    "The source file changed or its loaded fingerprint is unavailable. "
+                    "Reload the source data before saving the audit."
                 )
+            if managed_path.exists():
+                if self._source_integrity_service.sha256_file(managed_path) != source_hash:
+                    managed_path = managed_path.parent / source_hash / managed_path.name
+            if managed_path.exists():
+                if self._source_integrity_service.sha256_file(managed_path) != source_hash:
+                    raise WorkspaceServiceError(
+                        "Existing managed source does not match its fingerprint."
+                    )
+            else:
+                managed_path.parent.mkdir(parents=True, exist_ok=True)
+                created_sources.append(managed_path)
+                self._copy_source_if_needed(source_path, managed_path)
 
             absolute_reference = self._source_reference_for_path(managed_path)
+            if absolute_reference.sha256 != source_hash:
+                raise WorkspaceServiceError(
+                    "The saved source copy does not match the loaded population. "
+                    "Reload the source data before saving the audit."
+                )
 
         except OSError as error:
             raise WorkspaceServiceError(
@@ -947,14 +964,25 @@ class WorkspaceService:
             exist_ok=True,
         )
 
-        timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
         backup_name = f"{source_path.stem}-{timestamp}{WORKSPACE_FILE_EXTENSION}"
         backup_path = backup_directory / backup_name
-
-        shutil.copy2(
-            source_path,
-            backup_path,
-        )
+        temporary_path = backup_path.with_suffix(f"{backup_path.suffix}.tmp")
+        # Relative references must still resolve after moving the document into
+        # the backup directory. Old source assets are retained for these backups.
+        document = self.load_document(source_path)
+        if document.source is not None:
+            document.source.source_path = str(
+                self._resolve_workspace_source_path(document.source, source_path)
+            )
+        try:
+            temporary_path.write_text(
+                json.dumps(asdict(document), indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+            self._verify_written_document(temporary_path)
+            temporary_path.replace(backup_path)
+        finally:
+            self._remove_file_if_present(temporary_path)
 
         return backup_path
 

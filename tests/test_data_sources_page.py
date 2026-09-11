@@ -106,3 +106,16 @@ def test_empty_source_status_is_hidden(page):
 
     assert page._source_status.text() == ""
     assert page._source_status.isHidden()
+
+
+def test_clear_handler_requests_transition_without_clearing_state(page, qtbot):
+    from auditor_support_tool.core.workspace_models import WorkspaceIdentity
+
+    state = page._workspace_state
+    identity = WorkspaceIdentity.create(name="Unsaved audit")
+    state.start_workspace(identity)
+    with qtbot.waitSignal(page.clear_requested):
+        page._clear_workspace()
+    assert state.workspace_identity is identity
+    assert state.is_dirty
+    assert page._clear_button.isHidden()

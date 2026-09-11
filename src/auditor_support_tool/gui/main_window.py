@@ -75,6 +75,9 @@ from auditor_support_tool.gui.widgets.breadcrumb_bar import (
     BreadcrumbBar,
 )
 from auditor_support_tool.gui.widgets.sidebar import Sidebar
+from auditor_support_tool.services.administrator_settings_service import (
+    AdministratorSettingsService,
+)
 from auditor_support_tool.services.settings_service import (
     SettingsService,
     UserProfile,
@@ -94,10 +97,14 @@ class MainWindow(QMainWindow):
         theme_service: ThemeService,
         update_service: UpdateService,
         workspace_service: WorkspaceService,
+        administrator_settings_service: AdministratorSettingsService | None = None,
     ) -> None:
         super().__init__()
 
         self._settings_service = settings_service
+        self._administrator_settings_service = (
+            administrator_settings_service or AdministratorSettingsService(self)
+        )
         self._theme_service = theme_service
         self._update_service = update_service
         self._workspace_service = workspace_service
@@ -841,6 +848,7 @@ class MainWindow(QMainWindow):
             workspace_state=self._workspace_state,
         )
         data_sources_page.continue_requested.connect(self.show_route)
+        data_sources_page.clear_requested.connect(self._close_workspace)
 
         self._register_page(
             route="workspace.data_sources",
@@ -1035,6 +1043,7 @@ class MainWindow(QMainWindow):
                 page=(
                     AIBrowserAccessPage(
                         settings_file=self._settings_service.file_path,
+                        administrator_settings_service=self._administrator_settings_service,
                     )
                     if route == "settings.ai_browser"
                     else PlaceholderPage(

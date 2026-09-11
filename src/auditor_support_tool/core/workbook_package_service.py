@@ -6,6 +6,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from auditor_support_tool.core.data_import_service import (
+    DataImportError,
     DataImportService,
 )
 from auditor_support_tool.core.data_profile_models import (
@@ -106,6 +107,9 @@ class WorkbookPackageService:
                     columns=columns,
                 )
             )
+
+        if len({dataset.loaded_table.source_sha256 for dataset in package.datasets}) > 1:
+            raise DataImportError("The source file changed while loading. Reload the source data.")
 
         return package
 

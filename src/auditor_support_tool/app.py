@@ -16,6 +16,9 @@ from auditor_support_tool.core.constants import (
 from auditor_support_tool.core.paths import ensure_application_paths
 from auditor_support_tool.core.workspace_service import WorkspaceService
 from auditor_support_tool.gui.main_window import MainWindow
+from auditor_support_tool.services.administrator_settings_service import (
+    AdministratorSettingsService,
+)
 from auditor_support_tool.services.settings_service import SettingsService
 from auditor_support_tool.services.theme_service import ThemeService
 from auditor_support_tool.services.update_service import UpdateService
@@ -69,6 +72,7 @@ def main() -> int:
     application.installEventFilter(combo_box_wheel_guard)
 
     settings_service = SettingsService(paths.config / "settings.ini")
+    administrator_settings_service = AdministratorSettingsService(application)
     theme_service = ThemeService(application, settings_service)
     theme_service.apply_saved_appearance()
 
@@ -80,6 +84,7 @@ def main() -> int:
 
     window = MainWindow(
         settings_service=settings_service,
+        administrator_settings_service=administrator_settings_service,
         theme_service=theme_service,
         update_service=update_service,
         workspace_service=workspace_service,

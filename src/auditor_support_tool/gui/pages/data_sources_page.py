@@ -47,6 +47,7 @@ class DataSourcesPage(QWidget):
     """Inspect a source file and select its worksheet datasets."""
 
     continue_requested = Signal(str)
+    clear_requested = Signal()
 
     def __init__(
         self,
@@ -900,7 +901,9 @@ class DataSourcesPage(QWidget):
         self._loaded_dataset_count_value.setText("0")
 
     def _clear_workspace(self) -> None:
-        self._workspace_state.clear()
+        """Delegate audit clearing to the window's guarded transition flow."""
+
+        self.clear_requested.emit()
 
     def _reset_page(self) -> None:
         self._source_path = None
