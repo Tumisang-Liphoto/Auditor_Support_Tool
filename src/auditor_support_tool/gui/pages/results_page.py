@@ -1032,6 +1032,7 @@ class ResultsPage(QWidget):
             strict=True,
         ):
             card.set_content(metric)
+            card.setVisible(True)
 
         self._risk_panel.setVisible(True)
         self._risk_heading.setText("Audit Analysis")
@@ -1078,19 +1079,20 @@ class ResultsPage(QWidget):
             if indicator not in available_indicators
         )
 
-        self._risk_panel.setVisible(bool(available_indicators))
-
-        if not available_indicators:
-            return
+        self._risk_panel.setVisible(bool(presentation.risk_indicators))
 
         for indicator in available_indicators:
             self._risk_items_layout.addWidget(self._build_indicator_card(indicator))
 
         if unavailable_indicators:
             unavailable_label = QLabel(
-                "Not evaluated in this run: "
-                + ", ".join(indicator.title for indicator in unavailable_indicators)
+                "Additional analysis not evaluated:\n"
+                + "\n".join(
+                    f"• {indicator.title} — {indicator.detail}"
+                    for indicator in unavailable_indicators
+                )
             )
+            unavailable_label.setTextFormat(Qt.TextFormat.PlainText)
             unavailable_label.setObjectName("resultSectionDescription")
             unavailable_label.setWordWrap(True)
             self._risk_items_layout.addWidget(unavailable_label)

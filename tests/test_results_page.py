@@ -1,11 +1,12 @@
 """Results explorer behaviour and batched column-sizing regressions."""
 
 from copy import deepcopy
+from dataclasses import replace
 from decimal import Decimal
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QHeaderView, QStyledItemDelegate
+from PySide6.QtWidgets import QHeaderView, QLabel, QStyledItemDelegate
 
 from auditor_support_tool.core.audit_execution_models import AuditExecutionRequest
 from auditor_support_tool.core.audit_procedure_models import (
@@ -24,6 +25,7 @@ from auditor_support_tool.domains.financial_audit.general_ledger.procedure_boots
     create_general_ledger_procedure_registry,
 )
 from auditor_support_tool.gui.pages import results_page
+from auditor_support_tool.presentation.result_dashboard_models import DashboardIndicator
 
 
 @pytest.fixture
@@ -232,3 +234,75 @@ def test_empty_filters_are_not_shown(page):
 )
 def test_display_availability_hides_only_unavailable_values(value, expected):
     assert results_page.ResultsPage._display_value_is_available(value) is expected
+
+
+@pytest.mark.parametrize("include_available", (True, False))
+def test_unavailable_analysis_preserves_titles_and_reasons(page, qapp, include_available):
+    """Mixed and wholly unavailable analysis retain compact presenter explanations."""
+
+    available = page._presentation.risk_indicators[0]
+    unavailable = (
+        DashboardIndicator("Amount analysis", "N/A", "Threshold not configured", available=False),
+        DashboardIndicator(
+            "User analysis", "N/A", "Required user fields unavailable", available=False
+        ),
+    )
+    presentation = replace(
+        page._presentation,
+        risk_indicators=((available,) if include_available else ()) + unavailable,
+    )
+    page._populate_risk_panel(presentation)
+    qapp.processEvents()
+
+    assert page._risk_panel.isVisible()
+    assert page._risk_heading.isVisible()
+    assert page._risk_heading.text() == presentation.risk_title
+    assert page._risk_description.isVisible()
+    assert page._risk_description.text() == presentation.risk_description
+    layout = page._risk_items_layout
+    assert layout.count() == (2 if include_available else 1)
+    if include_available:
+        card = layout.itemAt(0).widget()
+        assert card.isVisible()
+        assert card.objectName() == "card"
+        texts = [label.text() for label in card.findChildren(QLabel)]
+        assert available.title in texts
+        assert available.detail in texts
+        assert available.value in texts
+
+    disclosure = layout.itemAt(layout.count() - 1).widget()
+    assert isinstance(disclosure, QLabel)
+    assert disclosure.isVisible()
+    for indicator in unavailable:
+        assert f"{indicator.title} — {indicator.detail}" in disclosure.text()
+    assert "N/A" not in disclosure.text()
+
+
+@pytest.mark.parametrize("status", (EngineStatus.BLOCKED, EngineStatus.FAILED))
+@pytest.mark.parametrize("hidden_metric", ("missing", "unavailable"))
+def test_no_result_restores_fallback_metric_visibility(page, monkeypatch, status, hidden_metric):
+    """Fallback cards must not inherit hidden state from a completed presentation."""
+
+    metrics = page._presentation.metrics
+    presentation = replace(
+        page._presentation,
+        metrics=(
+            metrics[:-1]
+            if hidden_metric == "missing"
+            else metrics[:-1] + (replace(metrics[-1], value="N/A"),)
+        ),
+    )
+    monkeypatch.setattr(results_page, "present_result", lambda **kwargs: presentation)
+    page.set_outcome(page.outcome)
+    assert page._metric_cards[-1].isHidden()
+
+    page.set_outcome(EngineOutcome("GL001", "dataset-1", status))
+
+    assert len(page._metric_cards) == 4
+    for card, title in zip(
+        page._metric_cards, ("Population", "Evaluated", "Exceptions", "Exception %"), strict=True
+    ):
+        assert card.isVisible()
+        texts = [label.text() for label in card.findChildren(QLabel)]
+        assert title in texts
+        assert "—" in texts
