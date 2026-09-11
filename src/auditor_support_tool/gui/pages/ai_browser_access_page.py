@@ -20,8 +20,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from auditor_support_tool.gui.dialogs.administrator_unlock_dialog import (
+    AdministratorUnlockDialog,
+)
 from auditor_support_tool.gui.workers.openwebui_connection_worker import (
     OpenWebUIConnectionWorker,
+)
+from auditor_support_tool.services.administrator_settings_service import (
+    AdministratorSettingsService,
 )
 from auditor_support_tool.services.openwebui_client import (
     OpenWebUIClient,
@@ -45,9 +51,17 @@ class AIBrowserAccessPage(QWidget):
         self,
         *,
         settings_file: Path,
+        administrator_settings_service: AdministratorSettingsService | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+
+        self._administrator_settings_service = (
+            administrator_settings_service or AdministratorSettingsService(self)
+        )
+        self._administrator_settings_service.lock_state_changed.connect(
+            self._apply_administrator_lock_state
+        )
 
         self._settings_service = OpenWebUISettingsService(
             settings_file=settings_file,
@@ -58,6 +72,7 @@ class AIBrowserAccessPage(QWidget):
 
         self._build_interface()
         self._load_settings()
+        self._apply_administrator_lock_state(self._administrator_settings_service.is_unlocked)
 
     def _build_interface(
         self,
@@ -102,6 +117,7 @@ class AIBrowserAccessPage(QWidget):
 
         layout.addWidget(title)
         layout.addWidget(subtitle)
+        layout.addWidget(self._build_administrator_card())
         layout.addWidget(self._build_configuration_card())
         layout.addWidget(self._build_status_card())
         layout.addWidget(self._build_guidance_card())
@@ -109,6 +125,41 @@ class AIBrowserAccessPage(QWidget):
 
         scroll_area.setWidget(content)
         root_layout.addWidget(scroll_area)
+
+    def _build_administrator_card(
+        self,
+    ) -> QFrame:
+        card = self._create_card()
+
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(
+            30,
+            24,
+            30,
+            24,
+        )
+        layout.setSpacing(10)
+
+        heading = QLabel("Administrator Settings")
+        heading.setObjectName("profileSectionTitle")
+
+        self._administrator_status = QLabel()
+        self._administrator_status.setObjectName("profileSectionDescription")
+        self._administrator_status.setWordWrap(True)
+
+        self._administrator_button = QPushButton()
+        self._administrator_button.setObjectName("secondaryActionButton")
+        self._administrator_button.clicked.connect(self._toggle_administrator_lock)
+
+        actions = QHBoxLayout()
+        actions.addWidget(self._administrator_button)
+        actions.addStretch(1)
+
+        layout.addWidget(heading)
+        layout.addWidget(self._administrator_status)
+        layout.addLayout(actions)
+
+        return card
 
     def _build_configuration_card(
         self,
@@ -294,6 +345,9 @@ class AIBrowserAccessPage(QWidget):
     def _save_settings(
         self,
     ) -> None:
+        if not self._require_administrator_access():
+            return
+
         try:
             saved = self._settings_service.save_settings(
                 OpenWebUISettings(
@@ -412,6 +466,9 @@ class AIBrowserAccessPage(QWidget):
     def _remove_saved_key(
         self,
     ) -> None:
+        if not self._require_administrator_access():
+            return
+
         try:
             base_url = normalize_openwebui_url(self._base_url_input.text())
         except ValueError as error:
@@ -474,19 +531,97 @@ class AIBrowserAccessPage(QWidget):
             text = "API credential: no saved API key for the current OpenWebUI address."
 
         self._credential_status.setText(text)
-        self._remove_key_button.setEnabled(has_key)
+        self._remove_key_button.setEnabled(
+            has_key and self._administrator_settings_service.is_unlocked
+        )
 
     def _set_testing_state(
         self,
         testing: bool,
     ) -> None:
         self._test_button.setEnabled(not testing)
-        self._save_button.setEnabled(not testing)
+        self._save_button.setEnabled(
+            not testing and self._administrator_settings_service.is_unlocked
+        )
 
         if testing:
             self._remove_key_button.setEnabled(False)
         else:
             self._refresh_credential_status()
+
+    def _toggle_administrator_lock(
+        self,
+    ) -> None:
+        if self._administrator_settings_service.is_unlocked:
+            self._administrator_settings_service.lock()
+            self._load_settings()
+            self._set_connection_status(
+                "Administrator settings locked.",
+                "neutral",
+            )
+            return
+
+        dialog = AdministratorUnlockDialog(
+            administrator_settings_service=self._administrator_settings_service,
+            parent=self,
+        )
+        dialog.exec()
+
+    def _apply_administrator_lock_state(
+        self,
+        unlocked: bool,
+    ) -> None:
+        configured = self._administrator_settings_service.is_configured
+
+        self._enabled_input.setEnabled(unlocked)
+        self._base_url_input.setReadOnly(not unlocked)
+        self._base_url_input.setClearButtonEnabled(unlocked)
+        self._api_key_input.setEnabled(unlocked)
+        self._save_button.setEnabled(unlocked and self._worker is None)
+
+        if unlocked:
+            self._administrator_status.setText(
+                "Unlocked for this application session. Protected AI settings can be changed."
+            )
+            self._administrator_button.setText("Lock Settings")
+            self._administrator_button.setEnabled(True)
+            self._api_key_input.setPlaceholderText(
+                "Leave blank to keep the currently saved API key"
+            )
+        elif configured:
+            self._administrator_status.setText(
+                "Locked. The approved AI configuration can be used and tested, "
+                "but only an authorised technician can change it."
+            )
+            self._administrator_button.setText("Unlock Settings")
+            self._administrator_button.setEnabled(True)
+            self._api_key_input.setPlaceholderText(
+                "Administrator access required to change the API key"
+            )
+        else:
+            self._administrator_status.setText(
+                "Locked. The technician password has not yet been configured for this build."
+            )
+            self._administrator_button.setText("Unlock Settings")
+            self._administrator_button.setEnabled(False)
+            self._api_key_input.setPlaceholderText(
+                "Technician password must be configured before this setting can be changed"
+            )
+
+        self._refresh_credential_status()
+
+    def _require_administrator_access(
+        self,
+    ) -> bool:
+        if self._administrator_settings_service.is_unlocked:
+            return True
+
+        QMessageBox.warning(
+            self,
+            "Administrator Settings",
+            "Unlock Administrator Settings before changing the AI configuration.",
+        )
+        return False
 
     def _set_connection_status(
         self,
