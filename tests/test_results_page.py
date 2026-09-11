@@ -207,7 +207,8 @@ def test_exploration_preserves_result_and_full_report(page, monkeypatch):
 def test_placeholder_result_actions_are_hidden(page):
     """Unavailable actions should not occupy the normal auditor workflow."""
 
-    assert page._export_button.isHidden()
+    assert not hasattr(page, "_export_button")
+    assert page._export_exceptions_button.isEnabled()
 
 
 def test_empty_filters_are_not_shown(page):
@@ -389,3 +390,100 @@ def test_other_procedure_parameter_change_preserves_result(page):
 
     assert page.outcome is outcome
     assert page._presentation is not None
+
+
+def test_export_cancel_preserves_exploration(page, monkeypatch):
+    page._set_filter("same_vendor")
+    page._search_input.setText("INV-029")
+    snapshot = deepcopy(page.outcome.result)
+    monkeypatch.setattr(results_page.QFileDialog, "getSaveFileName", lambda *args: ("", ""))
+    page._export_exceptions()
+    assert page._export_worker is None
+    assert page.outcome.result == snapshot
+    assert page._search_input.text() == "INV-029"
+    assert page._active_filter == "same_vendor"
+
+
+def test_export_uses_complete_result_and_feedback(page, monkeypatch, tmp_path, qtbot):
+    page._next_page_button.click()
+    page._set_filter("same_vendor")
+    page._search_input.setText("INV-029")
+    original = deepcopy(page.outcome.result)
+    dirty_before = page._workspace_state.is_dirty
+    target = tmp_path / "all.csv"
+    monkeypatch.setattr(
+        results_page.QFileDialog, "getSaveFileName", lambda *args: (str(target), "CSV (*.csv)")
+    )
+    messages = []
+    monkeypatch.setattr(
+        results_page.QMessageBox, "information", lambda *args: messages.append(args[2])
+    )
+    page._export_exceptions()
+    qtbot.waitUntil(lambda: page._export_worker is None)
+    import csv
+
+    with target.open(encoding="utf-8-sig", newline="") as stream:
+        rows = list(csv.DictReader(stream))
+    assert len(rows) == original.exception_count == 120
+    assert [row["source_record_id"] for row in rows] == [
+        r.source_record_id for r in original.exception_records
+    ]
+    assert page.outcome.result == original
+    assert page._workspace_state.is_dirty == dirty_before
+    assert page._search_input.text() == "INV-029"
+    assert page._active_filter == "same_vendor"
+    assert messages
+
+
+def test_export_error_and_invalidated_state(page, monkeypatch, qtbot, tmp_path):
+    target = tmp_path / "missing" / "all.xlsx"
+    monkeypatch.setattr(
+        results_page.QFileDialog,
+        "getSaveFileName",
+        lambda *args: (str(target), "Excel Workbook (*.xlsx)"),
+    )
+    errors = []
+    monkeypatch.setattr(results_page.QMessageBox, "warning", lambda *args: errors.append(args[2]))
+    original = page.outcome
+    page._export_exceptions()
+    qtbot.waitUntil(lambda: page._export_worker is None)
+    assert errors
+    assert page.outcome is original
+    assert page._export_exceptions_button.isEnabled()
+    page.clear_result()
+    assert not page._export_exceptions_button.isEnabled()
+
+
+def test_zero_exception_export_enabled(page):
+    outcome = replace(
+        page.outcome,
+        result=replace(
+            page.outcome.result, exception_records=(), exception_count=0, exception_rate=0
+        ),
+    )
+    page.set_outcome(outcome)
+    assert page._export_exceptions_button.isEnabled()
+    assert "all 0 exceptions" in page._export_exceptions_button.toolTip()
+
+
+def test_csv_selection_changes_default_suffix_without_unapproved_overwrite(
+    page, monkeypatch, tmp_path
+):
+    existing = tmp_path / "all.csv"
+    existing.write_bytes(b"existing")
+    monkeypatch.setattr(
+        results_page.QFileDialog,
+        "getSaveFileName",
+        lambda *args: (str(tmp_path / "all.xlsx"), "CSV (*.csv)"),
+    )
+    questions = []
+
+    def decline(*args):
+        questions.append(args)
+        return results_page.QMessageBox.StandardButton.No
+
+    monkeypatch.setattr(results_page.QMessageBox, "question", decline)
+    page._export_exceptions()
+    assert questions
+    assert page._export_worker is None
+    assert existing.read_bytes() == b"existing"

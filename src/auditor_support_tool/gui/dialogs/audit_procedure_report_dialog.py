@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
+    QFileDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QTableWidget,
@@ -22,6 +26,7 @@ from PySide6.QtWidgets import (
 from auditor_support_tool.core.audit_procedure_report_models import (
     AuditProcedureReport,
 )
+from auditor_support_tool.gui.workers.audit_export_worker import AuditExportWorker
 from auditor_support_tool.presentation.audit_procedure_report_formatter import (
     build_exception_columns,
     exception_cell_value,
@@ -29,6 +34,7 @@ from auditor_support_tool.presentation.audit_procedure_report_formatter import (
     report_display_value,
     report_exception_rate,
 )
+from auditor_support_tool.services.audit_export_service import default_export_filename
 
 
 class AuditProcedureReportDialog(QDialog):
@@ -43,6 +49,7 @@ class AuditProcedureReportDialog(QDialog):
         super().__init__(parent)
 
         self._report = report
+        self._export_worker = None
 
         self.setWindowTitle(f"{report.identity.display_id} Audit Procedure Report")
         self.setModal(True)
@@ -127,9 +134,69 @@ class AuditProcedureReportDialog(QDialog):
             fingerprint,
             1,
         )
+        self._export_report_button = QPushButton("Export Report…")
+        self._export_report_button.setObjectName("secondaryActionButton")
+        self._export_report_button.setToolTip(
+            "Save the complete report as JSON. May contain confidential audit data."
+        )
+        self._export_report_button.clicked.connect(self._export_report)
+        footer_layout.addWidget(self._export_report_button)
         footer_layout.addWidget(close_button)
 
         root_layout.addWidget(footer)
+
+    def _export_report(self) -> None:
+        if self._export_worker is not None:
+            return
+        report = self._report
+        name = default_export_filename(
+            report.identity.procedure_id,
+            report.created_at,
+            report.execution_id,
+            "AuditProcedureReport",
+            "json",
+        )
+        destination, _ = QFileDialog.getSaveFileName(
+            self, "Export Audit Procedure Report", name, "JSON (*.json)"
+        )
+        if not destination:
+            return
+        path = Path(destination)
+        if not path.suffix:
+            adjusted = path.with_suffix(".json")
+            if adjusted.exists():
+                answer = QMessageBox.question(
+                    self,
+                    "Replace Export?",
+                    f"Replace the existing file {adjusted.name}?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if answer != QMessageBox.StandardButton.Yes:
+                    return
+            destination = str(adjusted)
+        if not destination.lower().endswith(".json"):
+            QMessageBox.warning(self, "Export Report", "Choose a filename ending in .json")
+            return
+        worker = AuditExportWorker(payload=report, destination=destination, format="json")
+        self._export_worker = worker
+        self._export_report_button.setEnabled(False)
+        worker.completed.connect(self._export_completed)
+        worker.failed.connect(self._export_failed)
+        worker.finished.connect(self._export_finished)
+        worker.start()
+
+    def _export_completed(self, destination) -> None:
+        QMessageBox.information(
+            self, "Export Complete", f"Complete report exported to:\n{destination}"
+        )
+
+    def _export_failed(self, message: str) -> None:
+        QMessageBox.warning(self, "Export Failed", message)
+
+    def _export_finished(self) -> None:
+        self._export_worker = None
+        self._export_report_button.setEnabled(True)
 
     def _build_heading(self) -> QHBoxLayout:
         layout = QHBoxLayout()

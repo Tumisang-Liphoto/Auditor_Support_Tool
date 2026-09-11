@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from pathlib import Path
 
 import qtawesome as qta
 from PySide6.QtCore import QSize, Qt, Signal
@@ -10,12 +11,14 @@ from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
     QMenu,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -43,6 +46,7 @@ from auditor_support_tool.core.workspace_state import (
 from auditor_support_tool.gui.dialogs.audit_procedure_report_dialog import (
     AuditProcedureReportDialog,
 )
+from auditor_support_tool.gui.workers.audit_export_worker import AuditExportWorker
 from auditor_support_tool.presentation.result_dashboard_models import (
     DashboardIndicator,
     DashboardMetric,
@@ -54,6 +58,7 @@ from auditor_support_tool.presentation.result_dashboard_models import (
 from auditor_support_tool.presentation.result_presenter_registry import (
     present_result,
 )
+from auditor_support_tool.services.audit_export_service import default_export_filename
 
 
 class ResultMetricCard(QFrame):
@@ -174,7 +179,6 @@ class ResultsPage(QWidget):
     """Display the outcome of an executed audit procedure."""
 
     back_requested = Signal(str)
-    export_requested = Signal(object)
 
     _PAGE_SIZE = 50
 
@@ -190,6 +194,7 @@ class ResultsPage(QWidget):
         self._workspace_state = workspace_state
         self._procedure_registry = procedure_registry
         self._report_builder = AuditProcedureReportBuilder()
+        self._export_worker = None
         self._outcome: TestEngineOutcome | None = None
         self._presentation: ResultDashboardPresentation | None = None
         self._procedure_breadcrumb_title = "Procedure"
@@ -235,6 +240,7 @@ class ResultsPage(QWidget):
             f"{procedure.definition.display_id} {procedure.definition.name}"
         )
 
+        self._refresh_export_action()
         self._populate_header(outcome)
         self._populate_metadata(outcome)
 
@@ -373,16 +379,6 @@ class ResultsPage(QWidget):
         self._view_report_button.setToolTip("Open the complete structured audit procedure report.")
         self._view_report_button.clicked.connect(self._show_audit_report)
 
-        self._export_button = QPushButton("Export Result")
-        self._export_button.setObjectName("secondaryActionButton")
-        self._export_button.setIcon(qta.icon("fa5s.download"))
-        self._export_button.setEnabled(False)
-        self._export_button.setToolTip(
-            "Result export will be enabled when export support is added."
-        )
-        self._export_button.clicked.connect(self._emit_export_requested)
-        self._export_button.setVisible(False)
-
         more_button = QToolButton()
         more_button.setObjectName("resultMoreButton")
         more_button.setIcon(qta.icon("fa5s.ellipsis-h"))
@@ -393,7 +389,6 @@ class ResultsPage(QWidget):
         layout.addWidget(back_button)
         layout.addStretch(1)
         layout.addWidget(self._view_report_button)
-        layout.addWidget(self._export_button)
         layout.addWidget(more_button)
 
         return layout
@@ -777,6 +772,11 @@ class ResultsPage(QWidget):
             1,
         )
         heading_row.addWidget(self._search_input)
+        self._export_exceptions_button = QPushButton("Export Exceptions…")
+        self._export_exceptions_button.setObjectName("secondaryActionButton")
+        self._export_exceptions_button.setEnabled(False)
+        self._export_exceptions_button.clicked.connect(self._export_exceptions)
+        heading_row.addWidget(self._export_exceptions_button)
 
         layout.addLayout(heading_row)
 
@@ -1581,6 +1581,7 @@ class ResultsPage(QWidget):
         """Show the page before a result has been selected."""
 
         self._view_report_button.setEnabled(False)
+        self._refresh_export_action()
         self._empty_state.setVisible(True)
         self._result_content.setVisible(False)
 
@@ -1610,15 +1611,78 @@ class ResultsPage(QWidget):
         )
         dialog.exec()
 
-    def _emit_export_requested(
-        self,
-    ) -> None:
-        """Emit the current result for future export handling."""
+    def _refresh_export_action(self) -> None:
+        outcome = self._outcome
+        ready = (
+            outcome is not None
+            and outcome.status == TestEngineStatus.COMPLETED
+            and outcome.result is not None
+        )
+        self._export_exceptions_button.setEnabled(ready and self._export_worker is None)
+        count = outcome.result.exception_count if ready else 0
+        self._export_exceptions_button.setToolTip(
+            f"Exports all {count:,} exceptions; search and filters do not affect export. "
+            "Files may contain confidential audit data. CSV escapes formula-like strings; "
+            "use XLSX to preserve identifiers when opening in Excel."
+        )
 
-        if self._outcome is None:
+    def _export_exceptions(self) -> None:
+        outcome = self._outcome
+        if (
+            self._export_worker is not None
+            or outcome is None
+            or outcome.status != TestEngineStatus.COMPLETED
+            or outcome.result is None
+        ):
             return
+        result = outcome.result
+        context = result.context
+        name = default_export_filename(
+            context.procedure_id, context.created_at, context.execution_id, "AllExceptions", "xlsx"
+        )
+        destination, selected = QFileDialog.getSaveFileName(
+            self, "Export All Exceptions", name, "Excel Workbook (*.xlsx);;CSV (*.csv)"
+        )
+        if not destination:
+            return
+        format = "csv" if selected == "CSV (*.csv)" else "xlsx"
+        # Switching format can leave the default extension unchanged in native dialogs.
+        path = Path(destination)
+        if path.suffix.lower() in ("", ".csv", ".xlsx"):
+            adjusted = path.with_suffix("." + format)
+            if adjusted != path and adjusted.exists():
+                answer = QMessageBox.question(
+                    self,
+                    "Replace Export?",
+                    f"Replace the existing file {adjusted.name}?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if answer != QMessageBox.StandardButton.Yes:
+                    return
+            destination = str(adjusted)
+        else:
+            QMessageBox.warning(self, "Export Exceptions", "Choose a filename ending in ." + format)
+            return
+        worker = AuditExportWorker(payload=result, destination=destination, format=format)
+        self._export_worker = worker
+        worker.completed.connect(self._export_completed)
+        worker.failed.connect(self._export_failed)
+        worker.finished.connect(self._export_finished)
+        self._refresh_export_action()
+        worker.start()
 
-        self.export_requested.emit(self._outcome)
+    def _export_completed(self, destination) -> None:
+        QMessageBox.information(
+            self, "Export Complete", f"All exceptions exported to:\n{destination}"
+        )
+
+    def _export_failed(self, message: str) -> None:
+        QMessageBox.warning(self, "Export Failed", message)
+
+    def _export_finished(self) -> None:
+        self._export_worker = None
+        self._refresh_export_action()
 
     @staticmethod
     def _clear_layout(
