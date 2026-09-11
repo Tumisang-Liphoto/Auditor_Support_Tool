@@ -5,53 +5,41 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
-$ConstantsPath = Join-Path `
-    $ProjectRoot `
-    "src\auditor_support_tool\core\constants.py"
-$PyprojectPath = Join-Path `
-    $ProjectRoot `
-    "pyproject.toml"
-
 $Utf8WithoutBom = [System.Text.UTF8Encoding]::new($false)
-
-$Constants = [System.IO.File]::ReadAllText(
-    $ConstantsPath,
-    [System.Text.Encoding]::UTF8
+$Sources = @(
+    @{ Path = "src\auditor_support_tool\core\constants.py"; Key = "APP_VERSION" },
+    @{ Path = "pyproject.toml"; Key = "version" },
+    @{ Path = "src\auditor_support_tool\__init__.py"; Key = "__version__" }
 )
 
-$UpdatedConstants = $Constants -replace `
-    'APP_VERSION = "[^"]+"', `
-    "APP_VERSION = `"$Version`""
-
-if ($UpdatedConstants -eq $Constants) {
-    throw "APP_VERSION was not found or was already set to $Version."
+# Validate every source before writing any; an already matching value is valid.
+$Updates = foreach ($Source in $Sources) {
+    $SourcePath = Join-Path $ProjectRoot $Source.Path
+    $Original = [System.IO.File]::ReadAllText($SourcePath, [System.Text.Encoding]::UTF8)
+    $Pattern = '(?m)^' + [regex]::Escape($Source.Key) + ' = "[^"\r\n]+"'
+    if ([regex]::Matches($Original, $Pattern).Count -ne 1) {
+        throw "Expected exactly one $($Source.Key) assignment in $($Source.Path)."
+    }
+    $Replacement = $Source.Key + ' = "' + $Version + '"'
+    @{
+        Path = $SourcePath
+        Original = $Original
+        Updated = [regex]::Replace($Original, $Pattern, $Replacement)
+    }
 }
 
-[System.IO.File]::WriteAllText(
-    $ConstantsPath,
-    $UpdatedConstants,
-    $Utf8WithoutBom
-)
-
-$Pyproject = [System.IO.File]::ReadAllText(
-    $PyprojectPath,
-    [System.Text.Encoding]::UTF8
-).TrimStart([char]0xFEFF)
-
-$UpdatedPyproject = $Pyproject -replace `
-    '(?m)^version = "[^"]+"', `
-    "version = `"$Version`""
-
-if ($UpdatedPyproject -eq $Pyproject) {
-    throw "The project version was not found or was already set to $Version."
+$Written = [System.Collections.Generic.List[object]]::new()
+try {
+    foreach ($Update in $Updates) {
+        $Written.Add($Update)
+        [System.IO.File]::WriteAllText($Update.Path, $Update.Updated, $Utf8WithoutBom)
+    }
 }
-
-[System.IO.File]::WriteAllText(
-    $PyprojectPath,
-    $UpdatedPyproject,
-    $Utf8WithoutBom
-)
-
-Write-Host "Updated APP_VERSION and pyproject.toml to $Version"
+catch {
+    foreach ($Update in $Written) {
+        [System.IO.File]::WriteAllText($Update.Path, $Update.Original, $Utf8WithoutBom)
+    }
+    throw
+}
+Write-Host "Updated APP_VERSION, pyproject.toml and __version__ to $Version"

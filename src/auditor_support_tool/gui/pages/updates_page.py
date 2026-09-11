@@ -2,10 +2,9 @@
 
 from datetime import datetime
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QApplication,
     QComboBox,
     QFrame,
     QGridLayout,
@@ -41,6 +40,8 @@ from auditor_support_tool.services.update_service import (
 
 class UpdatesPage(QWidget):
     """Check GitHub Releases for application updates."""
+
+    installation_requested = Signal(object)
 
     def __init__(
         self,
@@ -466,18 +467,8 @@ class UpdatesPage(QWidget):
             self._progress_bar.setRange(0, 0)
 
     def _handle_update_prepared(self, prepared: PreparedUpdate) -> None:
-        try:
-            self._update_service.launch_prepared_update(prepared)
-        except Exception as error:
-            self._handle_download_failure(str(error))
-            return
-
-        self._set_status(
-            badge="RESTARTING",
-            message="The verified update is ready. Closing the application…",
-            status="available",
-        )
-        QApplication.instance().quit()
+        # MainWindow owns the audit transition guard and authorizes launch.
+        self.installation_requested.emit(prepared)
 
     def _handle_download_failure(self, message: str) -> None:
         self._set_status(

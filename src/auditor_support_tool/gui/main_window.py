@@ -83,7 +83,7 @@ from auditor_support_tool.services.settings_service import (
     UserProfile,
 )
 from auditor_support_tool.services.theme_service import ThemeService
-from auditor_support_tool.services.update_service import UpdateService
+from auditor_support_tool.services.update_service import PreparedUpdate, UpdateService
 
 PageDefinition = tuple[str, str, str]
 
@@ -792,6 +792,7 @@ class MainWindow(QMainWindow):
             settings_service=self._settings_service,
             update_service=self._update_service,
         )
+        updates_page.installation_requested.connect(self._install_prepared_update)
 
         self._register_page(
             route="settings.updates",
@@ -1434,13 +1435,36 @@ class MainWindow(QMainWindow):
 
         self.statusBar().showMessage("Audit closed.")
 
+    def _install_prepared_update(self, prepared: PreparedUpdate) -> None:
+        """Resolve unsaved work before the external updater can start waiting."""
+        if not self._confirm_workspace_transition():
+            return
+        try:
+            self._update_service.launch_prepared_update(prepared)
+        except Exception:
+            QMessageBox.warning(
+                self,
+                "Install Update Failed",
+                "The updater could not be started. The application will remain open.",
+            )
+            return
+        # The guard already resolved Save/Discard. Do not prompt a second time.
+        self._update_shutdown_approved = True
+        try:
+            self.close()
+        finally:
+            self._update_shutdown_approved = False
+
     def closeEvent(
         self,
         event: QCloseEvent,
     ) -> None:
         """Protect unsaved workspace changes when closing the application."""
 
-        if self._confirm_workspace_transition():
+        if (
+            getattr(self, "_update_shutdown_approved", False)
+            or self._confirm_workspace_transition()
+        ):
             event.accept()
             return
 

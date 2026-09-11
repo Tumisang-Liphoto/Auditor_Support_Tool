@@ -1,10 +1,12 @@
 """External updater engine with backup, health check and rollback."""
 
 import argparse
+import ctypes
 import os
 import shutil
 import subprocess
 import time
+from ctypes import wintypes
 from datetime import datetime
 from pathlib import Path
 
@@ -15,19 +17,67 @@ from auditor_support_tool.core.constants import (
 )
 
 
-def process_exists(pid: int) -> bool:
-    """Return whether a process still exists."""
+def _windows_api():
+    """Load only the process-wait API, with pointer-safe Win32 signatures."""
+    api = ctypes.WinDLL("kernel32", use_last_error=True)
+    api.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    api.OpenProcess.restype = wintypes.HANDLE
+    api.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+    api.WaitForSingleObject.restype = wintypes.DWORD
+    api.CloseHandle.argtypes = (wintypes.HANDLE,)
+    api.CloseHandle.restype = wintypes.BOOL
+    return api
 
+
+def _windows_process_exited(pid: int, milliseconds: int) -> bool:
+    """Wait without termination/query rights; a signalled handle means exit."""
+    if not 0 < pid <= 0xFFFFFFFF:
+        raise RuntimeError("The application process ID must be a positive Windows PID.")
+    api = _windows_api()
+    handle = api.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE only
+    if not handle:
+        code = ctypes.get_last_error()
+        if code == 87:  # ERROR_INVALID_PARAMETER: positive PID no longer exists
+            return True
+        raise RuntimeError(
+            f"Cannot open the application process for waiting (Windows error {code})."
+        )
+    try:
+        status = api.WaitForSingleObject(handle, milliseconds)
+        if status == 0:  # WAIT_OBJECT_0
+            return True
+        if status == 258:  # WAIT_TIMEOUT
+            return False
+        code = ctypes.get_last_error()
+        raise RuntimeError(f"Cannot wait for the application process (Windows error {code}).")
+    finally:
+        if not api.CloseHandle(handle):
+            code = ctypes.get_last_error()
+            raise RuntimeError(f"Cannot close the process wait handle (Windows error {code}).")
+
+
+def process_exists(pid: int) -> bool:
+    """Non-destructive process probe; never use POSIX signals on Windows."""
+    if os.name == "nt":
+        return not _windows_process_exited(pid, 0)
     if pid <= 0:
         return False
     try:
         os.kill(pid, 0)
-    except OSError:
+    except ProcessLookupError:
         return False
+    except PermissionError as error:
+        raise RuntimeError("Cannot inspect the running application process.") from error
     return True
 
 
 def wait_for_process_exit(pid: int, timeout: int = 60) -> None:
+    if timeout < 0 or timeout * 1000 >= 0xFFFFFFFF:
+        raise RuntimeError("Invalid application shutdown timeout.")
+    if os.name == "nt":
+        if not _windows_process_exited(pid, int(timeout * 1000)):
+            raise RuntimeError("The running application did not close in time; update cancelled.")
+        return
     deadline = time.monotonic() + timeout
     while process_exists(pid):
         if time.monotonic() >= deadline:
