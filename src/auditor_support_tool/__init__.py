@@ -1,3 +1,3 @@
 """Auditor Support Tool package."""
 
-__version__ = "0.1.3-beta.3"
+__version__ = "0.1.3-beta.4"
