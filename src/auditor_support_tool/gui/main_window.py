@@ -841,6 +841,7 @@ class MainWindow(QMainWindow):
             workspace_state=self._workspace_state,
         )
         data_sources_page.continue_requested.connect(self.show_route)
+        data_sources_page.clear_requested.connect(self._close_workspace)
 
         self._register_page(
             route="workspace.data_sources",
