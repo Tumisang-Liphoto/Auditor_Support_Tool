@@ -84,6 +84,12 @@ class AuditRecordSource(Protocol):
         ...
 
     @property
+    def source_sha256(self) -> str:
+        """Return the SHA-256 of the source bytes used to load this population."""
+
+        ...
+
+    @property
     def mapping_fingerprint(self) -> str:
         """Return the deterministic field-mapping fingerprint."""
 

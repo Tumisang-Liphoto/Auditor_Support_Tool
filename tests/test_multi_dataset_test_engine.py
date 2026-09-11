@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from hashlib import sha256
 from pathlib import Path
 
 from auditor_support_tool.core.audit_execution_models import (
@@ -66,6 +67,10 @@ class StubSource:
     @property
     def standard_fields(self) -> tuple[str, ...]:
         return self._fields
+
+    @property
+    def source_sha256(self) -> str:
+        return sha256(b"regression fixture").hexdigest()
 
     @property
     def mapping_fingerprint(self) -> str:
@@ -355,3 +360,24 @@ def test_dataset_aware_execution_requires_active_dataset_metadata(
     assert outcome.status == EngineStatus.FAILED
     assert "dataset descriptor" in outcome.error_message.lower()
     assert procedure.run_count == 0
+
+
+def test_engine_rejects_reference_loaded_from_different_source_bytes(tmp_path, monkeypatch):
+    primary, reference, descriptors = _sources()
+    original_hash = StubSource.source_sha256
+    monkeypatch.setattr(
+        StubSource,
+        "source_sha256",
+        property(lambda self: "d" * 64 if self is reference else original_hash.fget(self)),
+    )
+    procedure = StubMultiDatasetProcedure()
+    outcome = _engine(procedure).run(
+        procedure_id=procedure.definition.procedure_id,
+        source=primary,
+        source_path=_source_file(tmp_path),
+        dataset_sources=descriptors,
+    )
+    assert outcome.status == EngineStatus.FAILED
+    assert not outcome.was_executed
+    assert outcome.result is None
+    assert "Reload" in outcome.error_message

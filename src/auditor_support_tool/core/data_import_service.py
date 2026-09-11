@@ -2,6 +2,9 @@
 
 import csv
 from collections.abc import Iterable, Sequence
+from dataclasses import replace
+from hashlib import sha256
+from io import BytesIO, StringIO
 from pathlib import Path
 from typing import Any
 
@@ -81,17 +84,29 @@ class DataImportService:
 
         extension = path.suffix.lower()
 
+        # Parse and fingerprint the same captured bytes, even if the path changes
+        # while parsing is in progress.
+        try:
+            source_bytes = path.read_bytes()
+        except OSError as error:
+            raise DataImportError(
+                "Unable to read source data. Select and reload the source."
+            ) from error
+
         if extension == ".csv":
-            return self._load_csv(
+            table = self._load_csv(
                 path,
                 header_row=header_row,
+                source_bytes=source_bytes,
             )
-
-        return self._load_excel(
-            path,
-            worksheet_name=worksheet_name,
-            header_row=header_row,
-        )
+        else:
+            table = self._load_excel(
+                path,
+                worksheet_name=worksheet_name,
+                header_row=header_row,
+                source_bytes=source_bytes,
+            )
+        return replace(table, source_sha256=sha256(source_bytes).hexdigest())
 
     def _inspect_excel(
         self,
@@ -179,10 +194,11 @@ class DataImportService:
         *,
         worksheet_name: str | None,
         header_row: int,
+        source_bytes: bytes,
     ) -> LoadedTable:
         try:
             workbook = load_workbook(
-                filename=path,
+                filename=BytesIO(source_bytes),
                 read_only=True,
                 data_only=True,
             )
@@ -248,8 +264,9 @@ class DataImportService:
         path: Path,
         *,
         header_row: int,
+        source_bytes: bytes,
     ) -> LoadedTable:
-        raw_rows = self._read_csv_rows(path)
+        raw_rows = self._read_csv_rows(path, source_bytes=source_bytes)
 
         if not raw_rows:
             raise DataImportError("The selected CSV file is empty.")
@@ -403,8 +420,11 @@ class DataImportService:
     def _read_csv_rows(
         self,
         path: Path,
+        *,
+        source_bytes: bytes | None = None,
     ) -> list[list[str]]:
         last_error: Exception | None = None
+        data = path.read_bytes() if source_bytes is None else source_bytes
 
         for encoding in (
             "utf-8-sig",
@@ -412,11 +432,7 @@ class DataImportService:
             "cp1252",
         ):
             try:
-                with path.open(
-                    "r",
-                    encoding=encoding,
-                    newline="",
-                ) as csv_file:
+                with StringIO(data.decode(encoding), newline="") as csv_file:
                     sample = csv_file.read(8192)
                     csv_file.seek(0)
 

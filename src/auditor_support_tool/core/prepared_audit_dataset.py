@@ -131,6 +131,12 @@ class PreparedAuditDataset:
         return tuple(sorted(self._field_columns))
 
     @property
+    def source_sha256(self) -> str:
+        """Return the fingerprint of the bytes parsed into this population."""
+
+        return self._dataset.loaded_table.source_sha256
+
+    @property
     def mapping_fingerprint(self) -> str:
         """Return the deterministic SHA-256 fingerprint of the mapping."""
 

@@ -844,7 +844,21 @@ class WorkspaceService:
             source_path.name,
         )
 
+        loaded_hashes = (
+            {dataset.loaded_table.source_sha256 for dataset in state.workbook_package.datasets}
+            if state.workbook_package is not None
+            else set()
+        )
         try:
+            if state.workbook_package is not None and (
+                len(loaded_hashes) != 1
+                or not all(loaded_hashes)
+                or self._source_integrity_service.sha256_file(source_path) not in loaded_hashes
+            ):
+                raise WorkspaceServiceError(
+                    "The source file changed or its loaded fingerprint is unavailable. "
+                    "Reload the source data before saving the audit."
+                )
             managed_path.parent.mkdir(
                 parents=True,
                 exist_ok=True,
@@ -857,6 +871,11 @@ class WorkspaceService:
                 )
 
             absolute_reference = self._source_reference_for_path(managed_path)
+            if loaded_hashes and absolute_reference.sha256 not in loaded_hashes:
+                raise WorkspaceServiceError(
+                    "The saved source copy does not match the loaded population. "
+                    "Reload the source data before saving the audit."
+                )
 
         except OSError as error:
             raise WorkspaceServiceError(

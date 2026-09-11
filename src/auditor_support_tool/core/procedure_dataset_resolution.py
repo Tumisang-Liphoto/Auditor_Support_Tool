@@ -163,6 +163,21 @@ class ProcedureDatasetBundle:
         return self._primary_source.standard_fields
 
     @property
+    def source_sha256(self) -> str:
+        """Require every role to belong to the same loaded workbook bytes."""
+
+        hashes = {
+            getattr(dataset.source.source, "source_sha256", "")
+            for dataset in self.resolution.datasets
+            if dataset.source is not None
+        }
+        if len(hashes) != 1 or not all(hashes):
+            raise ValueError(
+                "Dataset source fingerprints differ or are missing. Reload source data."
+            )
+        return next(iter(hashes))
+
+    @property
     def mapping_fingerprint(self) -> str:
         """Return a fingerprint covering every resolved dataset role."""
 

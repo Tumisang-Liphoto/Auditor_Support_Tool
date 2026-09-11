@@ -61,6 +61,7 @@ class LoadedTable:
     original_headers: tuple[str, ...]
     rows: tuple[dict[str, Any], ...]
     summary: PopulationSummary
+    source_sha256: str = ""
 
     @property
     def record_count(self) -> int:

@@ -51,19 +51,32 @@ class AuditRunContextService:
             )
 
         try:
+            loaded_sha256 = getattr(record_source, "source_sha256", "")
+            if not loaded_sha256:
+                raise AuditRunContextError(
+                    "The loaded source fingerprint is unavailable. Reload the source data "
+                    "before running audit procedures."
+                )
             source_sha256 = self._source_integrity_service.sha256_file(source_path)
         except (
             FileNotFoundError,
             OSError,
         ) as error:
             raise AuditRunContextError(
-                f"Could not calculate source-file integrity hash: {error}"
+                "Could not verify the loaded source file. Restore or reload the source data "
+                "before running audit procedures."
             ) from error
+
+        if source_sha256 != loaded_sha256:
+            raise AuditRunContextError(
+                "The source file has changed since it was loaded. Reload the source data "
+                "before running audit procedures."
+            )
 
         return ProcedureRunContext.create(
             request=request,
             procedure_version=procedure_version,
-            source_sha256=source_sha256,
+            source_sha256=loaded_sha256,
             mapping_fingerprint=(record_source.mapping_fingerprint),
             audit_period_start=audit_period_start,
             audit_period_end=audit_period_end,

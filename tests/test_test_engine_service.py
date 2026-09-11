@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from hashlib import sha256
+from os import linesep
 from pathlib import Path
 
 import pytest
@@ -61,6 +63,10 @@ class StubRecordSource:
         """Return available standard audit fields."""
 
         return self._standard_fields
+
+    @property
+    def source_sha256(self) -> str:
+        return sha256("reference,amount\nA001,100\n".replace("\n", linesep).encode()).hexdigest()
 
     @property
     def mapping_fingerprint(self) -> str:
