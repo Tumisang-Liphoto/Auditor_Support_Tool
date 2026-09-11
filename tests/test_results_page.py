@@ -306,3 +306,41 @@ def test_no_result_restores_fallback_metric_visibility(page, monkeypatch, status
         texts = [label.text() for label in card.findChildren(QLabel)]
         assert title in texts
         assert "—" in texts
+
+
+@pytest.mark.parametrize("status", (EngineStatus.BLOCKED, EngineStatus.FAILED))
+def test_no_result_resets_exception_explorer_state(page, status):
+    """Failed or blocked outcomes must not retain prior exception navigation state."""
+
+    completed_outcome = page.outcome
+    page._next_page_button.click()
+    assert page._page_label.text() == "Page 2 of 3"
+    assert page._table_count_label.text() == "120 of 120 exceptions"
+    assert page._previous_page_button.isEnabled()
+
+    page.set_outcome(EngineOutcome("GL001", "dataset-1", status))
+
+    assert page._filtered_rows == ()
+    assert page._active_filter == "all"
+    assert page._current_page == 1
+    assert page._search_input.text() == ""
+    assert not page._search_input.isEnabled()
+    assert page._filter_buttons_layout.count() == 0
+    assert page._filters_button.isHidden()
+    assert not page._filters_button.isEnabled()
+    assert not page._columns_button.isEnabled()
+    assert page._exceptions_table.rowCount() == 0
+    assert page._exceptions_table.columnCount() == 0
+    assert page._table_count_label.text() == "0 of 0 exceptions"
+    assert page._page_label.text() == "Page 1 of 1"
+    assert not page._previous_page_button.isEnabled()
+    assert not page._next_page_button.isEnabled()
+
+    page.set_outcome(completed_outcome)
+
+    assert page._search_input.isEnabled()
+    assert page._columns_button.isEnabled()
+    assert page._table_count_label.text() == "120 of 120 exceptions"
+    assert page._page_label.text() == "Page 1 of 3"
+    assert not page._previous_page_button.isEnabled()
+    assert page._next_page_button.isEnabled()

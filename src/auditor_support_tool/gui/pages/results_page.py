@@ -1054,10 +1054,35 @@ class ResultsPage(QWidget):
 
         self._exceptions_heading.setText("Exceptions Requiring Review")
         self._exceptions_description.setText("No completed result is available.")
+        self._reset_exception_explorer()
+        self._evidence_note.setText("No evidence detail is available for this result.")
+
+    def _reset_exception_explorer(self) -> None:
+        """Reset exception exploration state when no completed result exists."""
+
+        self._filtered_rows = ()
+        self._active_filter = "all"
+        self._current_page = 1
+
+        self._search_input.clear()
+        self._search_input.setEnabled(False)
+        self._clear_layout(self._filter_buttons_layout)
+
+        self._filters_button.setMenu(QMenu(self))
+        self._filters_button.setEnabled(False)
+        self._filters_button.setVisible(False)
+
+        self._columns_button.setMenu(QMenu(self))
+        self._columns_button.setEnabled(False)
+
         self._exceptions_table.clear()
         self._exceptions_table.setRowCount(0)
         self._exceptions_table.setColumnCount(0)
-        self._evidence_note.setText("No evidence detail is available for this result.")
+
+        self._table_count_label.setText("0 of 0 exceptions")
+        self._page_label.setText("Page 1 of 1")
+        self._previous_page_button.setEnabled(False)
+        self._next_page_button.setEnabled(False)
 
     def _populate_risk_panel(
         self,
@@ -1229,6 +1254,7 @@ class ResultsPage(QWidget):
     ) -> None:
         self._exceptions_heading.setText(table.title)
         self._exceptions_description.setText(table.description)
+        self._search_input.setEnabled(True)
 
         self._active_filter = table.filters[0].key if table.filters else "all"
         self._current_page = 1
