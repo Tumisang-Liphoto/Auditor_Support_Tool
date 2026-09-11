@@ -913,9 +913,6 @@ class MainWindow(QMainWindow):
         )
         self._results_page.back_requested.connect(self.show_route)
 
-        self._workspace_state.workspace_cleared.connect(self._results_page.clear_result)
-        self._workspace_state.active_dataset_changed.connect(self._results_page.clear_result)
-
         self._register_page(
             route="workspace.results",
             title="Results",

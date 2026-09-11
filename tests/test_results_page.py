@@ -344,3 +344,48 @@ def test_no_result_resets_exception_explorer_state(page, status):
     assert page._page_label.text() == "Page 1 of 3"
     assert not page._previous_page_button.isEnabled()
     assert page._next_page_button.isEnabled()
+
+
+@pytest.mark.parametrize(
+    "signal_name",
+    (
+        "source_changed",
+        "workbook_package_changed",
+        "active_dataset_changed",
+        "workspace_cleared",
+    ),
+)
+def test_execution_input_changes_clear_displayed_result(page, signal_name):
+    """Execution-relevant workspace changes must not leave a completed result displayed."""
+
+    assert page.outcome is not None
+
+    signal = getattr(page._workspace_state, signal_name)
+    signal.emit()
+
+    assert page.outcome is None
+    assert page._presentation is None
+    assert page._empty_state.isVisible()
+    assert not page._result_content.isVisible()
+
+
+def test_displayed_procedure_parameter_change_clears_result(page):
+    """Changing parameters for the displayed procedure invalidates its visible result."""
+
+    assert page.outcome is not None
+
+    page._workspace_state.procedure_parameters_changed.emit("gl001")
+
+    assert page.outcome is None
+    assert page._presentation is None
+
+
+def test_other_procedure_parameter_change_preserves_result(page):
+    """Unrelated procedure settings must not clear the currently displayed result."""
+
+    outcome = page.outcome
+
+    page._workspace_state.procedure_parameters_changed.emit("GL003")
+
+    assert page.outcome is outcome
+    assert page._presentation is not None

@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 from auditor_support_tool.core.audit_procedure_report_builder import (
     AuditProcedureReportBuilder,
 )
+from auditor_support_tool.core.procedure_identity import canonical_procedure_id
 from auditor_support_tool.core.procedure_registry import (
     ProcedureRegistry,
 )
@@ -202,6 +203,7 @@ class ResultsPage(QWidget):
 
         self._build_interface()
         self._show_empty_state()
+        self._connect_result_invalidation()
 
     @property
     def procedure_breadcrumb_title(
@@ -259,6 +261,30 @@ class ResultsPage(QWidget):
         self._presentation = None
         self._procedure_breadcrumb_title = "Procedure"
         self._show_empty_state()
+
+    def _connect_result_invalidation(self) -> None:
+        """Clear displayed results when execution-relevant audit inputs change."""
+
+        self._workspace_state.workspace_cleared.connect(self.clear_result)
+        self._workspace_state.source_changed.connect(self.clear_result)
+        self._workspace_state.workbook_package_changed.connect(self.clear_result)
+        self._workspace_state.active_dataset_changed.connect(self.clear_result)
+        self._workspace_state.procedure_parameters_changed.connect(
+            self._handle_procedure_parameters_changed
+        )
+
+    def _handle_procedure_parameters_changed(self, procedure_id: str) -> None:
+        """Clear only when parameters for the displayed procedure changed."""
+
+        if self._outcome is None:
+            return
+
+        if canonical_procedure_id(self._outcome.procedure_id) != canonical_procedure_id(
+            procedure_id
+        ):
+            return
+
+        self.clear_result()
 
     def _build_interface(self) -> None:
         """Build the reusable results page."""
