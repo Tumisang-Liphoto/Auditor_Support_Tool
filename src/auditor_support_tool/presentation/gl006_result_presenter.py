@@ -47,49 +47,53 @@ def present_gl006_result(
 
     metric_cards = (
         DashboardMetric(
-            title="Population",
-            value=f"{result.population_count:,}",
-            detail="Source records",
-            icon_name="fa5s.database",
-        ),
-        DashboardMetric(
-            title="Evaluated",
+            title="Evaluated Records",
             value=f"{result.records_evaluated_count:,}",
-            detail="Records with both users available",
+            detail="Both user identifiers nonblank and usable",
             icon_name="fa5s.check-circle",
-            emphasis="success",
+            emphasis="information",
         ),
         DashboardMetric(
-            title="SoD Exceptions",
-            value=f"{exception_count:,}",
-            detail="Same entry and approval user",
-            icon_name="fa5s.user-shield",
+            title="Exceptions",
+            value=f"{result.exception_count:,}",
+            detail="Matching entry and approval identifiers",
+            icon_name="fa5s.exclamation-triangle",
             emphasis="risk",
         ),
         DashboardMetric(
-            title="Exception %",
-            value=f"{result.exception_rate:.2f}%",
-            detail="Of evaluated records",
+            title="Exception Rate",
+            value=(f"{result.exception_rate:.2f}%" if result.records_evaluated_count else "N/A"),
+            detail=(
+                f"Of {result.records_evaluated_count:,} evaluated records"
+                if result.records_evaluated_count
+                else "No records evaluated"
+            ),
             icon_name="fa5s.percentage",
+            emphasis="information",
+        ),
+        DashboardMetric(
+            title="Distinct Identifiers",
+            value=(
+                f"{distinct_users:,}"
+                if metrics.get("distinct_conflicting_users") is not None
+                else "N/A"
+            ),
+            detail="Normalised user identifiers in exceptions",
+            icon_name="fa5s.users",
             emphasis="information",
         ),
     )
 
     risk_indicators = (
         DashboardIndicator(
-            title="Users with self-approvals",
-            value=f"{distinct_users:,}",
-            detail="Distinct normalised user identifiers in exceptions",
-        ),
-        DashboardIndicator(
-            title="Highest self-approval count",
+            title="Most exceptions per identifier",
             value=f"{highest_count:,}",
-            detail="Most exceptions attributed to one user",
+            detail="Most exceptions associated with one normalised identifier",
         ),
         DashboardIndicator(
-            title="Top user concentration",
+            title="Top identifier share",
             value=f"{top_concentration:.1f}%",
-            detail="Share of all SoD exceptions attributed to the top user",
+            detail="Share of all exceptions associated with the top identifier",
         ),
     )
 
@@ -135,12 +139,14 @@ def present_gl006_result(
 
     return ResultDashboardPresentation(
         metrics=metric_cards,
-        risk_title="Self-Approval Analysis",
+        risk_title="Additional Analysis",
         risk_description=(
             "The exception rule compares Entry User and Approval User after "
             "trimming surrounding spaces and ignoring letter case. The user "
             "analysis below ranks the resulting exceptions; it does not add "
-            "a separate risk score."
+            "a separate risk score. Matching identifiers do not prove the same "
+            "person performed both actions; shared and service accounts are not "
+            "automatically excluded."
         ),
         risk_indicators=risk_indicators,
         summary=summary,
@@ -163,9 +169,14 @@ def _user_summary(
     omitted = max(len(user_analysis) - len(visible_rows), 0)
 
     description = (
-        "Users ranked by number of self-approved transactions. "
+        "Normalised user identifiers ranked by exception count. "
         "Percentages use all GL-006 exceptions as the denominator."
     )
+
+    if not journal_available:
+        description += " Journal analysis not evaluated: Journal Number unavailable."
+    if not amount_available:
+        description += " Amount analysis not evaluated: Transaction Amount unavailable."
 
     if omitted:
         description += f" Showing the top {_MAX_USER_SUMMARY_ROWS} of {len(user_analysis):,} users."
@@ -184,10 +195,10 @@ def _user_summary(
     )
 
     return DashboardSummary(
-        title="Self-Approval by User",
+        title="Exceptions by User Identifier",
         description=description,
         headers=(
-            "Self-Approvals",
+            "Exceptions",
             "% of Exceptions",
             "Journals",
             "Amount",
@@ -216,9 +227,9 @@ def _observations(
             "appeared as both Entry User and Approval User."
         ),
         (
-            f"{distinct_users:,} distinct conflicting user identifier"
+            f"{distinct_users:,} distinct normalised user identifier"
             + ("" if distinct_users == 1 else "s")
-            + " appeared in the flagged population."
+            + " appeared in the exceptions."
         ),
     ]
 
@@ -229,7 +240,7 @@ def _observations(
         top_share = _as_float(top_user.get("exception_share_pct"))
 
         observations.append(
-            f"{top_name} recorded the highest number of self-approvals: "
+            f"{top_name} was associated with the most exceptions: "
             f"{top_count:,} of {result.exception_count:,} exceptions "
             f"({top_share:.1f}%)."
         )
@@ -271,7 +282,7 @@ def _attention_areas(
             "represent distinct workflow responsibilities in the auditee's system."
         ),
         (
-            "Prioritise users with repeated self-approval exceptions and inspect "
+            "Prioritise identifiers with repeated matches and inspect "
             "the related approval evidence, journals and transaction support."
         ),
         (

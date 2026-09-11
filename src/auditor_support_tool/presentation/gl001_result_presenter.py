@@ -30,7 +30,7 @@ def present_gl001_result(
     metrics = result.metrics
 
     duplicate_groups = _as_int(metrics.get("duplicate_groups"))
-    flagged_records = _as_int(metrics.get("flagged_records"))
+    flagged_records = result.exception_count
     additional_duplicates = _as_int(metrics.get("additional_duplicate_records"))
 
     vendor_analysis_available = bool(metrics.get("vendor_analysis_available"))
@@ -40,31 +40,38 @@ def present_gl001_result(
 
     metric_cards = (
         DashboardMetric(
-            title="Population",
-            value=f"{result.population_count:,}",
-            detail="Source records",
-            icon_name="fa5s.database",
-        ),
-        DashboardMetric(
-            title="Tested",
+            title="Evaluated Records",
             value=f"{result.records_evaluated_count:,}",
             detail="Nonblank usable invoice numbers",
             icon_name="fa5s.check-circle",
-            emphasis="success",
-        ),
-        DashboardMetric(
-            title="Duplicate Groups",
-            value=f"{duplicate_groups:,}",
-            detail="Repeated invoice numbers",
-            icon_name="fa5s.copy",
             emphasis="information",
         ),
         DashboardMetric(
-            title="Records Flagged",
-            value=f"{flagged_records:,}",
-            detail="All records in duplicate groups",
+            title="Exceptions",
+            value=f"{result.exception_count:,}",
+            detail="Records in repeated invoice-number groups",
             icon_name="fa5s.exclamation-triangle",
             emphasis="risk",
+        ),
+        DashboardMetric(
+            title="Exception Rate",
+            value=(f"{result.exception_rate:.2f}%" if result.records_evaluated_count else "N/A"),
+            detail=(
+                f"Of {result.records_evaluated_count:,} evaluated records"
+                if result.records_evaluated_count
+                else "No records evaluated"
+            ),
+            icon_name="fa5s.percentage",
+            emphasis="information",
+        ),
+        DashboardMetric(
+            title="Duplicate Groups",
+            value=(
+                f"{duplicate_groups:,}" if metrics.get("duplicate_groups") is not None else "N/A"
+            ),
+            detail="Repeated invoice numbers",
+            icon_name="fa5s.copy",
+            emphasis="information",
         ),
     )
 
@@ -80,7 +87,7 @@ def present_gl001_result(
             detail=(
                 "Repeated invoice number within one assessable vendor"
                 if vendor_analysis_available
-                else "Vendor Code/Name unavailable"
+                else "Vendor analysis not evaluated: Vendor Code/Name unavailable"
             ),
             available=vendor_analysis_available,
         ),
@@ -90,7 +97,7 @@ def present_gl001_result(
             detail=(
                 "Same invoice number appears across different vendors"
                 if vendor_analysis_available
-                else "Vendor Code/Name unavailable"
+                else "Vendor analysis not evaluated: Vendor Code/Name unavailable"
             ),
             available=vendor_analysis_available,
         ),
@@ -120,7 +127,7 @@ def present_gl001_result(
 
     table = DashboardTable(
         title=(
-            f"{result.exception_count:,} Duplicate Invoice Record"
+            f"{result.exception_count:,} Duplicate Invoice-Number Exception"
             + ("" if result.exception_count == 1 else "s")
         ),
         description=("All source-linked records belonging to repeated invoice-number groups."),
@@ -156,7 +163,7 @@ def present_gl001_result(
 
     return ResultDashboardPresentation(
         metrics=metric_cards,
-        risk_title="Duplicate Pattern Analysis",
+        risk_title="Additional Analysis",
         risk_description=(
             "Repeated invoice numbers are the exception rule. "
             "Vendor information is supporting context and does not "
@@ -186,7 +193,7 @@ def _vendor_summary(
             ),
             headers=(
                 "Groups",
-                "Flagged Records",
+                "Exceptions",
             ),
             rows=(
                 DashboardSummaryRow(
@@ -204,7 +211,7 @@ def _vendor_summary(
         description=("Supporting context for the repeated invoice-number groups."),
         headers=(
             "Groups",
-            "Flagged Records",
+            "Exceptions",
         ),
         rows=(
             DashboardSummaryRow(

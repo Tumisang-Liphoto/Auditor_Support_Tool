@@ -113,15 +113,15 @@ def test_gl003_presenter_builds_approved_headline_metrics() -> None:
     )
 
     assert tuple(metric.title for metric in presentation.metrics) == (
+        "Exceptions",
+        "Exception Rate",
         "Saturday",
         "Sunday",
-        "Weekend %",
-        "High Risk",
     )
     assert tuple(metric.value for metric in presentation.metrics) == (
+        "2",
+        "20.00%",
         "1",
-        "1",
-        "20.0%",
         "1",
     )
 
@@ -164,7 +164,9 @@ def test_gl003_presenter_preserves_na_semantics() -> None:
         result=result,
     )
 
-    assert presentation.metrics[3].value == "N/A"
+    assert presentation.metrics[0].value == "2"
+    assert all(not indicator.available for indicator in presentation.risk_indicators)
+    assert all("not evaluated" in indicator.detail for indicator in presentation.risk_indicators)
     assert all(indicator.value == "N/A" for indicator in presentation.risk_indicators)
 
     assert presentation.summary is not None
@@ -221,3 +223,88 @@ def test_gl003_presenter_builds_table_filters_and_groups() -> None:
     assert "high_risk" in saturday_row.groups
     assert "sunday" in sunday_row.groups
     assert "high_risk" not in sunday_row.groups
+
+
+def test_gl003_presenter_distinguishes_zero_from_unevaluated() -> None:
+    """Zero exceptions is valid; a rate needs an evaluated denominator."""
+    for evaluated in (3, 0):
+        result = ProcedureResult.create(
+            context=_context(),
+            population_count=3,
+            records_evaluated_count=evaluated,
+            exclusion_counts={"unusable_required_value": 3 - evaluated},
+            exception_records=(),
+            metrics={
+                "saturday_transactions": 0,
+                "sunday_transactions": 0,
+                "high_value_available": True,
+                "high_value_threshold": 100,
+                "high_value_weekend_count": 0,
+                "manual_journal_available": True,
+                "manual_journal_weekend_count": 0,
+                "same_preparer_approver_available": True,
+                "same_preparer_approver_count": 0,
+                "evaluated_risk_indicators": (
+                    "high_value",
+                    "manual_journal",
+                    "same_preparer_approver",
+                ),
+            },
+        )
+        presentation = present_result(procedure_id="GL003", result=result)
+        if evaluated:
+            assert tuple(metric.value for metric in presentation.metrics) == (
+                "0",
+                "0.00%",
+                "0",
+                "0",
+            )
+        else:
+            rate = next(
+                metric for metric in presentation.metrics if metric.title == "Exception Rate"
+            )
+            assert rate.value == "N/A"
+            assert rate.detail == "No records evaluated"
+        assert presentation.table.rows == ()
+        assert presentation.risk_title == "Additional Analysis"
+        assert all(indicator.value in ("0", "0.0%") for indicator in presentation.risk_indicators)
+
+
+def test_gl003_presenter_preserves_authoritative_exceptions() -> None:
+    """Presentation must retain every exception and leave the result untouched."""
+    from copy import deepcopy
+
+    result = ProcedureResult.create(
+        context=_context(),
+        population_count=5,
+        records_evaluated_count=4,
+        exclusion_counts={"invalid_date": 1},
+        exception_records=_exceptions(),
+        metrics={"weekend_percentage": 99, "saturday_transactions": 1, "sunday_transactions": 1},
+    )
+    original = deepcopy(result)
+    presentation = present_result(procedure_id="GL003", result=result)
+    counts = {metric.title: metric.value for metric in presentation.metrics}
+    assert counts["Exceptions"] == str(result.exception_count)
+    assert counts["Exception Rate"] == f"{result.exception_rate:.2f}%"
+    assert len(presentation.table.rows) == result.exception_count
+    assert tuple(
+        (row.values["record_id"], row.values["source_row"], row.values["reason"])
+        for row in presentation.table.rows
+    ) == tuple(
+        (record.source_record_id, str(record.source_row_number), record.reason)
+        for record in result.exception_records
+    )
+    assert result == original
+
+
+def test_gl003_presenter_does_not_show_missing_headline_analysis_as_zero() -> None:
+    result = ProcedureResult.create(
+        context=_context(), population_count=2, records_evaluated_count=2
+    )
+    presentation = present_result(procedure_id="GL003", result=result)
+    metrics = {metric.title: metric.value for metric in presentation.metrics}
+    for title in ("Saturday", "Sunday"):
+        assert metrics[title] == "N/A"
+    assert metrics["Exceptions"] == "0"
+    assert metrics["Exception Rate"] == "0.00%"

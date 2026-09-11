@@ -26,6 +26,19 @@ def report_display_label(key: str) -> str:
         return ""
 
     special_labels = {
+        "flagged_records": "Exceptions",
+        "high_risk": "Matches Additional Indicators",
+        "high_risk_available": "Additional Indicator Analysis Available",
+        "high_risk_weekend_count": "Weekend Exceptions with Additional Indicators",
+        "risk_indicators": "Additional Indicators",
+        "evaluated_risk_indicators": "Evaluated Additional Indicators",
+        "unavailable_risk_indicators": "Unavailable Additional Indicators",
+        "distinct_conflicting_users": "Distinct Identifiers in Exceptions",
+        "highest_self_approval_count": "Most Exceptions per Identifier",
+        "user_self_approval_analysis": "Exceptions by User Identifier",
+        "self_approvals": "Exceptions",
+        "same_user_exceptions": "Matching User Identifier Exceptions",
+        "same_preparer_approver_count": "Matching Preparer/Approver Identifier Count",
         "id": "ID",
         "sha256": "SHA-256",
         "source_sha256": "Source SHA-256",
@@ -187,3 +200,8 @@ def exception_cell_value(
         return "—"
 
     return report_display_value(values.get(key))
+
+
+def report_exception_rate(rate: float, evaluated_count: int) -> str:
+    """Display a recorded rate only when an evaluated denominator exists."""
+    return f"{rate:.2f}%" if evaluated_count else "Not available: no records evaluated"

@@ -9,6 +9,7 @@ from auditor_support_tool.presentation.audit_procedure_report_formatter import (
     exception_cell_value,
     report_display_label,
     report_display_value,
+    report_exception_rate,
 )
 
 
@@ -181,3 +182,30 @@ def test_exception_cell_value_returns_dash_for_missing_field() -> None:
         )
         == "—"
     )
+
+
+def test_report_analysis_labels_describe_indicators_and_identifier_matches() -> None:
+    """Display labels must not imply confirmed risk or human self-approval."""
+    labels = {
+        "flagged_records": "Exceptions",
+        "high_risk": "Matches Additional Indicators",
+        "high_risk_available": "Additional Indicator Analysis Available",
+        "high_risk_weekend_count": "Weekend Exceptions with Additional Indicators",
+        "risk_indicators": "Additional Indicators",
+        "evaluated_risk_indicators": "Evaluated Additional Indicators",
+        "unavailable_risk_indicators": "Unavailable Additional Indicators",
+        "distinct_conflicting_users": "Distinct Identifiers in Exceptions",
+        "highest_self_approval_count": "Most Exceptions per Identifier",
+        "user_self_approval_analysis": "Exceptions by User Identifier",
+        "self_approvals": "Exceptions",
+        "same_user_exceptions": "Matching User Identifier Exceptions",
+        "same_preparer_approver_count": "Matching Preparer/Approver Identifier Count",
+    }
+    for key, label in labels.items():
+        assert report_display_label(key) == label
+
+
+def test_report_exception_rate_requires_evaluated_records() -> None:
+    assert report_exception_rate(25.0, 4) == "25.00%"
+    assert report_exception_rate(0.0, 4) == "0.00%"
+    assert report_exception_rate(0.0, 0) == "Not available: no records evaluated"

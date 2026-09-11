@@ -195,20 +195,21 @@ def test_gl006_presenter_builds_headline_metrics() -> None:
     )
 
     assert tuple(metric.title for metric in presentation.metrics) == (
-        "Population",
-        "Evaluated",
-        "SoD Exceptions",
-        "Exception %",
+        "Evaluated Records",
+        "Exceptions",
+        "Exception Rate",
+        "Distinct Identifiers",
     )
     assert tuple(metric.value for metric in presentation.metrics) == (
-        "5",
         "4",
         "1",
         "25.00%",
-    )
-    assert presentation.risk_title == "Self-Approval Analysis"
-    assert tuple(indicator.value for indicator in presentation.risk_indicators) == (
         "1",
+    )
+    assert presentation.risk_title == "Additional Analysis"
+    assert "do not prove the same person" in presentation.risk_description
+    assert "automatically excluded" in presentation.risk_description
+    assert tuple(indicator.value for indicator in presentation.risk_indicators) == (
         "1",
         "100.0%",
     )
@@ -243,9 +244,9 @@ def test_gl006_presenter_builds_ranked_self_approval_summary() -> None:
     )
 
     assert presentation.summary is not None
-    assert presentation.summary.title == "Self-Approval by User"
+    assert presentation.summary.title == "Exceptions by User Identifier"
     assert presentation.summary.headers == (
-        "Self-Approvals",
+        "Exceptions",
         "% of Exceptions",
         "Journals",
         "Amount",
@@ -261,7 +262,7 @@ def test_gl006_presenter_builds_ranked_self_approval_summary() -> None:
         "600.00",
     )
     assert any(
-        "Alice recorded the highest number of self-approvals" in observation
+        "Alice was associated with the most exceptions" in observation
         for observation in presentation.observations
     )
 
@@ -275,9 +276,78 @@ def test_gl006_presenter_uses_na_when_optional_analysis_is_unavailable() -> None
     )
 
     assert presentation.summary is not None
+    assert "Journal analysis not evaluated" in presentation.summary.description
+    assert "Amount analysis not evaluated" in presentation.summary.description
     assert presentation.summary.rows[0].values == (
         "1",
         "100.0%",
         "N/A",
         "N/A",
     )
+
+
+def test_gl006_presenter_distinguishes_zero_from_unevaluated() -> None:
+    """Zero exceptions is valid; a rate needs an evaluated denominator."""
+    for evaluated in (3, 0):
+        result = ProcedureResult.create(
+            context=create_result().context,
+            population_count=3,
+            records_evaluated_count=evaluated,
+            exclusion_counts={"unusable_required_value": 3 - evaluated},
+            exception_records=(),
+            metrics={
+                "distinct_conflicting_users": 0,
+                "highest_self_approval_count": 0,
+                "top_user_concentration_pct": 0,
+            },
+        )
+        presentation = present_result(procedure_id="GL006", result=result)
+        if evaluated:
+            assert tuple(metric.value for metric in presentation.metrics) == (
+                "3",
+                "0",
+                "0.00%",
+                "0",
+            )
+        else:
+            rate = next(
+                metric for metric in presentation.metrics if metric.title == "Exception Rate"
+            )
+            assert rate.value == "N/A"
+            assert rate.detail == "No records evaluated"
+        assert presentation.table.rows == ()
+        assert presentation.risk_title == "Additional Analysis"
+        assert all(indicator.value in ("0", "0.0%") for indicator in presentation.risk_indicators)
+
+
+def test_gl006_presenter_preserves_authoritative_exceptions() -> None:
+    """Presentation must retain every exception and leave the result untouched."""
+    from copy import deepcopy
+
+    result = create_result()
+    original = deepcopy(result)
+    presentation = present_result(procedure_id="GL006", result=result)
+    counts = {metric.title: metric.value for metric in presentation.metrics}
+    assert counts["Exceptions"] == str(result.exception_count)
+    assert counts["Exception Rate"] == f"{result.exception_rate:.2f}%"
+    assert len(presentation.table.rows) == result.exception_count
+    assert tuple(
+        (row.values["record_id"], row.values["source_row"], row.values["reason"])
+        for row in presentation.table.rows
+    ) == tuple(
+        (record.source_record_id, str(record.source_row_number), record.reason)
+        for record in result.exception_records
+    )
+    assert result == original
+
+
+def test_gl006_presenter_does_not_show_missing_headline_analysis_as_zero() -> None:
+    result = ProcedureResult.create(
+        context=create_result().context, population_count=2, records_evaluated_count=2
+    )
+    presentation = present_result(procedure_id="GL006", result=result)
+    metrics = {metric.title: metric.value for metric in presentation.metrics}
+    for title in ("Distinct Identifiers",):
+        assert metrics[title] == "N/A"
+    assert metrics["Exceptions"] == "0"
+    assert metrics["Exception Rate"] == "0.00%"

@@ -27,6 +27,7 @@ from auditor_support_tool.presentation.audit_procedure_report_formatter import (
     exception_cell_value,
     report_display_label,
     report_display_value,
+    report_exception_rate,
 )
 
 
@@ -253,7 +254,7 @@ class AuditProcedureReportDialog(QDialog):
             ),
             (
                 "Exception rate",
-                f"{summary.exception_rate:.2f}%",
+                report_exception_rate(summary.exception_rate, summary.records_evaluated_count),
             ),
             (
                 "Related value total",

@@ -30,7 +30,9 @@ def present_gl003_result(
 
     saturday = _as_int(metrics.get("saturday_transactions"))
     sunday = _as_int(metrics.get("sunday_transactions"))
-    weekend_percentage = _as_decimal(metrics.get("weekend_percentage"))
+    weekend_percentage = (
+        Decimal(str(result.exception_rate)) if result.records_evaluated_count else None
+    )
 
     high_risk_available = bool(metrics.get("high_risk_available"))
     high_risk_count = _as_int(metrics.get("high_risk_weekend_count"))
@@ -40,36 +42,36 @@ def present_gl003_result(
 
     metric_cards = (
         DashboardMetric(
+            title="Exceptions",
+            value=f"{result.exception_count:,}",
+            detail="Weekend records requiring review",
+            icon_name="fa5s.exclamation-triangle",
+            emphasis="risk",
+        ),
+        DashboardMetric(
+            title="Exception Rate",
+            value=(f"{result.exception_rate:.2f}%" if result.records_evaluated_count else "N/A"),
+            detail=(
+                f"Of {result.records_evaluated_count:,} evaluated records"
+                if result.records_evaluated_count
+                else "No records evaluated"
+            ),
+            icon_name="fa5s.percentage",
+            emphasis="information",
+        ),
+        DashboardMetric(
             title="Saturday",
-            value=f"{saturday:,}",
-            detail="Weekend transactions",
+            value=(f"{saturday:,}" if metrics.get("saturday_transactions") is not None else "N/A"),
+            detail="Weekend exceptions",
             icon_name="fa5s.calendar-day",
             emphasis="information",
         ),
         DashboardMetric(
             title="Sunday",
-            value=f"{sunday:,}",
-            detail="Weekend transactions",
+            value=(f"{sunday:,}" if metrics.get("sunday_transactions") is not None else "N/A"),
+            detail="Weekend exceptions",
             icon_name="fa5s.calendar-day",
             emphasis="information",
-        ),
-        DashboardMetric(
-            title="Weekend %",
-            value=_format_percentage(weekend_percentage),
-            detail="Of evaluated records",
-            icon_name="fa5s.percentage",
-            emphasis="information",
-        ),
-        DashboardMetric(
-            title="High Risk",
-            value=(f"{high_risk_count:,}" if high_risk_available else "N/A"),
-            detail=(
-                f"Based on {len(evaluated_indicators)} of 3 additional indicators"
-                if high_risk_available
-                else "Additional indicators unavailable"
-            ),
-            icon_name="fa5s.exclamation-triangle",
-            emphasis=("risk" if high_risk_available else "muted"),
         ),
     )
 
@@ -79,7 +81,10 @@ def present_gl003_result(
         _same_user_indicator(metrics),
     )
 
-    risk_description = f"{len(evaluated_indicators)} of 3 additional indicators were evaluated."
+    risk_description = (
+        f"{len(evaluated_indicators)} of 3 additional indicators were evaluated. "
+        "These describe weekend exceptions and do not change exception membership."
+    )
 
     if unavailable_indicators:
         risk_description += " N/A means the required mapping or audit rule was unavailable."
@@ -116,7 +121,7 @@ def present_gl003_result(
             ),
             DashboardTableFilter(
                 key="high_risk",
-                label="High Risk Only",
+                label="With Additional Indicators",
             ),
             DashboardTableFilter(
                 key="saturday",
@@ -135,7 +140,7 @@ def present_gl003_result(
 
     return ResultDashboardPresentation(
         metrics=metric_cards,
-        risk_title="Risk Indicators",
+        risk_title="Additional Analysis",
         risk_description=risk_description,
         risk_indicators=risk_indicators,
         summary=summary,
@@ -154,9 +159,9 @@ def _high_value_indicator(
 
     if not available:
         if threshold is None:
-            detail = "High-value threshold not configured"
+            detail = "High-value analysis not evaluated: threshold not configured"
         else:
-            detail = "Usable amount field unavailable"
+            detail = "High-value analysis not evaluated: usable amount field unavailable"
 
         return DashboardIndicator(
             title="High-value weekend transactions",
@@ -181,9 +186,9 @@ def _manual_journal_indicator(
         configured_values = _as_text_tuple(metrics.get("manual_journal_values"))
 
         detail = (
-            "Manual-journal values not configured"
+            "Manual-journal analysis not evaluated: values not configured"
             if not configured_values
-            else "Journal Type/Source unavailable"
+            else "Manual-journal analysis not evaluated: Journal Type/Source unavailable"
         )
 
         return DashboardIndicator(
@@ -207,14 +212,14 @@ def _same_user_indicator(
 
     if not available:
         return DashboardIndicator(
-            title="Same preparer and approver",
+            title="Matching preparer/approver identifiers",
             value="N/A",
-            detail="Entry User and Approval User required",
+            detail="User-match analysis not evaluated: Entry User and Approval User required",
             available=False,
         )
 
     return DashboardIndicator(
-        title="Same preparer and approver",
+        title="Matching preparer/approver identifiers",
         value=f"{_as_int(metrics.get('same_preparer_approver_count')):,}",
         detail="Normalised nonblank user values matched",
     )
@@ -228,7 +233,10 @@ def _build_debit_credit_summary(
 
     return DashboardSummary(
         title="Weekend Credit & Debit Summary",
-        description=("Amounts represented by the identified weekend transactions."),
+        description=(
+            "Amounts represented by the identified weekend exceptions. "
+            "N/A means the required debit or credit analysis was unavailable."
+        ),
         headers=(
             "Debit",
             "Credit",
@@ -304,12 +312,12 @@ def _build_observations(
         observations.append(
             f"{high_risk_count:,} unique weekend transactions "
             "matched at least one of the "
-            f"{evaluated_indicator_count} additional risk "
+            f"{evaluated_indicator_count} additional "
             "indicators evaluated."
         )
     else:
         observations.append(
-            "Additional risk overlays were not available for "
+            "Additional analysis was not available for "
             "this run; review the disclosed limitations before "
             "drawing conclusions."
         )
@@ -455,7 +463,7 @@ def _table_columns(
     columns.append(
         DashboardTableColumn(
             key="risk_indicators",
-            label="Risk Indicators",
+            label="Additional Indicators",
         )
     )
 
@@ -513,7 +521,7 @@ def _display_value(
         labels = {
             "high_value": "High value",
             "manual_journal": "Manual journal",
-            "same_preparer_approver": "Same user",
+            "same_preparer_approver": "Matching user identifiers",
         }
 
         return ", ".join(
@@ -550,9 +558,9 @@ def _format_percentage(
     value: Decimal | None,
 ) -> str:
     if value is None:
-        return "0.0%"
+        return "N/A"
 
-    return f"{value:.1f}%"
+    return f"{value:.2f}%"
 
 
 def _format_number(
