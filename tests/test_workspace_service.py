@@ -7,6 +7,9 @@ import pytest
 
 from auditor_support_tool.core.constants import APP_VERSION
 from auditor_support_tool.core.paths import ApplicationPaths
+from auditor_support_tool.core.workbook_package_service import (
+    WorkbookPackageService,
+)
 from auditor_support_tool.core.workspace_models import (
     WORKSPACE_FILE_EXTENSION,
     WorkspaceDocument,
@@ -421,3 +424,761 @@ def test_missing_workspace_file_is_rejected(
         match="Workspace file not found",
     ):
         workspace_service.load_document(tmp_path / "missing.astworkspace")
+
+def _create_saved_source_workspace(
+    workspace_service: WorkspaceService,
+    tmp_path: Path,
+) -> Path:
+    """Create a saved workspace containing a real managed source and dataset."""
+
+    source_path = tmp_path / "source.csv"
+    source_path.write_text(
+        "Code,Amount\nA001,100\n",
+        encoding="utf-8",
+    )
+
+    state = WorkspaceState()
+    state.start_workspace(
+        WorkspaceIdentity.create(
+            name="Source Workspace",
+        )
+    )
+    state.set_workbook_package(
+        WorkbookPackageService().build_package(source_path)
+    )
+
+    return workspace_service.save_state(
+        state,
+        tmp_path / "source-workspace.astworkspace",
+    )
+
+
+def test_first_save_requires_workspace_path(
+    workspace_service: WorkspaceService,
+) -> None:
+    """The first save must not guess where an audit workspace belongs."""
+
+    state = WorkspaceState()
+    state.start_workspace(
+        WorkspaceIdentity.create(
+            name="Unsaved Audit",
+        )
+    )
+
+    with pytest.raises(
+        WorkspaceServiceError,
+        match="workspace file path is required",
+    ):
+        workspace_service.save_state(state)
+
+
+def test_json_array_is_rejected_as_workspace_document(
+    workspace_service: WorkspaceService,
+    tmp_path: Path,
+) -> None:
+    """Valid JSON is insufficient when the workspace root is not an object."""
+
+    workspace_path = tmp_path / "invalid-structure.astworkspace"
+    workspace_path.write_text(
+        json.dumps(["not", "a", "workspace"]),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        WorkspaceServiceError,
+        match="invalid top-level structure",
+    ):
+        workspace_service.load_document(workspace_path)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid_value", "message"),
+    (
+        (
+            "identity",
+            [],
+            "Workspace identity must be an object",
+        ),
+        (
+            "source",
+            [],
+            "Workspace source must be an object",
+        ),
+        (
+            "workbook_package",
+            [],
+            "Workbook package must be an object or null",
+        ),
+        (
+            "field_mappings",
+            [],
+            "Field mappings must be an object",
+        ),
+        (
+            "transformation_history",
+            {},
+            "Transformation history must be an array",
+        ),
+        (
+            "transformation_history",
+            [1],
+            "Transformation history entries must be objects",
+        ),
+        (
+            "data_quality_issues",
+            {},
+            "Data-quality issues must be an array",
+        ),
+        (
+            "data_quality_issues",
+            [1],
+            "Data-quality issue entries must be objects",
+        ),
+        (
+            "procedure_execution_stamps",
+            {},
+            "Procedure execution stamps must be an array",
+        ),
+        (
+            "procedure_execution_stamps",
+            [1],
+            "Procedure execution stamp entries must be objects",
+        ),
+        (
+            "procedure_parameters",
+            [],
+            "Procedure parameters must be an object",
+        ),
+    ),
+)
+def test_invalid_workspace_section_shapes_are_rejected(
+    workspace_service: WorkspaceService,
+    tmp_path: Path,
+    field_name: str,
+    invalid_value,
+    message: str,
+) -> None:
+    """Malformed persisted workspace sections must fail closed."""
+
+    document = WorkspaceDocument.create(
+        identity=WorkspaceIdentity.create(
+            name="Structure Test",
+        ),
+        application_version=APP_VERSION,
+    )
+
+    workspace_path = workspace_service.save_document(
+        document,
+        tmp_path / "structure.astworkspace",
+    )
+
+    payload = json.loads(
+        workspace_path.read_text(
+            encoding="utf-8",
+        )
+    )
+    payload[field_name] = invalid_value
+
+    workspace_path.write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        WorkspaceServiceError,
+        match=message,
+    ):
+        workspace_service.load_document(workspace_path)
+
+
+@pytest.mark.parametrize(
+    ("parameters", "message"),
+    (
+        (
+            {
+                "": {
+                    "threshold": "100",
+                }
+            },
+            "procedure IDs cannot be blank",
+        ),
+        (
+            {
+                "GL003": [],
+            },
+            "parameter entry must be an object",
+        ),
+        (
+            {
+                "GL003": {
+                    "": "100",
+                }
+            },
+            "parameter keys cannot be blank",
+        ),
+    ),
+)
+def test_invalid_persisted_procedure_parameter_structure_is_rejected(
+    workspace_service: WorkspaceService,
+    tmp_path: Path,
+    parameters,
+    message: str,
+) -> None:
+    """Corrupted procedure settings must never reach procedure execution."""
+
+    document = WorkspaceDocument.create(
+        identity=WorkspaceIdentity.create(
+            name="Parameter Structure Test",
+        ),
+        application_version=APP_VERSION,
+    )
+
+    workspace_path = workspace_service.save_document(
+        document,
+        tmp_path / "parameters.astworkspace",
+    )
+
+    payload = json.loads(
+        workspace_path.read_text(
+            encoding="utf-8",
+        )
+    )
+    payload["procedure_parameters"] = parameters
+
+    workspace_path.write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        WorkspaceServiceError,
+        match=message,
+    ):
+        workspace_service.load_document(workspace_path)
+
+
+def test_dataset_snapshot_without_source_reference_is_rejected(
+    workspace_service: WorkspaceService,
+    tmp_path: Path,
+) -> None:
+    """Dataset metadata must never be restored without its bound source."""
+
+    workspace_path = _create_saved_source_workspace(
+        workspace_service,
+        tmp_path,
+    )
+
+    payload = json.loads(
+        workspace_path.read_text(
+            encoding="utf-8",
+        )
+    )
+    payload["source"] = None
+
+    workspace_path.write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+
+    state = WorkspaceState()
+
+    with pytest.raises(
+        WorkspaceServiceError,
+        match="dataset metadata but no source-file reference",
+    ):
+        workspace_service.load_into_state(
+            state,
+            workspace_path,
+        )
+
+    assert not state.has_workspace
+
+
+def test_missing_managed_source_blocks_workspace_restore(
+    workspace_service: WorkspaceService,
+    tmp_path: Path,
+) -> None:
+    """A workspace must not reopen when its committed source bytes are missing."""
+
+    workspace_path = _create_saved_source_workspace(
+        workspace_service,
+        tmp_path,
+    )
+
+    document = workspace_service.load_document(
+        workspace_path
+    )
+
+    assert document.source is not None
+
+    managed_source = (
+        workspace_service._resolve_workspace_source_path(
+            document.source,
+            workspace_path,
+        )
+    )
+    managed_source.unlink()
+
+    state = WorkspaceState()
+
+    with pytest.raises(
+        WorkspaceServiceError,
+        match="managed source file could not be found",
+    ):
+        workspace_service.load_into_state(
+            state,
+            workspace_path,
+        )
+
+    assert not state.has_workspace
+
+
+def test_source_integrity_verification_error_blocks_restore(
+    workspace_service: WorkspaceService,
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Integrity verification failures must stop state reconstruction."""
+
+    workspace_path = _create_saved_source_workspace(
+        workspace_service,
+        tmp_path,
+    )
+
+    def fail_verification(*_args, **_kwargs):
+        raise ValueError("invalid stored source fingerprint")
+
+    monkeypatch.setattr(
+        workspace_service._source_integrity_service,
+        "verify",
+        fail_verification,
+    )
+
+    state = WorkspaceState()
+
+    with pytest.raises(
+        WorkspaceServiceError,
+        match="Could not verify workspace source integrity",
+    ):
+        workspace_service.load_into_state(
+            state,
+            workspace_path,
+        )
+
+    assert not state.has_workspace
+
+
+def test_dataset_restore_failure_blocks_workspace_restore(
+    workspace_service: WorkspaceService,
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Invalid saved dataset metadata must not create a partial workspace."""
+
+    workspace_path = _create_saved_source_workspace(
+        workspace_service,
+        tmp_path,
+    )
+
+    def fail_restore(*_args, **_kwargs):
+        raise ValueError("invalid dataset snapshot")
+
+    monkeypatch.setattr(
+        workspace_service._workbook_package_service,
+        "restore_package",
+        fail_restore,
+    )
+
+    state = WorkspaceState()
+
+    with pytest.raises(
+        WorkspaceServiceError,
+        match="Could not restore saved datasets",
+    ):
+        workspace_service.load_into_state(
+            state,
+            workspace_path,
+        )
+
+    assert not state.has_workspace
+
+
+def test_missing_saved_active_dataset_blocks_restore(
+    workspace_service: WorkspaceService,
+    tmp_path: Path,
+) -> None:
+    """The saved active dataset must exist in the reconstructed package."""
+
+    workspace_path = _create_saved_source_workspace(
+        workspace_service,
+        tmp_path,
+    )
+
+    payload = json.loads(
+        workspace_path.read_text(
+            encoding="utf-8",
+        )
+    )
+    payload["active_dataset_id"] = "missing-dataset-id"
+
+    workspace_path.write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+
+    state = WorkspaceState()
+
+    with pytest.raises(
+        WorkspaceServiceError,
+        match="saved active dataset could not be restored",
+    ):
+        workspace_service.load_into_state(
+            state,
+            workspace_path,
+        )
+
+    assert not state.has_workspace
+
+
+@pytest.mark.parametrize(
+    ("field_name", "message"),
+    (
+        (
+            "transformation_history",
+            "Invalid transformation-history entry",
+        ),
+        (
+            "data_quality_issues",
+            "Invalid data-quality issue entry",
+        ),
+    ),
+)
+def test_invalid_saved_audit_history_blocks_workspace_restore(
+    workspace_service: WorkspaceService,
+    tmp_path: Path,
+    field_name: str,
+    message: str,
+) -> None:
+    """Corrupted audit-history metadata must not produce a partial workspace."""
+
+    document = WorkspaceDocument.create(
+        identity=WorkspaceIdentity.create(
+            name="Audit History Test",
+        ),
+        application_version=APP_VERSION,
+    )
+
+    workspace_path = workspace_service.save_document(
+        document,
+        tmp_path / "history.astworkspace",
+    )
+
+    payload = json.loads(
+        workspace_path.read_text(
+            encoding="utf-8",
+        )
+    )
+    payload[field_name] = [{}]
+
+    workspace_path.write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+
+    state = WorkspaceState()
+
+    with pytest.raises(
+        WorkspaceServiceError,
+        match=message,
+    ):
+        workspace_service.load_into_state(
+            state,
+            workspace_path,
+        )
+
+    assert not state.has_workspace
+
+def test_invalid_procedure_execution_stamp_is_rejected(
+    workspace_service: WorkspaceService,
+    tmp_path: Path,
+) -> None:
+    """Corrupted saved execution evidence must not be accepted."""
+
+    document = WorkspaceDocument.create(
+        identity=WorkspaceIdentity.create(
+            name="Execution Stamp Test",
+        ),
+        application_version=APP_VERSION,
+    )
+
+    workspace_path = workspace_service.save_document(
+        document,
+        tmp_path / "execution-stamp.astworkspace",
+    )
+
+    payload = json.loads(
+        workspace_path.read_text(
+            encoding="utf-8",
+        )
+    )
+    payload["procedure_execution_stamps"] = [
+        {
+            "execution_id": "incomplete",
+        }
+    ]
+
+    workspace_path.write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        WorkspaceServiceError,
+        match="Invalid procedure execution stamp",
+    ):
+        workspace_service.load_document(workspace_path)
+
+
+def test_valid_transformation_history_is_restored(
+    workspace_service: WorkspaceService,
+    tmp_path: Path,
+) -> None:
+    """Persisted transformation evidence should reconstruct deterministically."""
+
+    document = WorkspaceDocument.create(
+        identity=WorkspaceIdentity.create(
+            name="Transformation Test",
+        ),
+        application_version=APP_VERSION,
+    )
+
+    workspace_path = workspace_service.save_document(
+        document,
+        tmp_path / "transformation.astworkspace",
+    )
+
+    payload = json.loads(
+        workspace_path.read_text(
+            encoding="utf-8",
+        )
+    )
+    payload["transformation_history"] = [
+        {
+            "record_id": "transform-001",
+            "timestamp": "2026-09-13T08:00:00+00:00",
+            "action": "confirm_mapping",
+            "dataset_id": "dataset-001",
+            "column_id": "column-001",
+            "source_column": "Invoice Number",
+            "old_value": None,
+            "new_value": "invoice_number",
+            "details": {
+                "reviewer": "Auditor",
+            },
+        }
+    ]
+
+    workspace_path.write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+
+    state = WorkspaceState()
+
+    workspace_service.load_into_state(
+        state,
+        workspace_path,
+    )
+
+    assert len(state.transformation_history) == 1
+
+    record = state.transformation_history[0]
+
+    assert record.record_id == "transform-001"
+    assert record.action == "confirm_mapping"
+    assert record.dataset_id == "dataset-001"
+    assert record.column_id == "column-001"
+    assert record.source_column == "Invoice Number"
+    assert record.old_value is None
+    assert record.new_value == "invoice_number"
+    assert record.details == {
+        "reviewer": "Auditor",
+    }
+    assert state.is_dirty is False
+
+
+def test_invalid_transformation_details_are_rejected(
+    workspace_service: WorkspaceService,
+    tmp_path: Path,
+) -> None:
+    """Transformation metadata must retain its structured audit-trail form."""
+
+    document = WorkspaceDocument.create(
+        identity=WorkspaceIdentity.create(
+            name="Transformation Validation Test",
+        ),
+        application_version=APP_VERSION,
+    )
+
+    workspace_path = workspace_service.save_document(
+        document,
+        tmp_path / "invalid-transformation.astworkspace",
+    )
+
+    payload = json.loads(
+        workspace_path.read_text(
+            encoding="utf-8",
+        )
+    )
+    payload["transformation_history"] = [
+        {
+            "record_id": "transform-001",
+            "timestamp": "2026-09-13T08:00:00+00:00",
+            "action": "confirm_mapping",
+            "details": [
+                "not",
+                "an",
+                "object",
+            ],
+        }
+    ]
+
+    workspace_path.write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+
+    state = WorkspaceState()
+
+    with pytest.raises(
+        WorkspaceServiceError,
+        match="Transformation details must be an object",
+    ):
+        workspace_service.load_into_state(
+            state,
+            workspace_path,
+        )
+
+    assert not state.has_workspace
+
+
+def test_blank_data_quality_issue_identifier_is_rejected(
+    workspace_service: WorkspaceService,
+    tmp_path: Path,
+) -> None:
+    """Corrupted data-quality evidence must prevent workspace reconstruction."""
+
+    document = WorkspaceDocument.create(
+        identity=WorkspaceIdentity.create(
+            name="Data Quality Validation Test",
+        ),
+        application_version=APP_VERSION,
+    )
+
+    workspace_path = workspace_service.save_document(
+        document,
+        tmp_path / "invalid-data-quality.astworkspace",
+    )
+
+    payload = json.loads(
+        workspace_path.read_text(
+            encoding="utf-8",
+        )
+    )
+    payload["data_quality_issues"] = [
+        {
+            "issue_id": "   ",
+            "detected_at": "2026-09-13T08:00:00+00:00",
+            "code": "TEST_ISSUE",
+            "message": "Test data-quality issue.",
+            "dataset_id": "dataset-001",
+        }
+    ]
+
+    workspace_path.write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+
+    state = WorkspaceState()
+
+    with pytest.raises(
+        WorkspaceServiceError,
+        match="Data-quality issue identifier is required",
+    ):
+        workspace_service.load_into_state(
+            state,
+            workspace_path,
+        )
+
+    assert not state.has_workspace
+
+
+@pytest.mark.parametrize(
+    ("field_path", "message"),
+    (
+        (
+            ("application_version",),
+            "Workspace application version is required",
+        ),
+        (
+            ("identity", "workspace_id"),
+            "Workspace identifier is required",
+        ),
+        (
+            ("identity", "name"),
+            "Workspace name is required",
+        ),
+        (
+            ("identity", "created_at"),
+            "Workspace creation date is required",
+        ),
+        (
+            ("identity", "modified_at"),
+            "Workspace modification date is required",
+        ),
+    ),
+)
+def test_required_workspace_metadata_cannot_be_blank(
+    workspace_service: WorkspaceService,
+    tmp_path: Path,
+    field_path: tuple[str, ...],
+    message: str,
+) -> None:
+    """Core workspace identity fields must fail closed when corrupted."""
+
+    document = WorkspaceDocument.create(
+        identity=WorkspaceIdentity.create(
+            name="Metadata Validation Test",
+        ),
+        application_version=APP_VERSION,
+    )
+
+    workspace_path = workspace_service.save_document(
+        document,
+        tmp_path / "metadata.astworkspace",
+    )
+
+    payload = json.loads(
+        workspace_path.read_text(
+            encoding="utf-8",
+        )
+    )
+
+    target = payload
+
+    for key in field_path[:-1]:
+        target = target[key]
+
+    target[field_path[-1]] = "   "
+
+    workspace_path.write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        WorkspaceServiceError,
+        match=message,
+    ):
+        workspace_service.load_document(workspace_path)
