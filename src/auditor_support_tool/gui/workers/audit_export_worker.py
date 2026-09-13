@@ -6,6 +6,7 @@ from pathlib import Path
 from PySide6.QtCore import QCoreApplication, QThread, Signal
 
 from auditor_support_tool.presentation.exception_export_table import build_exception_export_table
+from auditor_support_tool.presentation.report_export_document import ReportExportRequest
 from auditor_support_tool.services.audit_export_service import AuditExportError, AuditExportService
 
 
@@ -40,18 +41,24 @@ class AuditExportWorker(QThread):
 
     def run(self):
         try:
-            methods = {
-                "json": self._service.export_report_json,
-                "csv": self._service.export_exceptions_csv,
-                "xlsx": self._service.export_exceptions_xlsx,
-            }
-            payload = self._payload
-            if self._sources is not None and self._format in {"csv", "xlsx"}:
-                payload = build_exception_export_table(payload, self._sources)
-            methods[self._format](payload, self._destination)
+            if isinstance(self._payload, ReportExportRequest):
+                self._service.export_report(self._payload, self._destination, self._format)
+            else:
+                self._export_existing()
         except AuditExportError as error:
             self.failed.emit(str(error))
         except Exception:
             self.failed.emit("Export could not be completed. No audit state was changed.")
         else:
             self.completed.emit(self._destination)
+
+    def _export_existing(self):
+        methods = {
+            "json": self._service.export_report_json,
+            "csv": self._service.export_exceptions_csv,
+            "xlsx": self._service.export_exceptions_xlsx,
+        }
+        payload = self._payload
+        if self._sources is not None and self._format in {"csv", "xlsx"}:
+            payload = build_exception_export_table(payload, self._sources)
+        methods[self._format](payload, self._destination)

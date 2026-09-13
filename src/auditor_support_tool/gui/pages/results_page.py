@@ -12,6 +12,7 @@ from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
+    QDialog,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -47,11 +48,13 @@ from auditor_support_tool.core.workspace_state import (
 from auditor_support_tool.gui.dialogs.audit_procedure_report_dialog import (
     AuditProcedureReportDialog,
 )
+from auditor_support_tool.gui.dialogs.report_export_dialog import ReportExportDialog
 from auditor_support_tool.gui.workers.audit_export_worker import AuditExportWorker
 from auditor_support_tool.presentation.exception_source_records import (
     add_source_columns,
     resolve_exception_sources,
 )
+from auditor_support_tool.presentation.report_export_document import ReportExportRequest
 from auditor_support_tool.presentation.result_dashboard_models import (
     DashboardIndicator,
     DashboardMetric,
@@ -200,6 +203,7 @@ class ResultsPage(QWidget):
         self._procedure_registry = procedure_registry
         self._report_builder = AuditProcedureReportBuilder()
         self._export_worker = None
+        self._report_export_worker = None
         self._outcome: TestEngineOutcome | None = None
         self._presentation: ResultDashboardPresentation | None = None
         self._source_records = None
@@ -387,11 +391,11 @@ class ResultsPage(QWidget):
         back_button.setIcon(qta.icon("fa5s.arrow-left"))
         back_button.clicked.connect(lambda: self.back_requested.emit("workspace.audit_procedures"))
 
-        self._view_report_button = QPushButton("View Audit Report")
+        self._view_report_button = QPushButton("View Report")
         self._view_report_button.setObjectName("primaryActionButton")
         self._view_report_button.setIcon(qta.icon("fa5s.file-alt"))
         self._view_report_button.setEnabled(False)
-        self._view_report_button.setToolTip("Open the complete structured audit procedure report.")
+        self._view_report_button.setToolTip("Open the complete audit procedure report as a PDF.")
         self._view_report_button.clicked.connect(self._show_audit_report)
 
         more_button = QToolButton()
@@ -403,6 +407,14 @@ class ResultsPage(QWidget):
 
         layout.addWidget(back_button)
         layout.addStretch(1)
+        self._export_report_button = QPushButton("Export Report…")
+        self._export_report_button.setObjectName("secondaryActionButton")
+        self._export_report_button.setEnabled(False)
+        self._export_report_button.setToolTip(
+            "Export the complete audit procedure report as PDF, Word or Excel."
+        )
+        self._export_report_button.clicked.connect(self._export_report)
+        layout.addWidget(self._export_report_button)
         layout.addWidget(self._view_report_button)
         layout.addWidget(more_button)
 
@@ -1596,7 +1608,7 @@ class ResultsPage(QWidget):
     def _show_audit_report(
         self,
     ) -> None:
-        """Build and display the authoritative report for the current run."""
+        """Build and display the current complete report as an embedded PDF."""
 
         outcome = self._outcome
 
@@ -1607,17 +1619,40 @@ class ResultsPage(QWidget):
         ):
             return
 
-        procedure = self._procedure_registry.require(outcome.procedure_id)
-        report = self._report_builder.build(
-            definition=procedure.definition,
-            result=outcome.result,
-        )
+        request = self._build_report_export_request(outcome)
 
         dialog = AuditProcedureReportDialog(
-            report=report,
+            request=request,
             parent=self,
         )
         dialog.exec()
+
+    def _build_report_export_request(
+        self,
+        outcome: TestEngineOutcome,
+    ) -> ReportExportRequest:
+        """Capture the current complete run and its presentation context."""
+
+        if outcome.result is None:
+            raise ValueError("A completed procedure result is required.")
+
+        definition = self._procedure_registry.require(outcome.procedure_id).definition
+        context = outcome.result.context
+        identity = self._workspace_state.workspace_identity
+        dataset = next(
+            (d for d in self._workspace_state.datasets if d.dataset_id == context.dataset_id),
+            None,
+        )
+
+        return ReportExportRequest(
+            definition,
+            outcome.result,
+            self._source_records,
+            workspace_name=identity.name if identity else "",
+            auditee_name=identity.auditee_name if identity else "",
+            dataset_name=dataset.confirmed_display_name if dataset else "",
+            worksheet_name=dataset.original_worksheet_name if dataset else "",
+        )
 
     def _refresh_export_action(self) -> None:
         outcome = self._outcome
@@ -1626,6 +1661,7 @@ class ResultsPage(QWidget):
             and outcome.status == TestEngineStatus.COMPLETED
             and outcome.result is not None
         )
+        self._export_report_button.setEnabled(ready and self._report_export_worker is None)
         self._export_exceptions_button.setEnabled(ready and self._export_worker is None)
         count = outcome.result.exception_count if ready else 0
         self._export_exceptions_button.setToolTip(
@@ -1633,6 +1669,76 @@ class ResultsPage(QWidget):
             "Files may contain confidential audit data. CSV escapes formula-like strings; "
             "use XLSX to preserve identifiers when opening in Excel."
         )
+
+    def _export_report(self) -> None:
+        outcome = self._outcome
+        if (
+            self._report_export_worker is not None
+            or outcome is None
+            or outcome.status != TestEngineStatus.COMPLETED
+            or outcome.result is None
+        ):
+            return
+        selector = ReportExportDialog(self)
+        if selector.exec() != QDialog.DialogCode.Accepted:
+            return
+        format = selector.format
+        filters = {"pdf": "PDF (*.pdf)", "docx": "Word (*.docx)", "xlsx": "Excel (*.xlsx)"}
+        definition = self._procedure_registry.require(outcome.procedure_id).definition
+        context = outcome.result.context
+        name = default_export_filename(
+            context.procedure_id,
+            context.created_at,
+            context.execution_id,
+            definition.name.replace(" ", "_"),
+            format,
+        )
+        destination, _ = QFileDialog.getSaveFileName(
+            self, "Export Audit Procedure Report", name, filters[format]
+        )
+        if not destination:
+            return
+        path = Path(destination)
+        if not path.suffix:
+            path = path.with_suffix("." + format)
+            if path.exists():
+                answer = QMessageBox.question(
+                    self,
+                    "Replace Export?",
+                    f"Replace the existing file {path.name}?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if answer != QMessageBox.StandardButton.Yes:
+                    return
+        if path.suffix.lower() != "." + format:
+            QMessageBox.warning(self, "Export Report", "Choose a filename ending in ." + format)
+            return
+        # Native dialogs run a nested event loop; input invalidation may have occurred.
+        if self._outcome is not outcome:
+            QMessageBox.warning(
+                self,
+                "Export Report",
+                "The result changed. Select the current result and export again.",
+            )
+            return
+        request = self._build_report_export_request(outcome)
+        worker = AuditExportWorker(payload=request, destination=str(path), format=format)
+        self._report_export_worker = worker
+        worker.completed.connect(self._report_export_completed)
+        worker.failed.connect(self._export_failed)
+        worker.finished.connect(self._report_export_finished)
+        self._refresh_export_action()
+        worker.start()
+
+    def _report_export_completed(self, destination) -> None:
+        QMessageBox.information(
+            self, "Export Complete", f"Complete audit procedure report exported to:\n{destination}"
+        )
+
+    def _report_export_finished(self) -> None:
+        self._report_export_worker = None
+        self._refresh_export_action()
 
     def _export_exceptions(self) -> None:
         outcome = self._outcome

@@ -1,51 +1,65 @@
-"""Report export integrates canonical JSON with save/cancel/error feedback."""
+"""Embedded PDF report viewer behaviour."""
 
-import pytest
+from decimal import Decimal
+
+from PySide6.QtPdfWidgets import QPdfView
+from PySide6.QtWidgets import QPushButton
 
 from auditor_support_tool.core.audit_procedure_report_builder import AuditProcedureReportBuilder
-from auditor_support_tool.gui.dialogs import audit_procedure_report_dialog as dialogs
+from auditor_support_tool.gui.dialogs.audit_procedure_report_dialog import (
+    AuditProcedureReportDialog,
+)
+from auditor_support_tool.presentation.exception_source_records import ExceptionSourceRecords
+from auditor_support_tool.presentation.report_export_document import ReportExportRequest
 from tests.test_audit_procedure_report import _definition, _result
 
 
-@pytest.fixture
-def dialog(qtbot):
-    report = AuditProcedureReportBuilder().build(definition=_definition(), result=_result())
-    widget = dialogs.AuditProcedureReportDialog(report=report)
+def _request() -> ReportExportRequest:
+    result = _result()
+    sources = ExceptionSourceRecords(
+        ("Original Ref", "Value", "Narrative"),
+        {
+            (exception.source_record_id, exception.source_row_number): (
+                f"REF-{index:03}",
+                Decimal("12.340"),
+                "Preview evidence",
+            )
+            for index, exception in enumerate(result.exception_records)
+        },
+        result.context.dataset_id,
+        result.context.source_sha256,
+    )
+    return ReportExportRequest(
+        _definition(),
+        result,
+        sources,
+        "Annual review",
+        "Example auditee",
+        "Ledger",
+        "Transactions",
+    )
+
+
+def test_report_viewer_renders_temporary_pdf_inside_application(qtbot):
+    request = _request()
+    expected = AuditProcedureReportBuilder().build(
+        definition=request.definition,
+        result=request.result,
+    )
+
+    widget = AuditProcedureReportDialog(request=request)
     qtbot.addWidget(widget)
-    return widget
 
+    assert widget.report.to_json() == expected.to_json()
+    assert widget.preview_path.exists()
+    assert widget.preview_path.suffix == ".pdf"
+    assert widget._preview_error == ""
+    assert widget._document.pageCount() > 0
+    assert widget.findChild(QPdfView, "auditProcedurePdfView") is widget._pdf_view
+    assert widget._pdf_view.isVisible() is False  # The modal dialog has not been shown yet.
+    assert widget._page_label.text().startswith("Page 1 of ")
+    assert not any("Export" in button.text() for button in widget.findChildren(QPushButton))
 
-def test_cancel(dialog, monkeypatch):
-    monkeypatch.setattr(dialogs.QFileDialog, "getSaveFileName", lambda *args: ("", ""))
-    dialog._export_report()
-    assert dialog._export_worker is None
-    assert dialog._export_report_button.isEnabled()
-
-
-def test_export_report_complete(dialog, monkeypatch, tmp_path, qtbot):
-    target = tmp_path / "report.json"
-    expected = dialog.report.to_json().encode("utf-8")
-    monkeypatch.setattr(
-        dialogs.QFileDialog, "getSaveFileName", lambda *args: (str(target), "JSON (*.json)")
-    )
-    messages = []
-    monkeypatch.setattr(dialogs.QMessageBox, "information", lambda *args: messages.append(args[2]))
-    dialog._export_report()
-    qtbot.waitUntil(lambda: dialog._export_worker is None)
-    assert target.read_bytes() == expected
-    assert dialog.report.to_json().encode("utf-8") == expected
-    assert messages
-    assert dialog._export_report_button.isEnabled()
-
-
-def test_export_error(dialog, monkeypatch, tmp_path, qtbot):
-    target = tmp_path / "missing" / "report.json"
-    monkeypatch.setattr(
-        dialogs.QFileDialog, "getSaveFileName", lambda *args: (str(target), "JSON (*.json)")
-    )
-    errors = []
-    monkeypatch.setattr(dialogs.QMessageBox, "warning", lambda *args: errors.append(args[2]))
-    dialog._export_report()
-    qtbot.waitUntil(lambda: dialog._export_worker is None)
-    assert errors
-    assert dialog._export_report_button.isEnabled()
+    preview_path = widget.preview_path
+    widget.reject()
+    assert not preview_path.exists()

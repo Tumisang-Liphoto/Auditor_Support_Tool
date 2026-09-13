@@ -187,8 +187,13 @@ def test_exploration_preserves_result_and_full_report(page, monkeypatch):
     captured = []
 
     class ReportDialog:
-        def __init__(self, *, report, parent):
-            captured.append(report.to_json())
+        def __init__(self, *, request, parent):
+            captured.append(
+                page._report_builder.build(
+                    definition=request.definition,
+                    result=request.result,
+                ).to_json()
+            )
 
         def exec(self):
             return 0
@@ -677,3 +682,137 @@ def test_wide_source_defaults_and_refresh_reset_hidden_columns(source_page):
     page._columns_button.menu().actions()[1].setChecked(False)
     page.set_outcome(outcome)
     assert not page._exceptions_table.isColumnHidden(1)
+
+
+@pytest.fixture
+def report_page(page, tmp_path):
+    from auditor_support_tool.core.workbook_package_service import WorkbookPackageService
+
+    path = tmp_path / "report-source.csv"
+    path.write_text(
+        "Original Reference,Raw Amount\n" + "\n".join(f"RAW-{i:03},12.340" for i in range(120)),
+        encoding="utf-8",
+    )
+    package = WorkbookPackageService().build_package(path)
+    dataset = package.datasets[0]
+    dataset.dataset_id = "dataset-1"
+    outcome = page.outcome
+    outcome = replace(
+        outcome,
+        result=replace(
+            outcome.result,
+            context=replace(
+                outcome.result.context, source_sha256=dataset.loaded_table.source_sha256
+            ),
+        ),
+    )
+    page._workspace_state.set_workbook_package(package)
+    page.set_outcome(outcome)
+    return page
+
+
+def choose_report_format(monkeypatch, format="pdf", accepted=True):
+    class Selector:
+        def __init__(self, parent):
+            self.format = format
+
+        def exec(self):
+            return (
+                results_page.QDialog.DialogCode.Accepted
+                if accepted
+                else results_page.QDialog.DialogCode.Rejected
+            )
+
+    monkeypatch.setattr(results_page, "ReportExportDialog", Selector)
+
+
+@pytest.mark.parametrize("format", ("pdf", "docx", "xlsx"))
+def test_report_export_uses_complete_run_not_explorer_state(
+    report_page, monkeypatch, tmp_path, qtbot, format
+):
+    from openpyxl import load_workbook
+
+    from tests.test_auditor_report_export import docx_text, pdf_text
+
+    page = report_page
+    before = deepcopy(page.outcome.result)
+    page._next_page_button.click()
+    page._search_input.setText("RAW-059")
+    page._columns_button.menu().actions()[1].setChecked(False)
+    choose_report_format(monkeypatch, format)
+    path = tmp_path / ("full." + format)
+    monkeypatch.setattr(results_page.QFileDialog, "getSaveFileName", lambda *args: (str(path), ""))
+    messages = []
+    monkeypatch.setattr(
+        results_page.QMessageBox, "information", lambda *args: messages.append(args[2])
+    )
+    page._export_report()
+    assert not page._export_report_button.isEnabled()
+    assert page._export_exceptions_button.isEnabled()
+    qtbot.waitUntil(lambda: page._report_export_worker is None, timeout=30000)
+    assert page._export_report_button.isEnabled()
+    if format == "pdf":
+        text = pdf_text(path)
+    elif format == "docx":
+        text = docx_text(path)
+    else:
+        book = load_workbook(path)
+        assert book["Exceptions"].max_row == 121
+        text = "\n".join(str(c.value) for row in book["Exceptions"] for c in row)
+        book.close()
+    assert all(f"RAW-{i:03}" in text for i in range(120))
+    assert page.outcome.result == before
+    assert page._search_input.text() == "RAW-059"
+    assert messages
+
+
+@pytest.mark.parametrize("cancel", ("format", "save", "stale", "extension", "overwrite"))
+def test_report_export_cancel_or_invalid_choice_creates_no_file(
+    report_page, monkeypatch, tmp_path, cancel
+):
+    page = report_page
+    choose_report_format(monkeypatch, accepted=cancel != "format")
+    path = tmp_path / ("report.doc" if cancel == "extension" else "report.pdf")
+    if cancel == "overwrite":
+        path.write_bytes(b"original")
+
+    def save(*args):
+        if cancel == "stale":
+            page.clear_result()
+        return (
+            ""
+            if cancel == "save"
+            else str(path.with_suffix("") if cancel == "overwrite" else path),
+            "",
+        )
+
+    monkeypatch.setattr(results_page.QFileDialog, "getSaveFileName", save)
+    monkeypatch.setattr(
+        results_page.QMessageBox,
+        "question",
+        lambda *args: results_page.QMessageBox.StandardButton.No,
+    )
+    messages = []
+    monkeypatch.setattr(results_page.QMessageBox, "warning", lambda *args: messages.append(args[2]))
+    page._export_report()
+    assert page._report_export_worker is None
+    if cancel == "overwrite":
+        assert path.read_bytes() == b"original"
+    else:
+        assert not path.exists()
+    if cancel in {"extension", "stale"}:
+        assert messages
+
+
+def test_report_export_missing_source_error_and_invalidation(page, monkeypatch, tmp_path, qtbot):
+    choose_report_format(monkeypatch)
+    path = tmp_path / "report.pdf"
+    monkeypatch.setattr(results_page.QFileDialog, "getSaveFileName", lambda *args: (str(path), ""))
+    messages = []
+    monkeypatch.setattr(results_page.QMessageBox, "warning", lambda *args: messages.append(args[2]))
+    page._export_report()
+    page.clear_result()
+    qtbot.waitUntil(lambda: page._report_export_worker is None)
+    assert messages and "evidence" in messages[0]
+    assert not path.exists()
+    assert not page._export_report_button.isEnabled()

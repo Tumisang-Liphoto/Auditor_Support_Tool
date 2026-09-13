@@ -321,7 +321,7 @@ def test_gl006_regression_baseline(
         )
 
 
-def test_gl011_regression_baseline(qtbot):
+def test_gl011_regression_baseline(qtbot, tmp_path):
     """Frozen GL rows 1956-1958 use 9999, absent from the existing 29-account COA."""
     from auditor_support_tool.core.procedure_dataset_resolution import ProcedureDatasetSource
     from auditor_support_tool.core.workbook_package import DatasetType
@@ -365,6 +365,7 @@ def test_gl011_regression_baseline(qtbot):
     assert result.exception_rate == pytest.approx(0.15)
     assert result.context.mapping_fingerprint != descriptors[0].source.mapping_fingerprint
     _assert_source_visibility(result, descriptors[0].source)
+    _assert_report_exports(result, descriptors[0].source, tmp_path)
 
     from auditor_support_tool.core.workspace_state import WorkspaceState
     from auditor_support_tool.gui.pages.results_page import ResultsPage
@@ -412,3 +413,45 @@ def _assert_source_visibility(result, source):
             assert row.values[f"source:{index}"] == ("" if value is None else str(value))
             assert table.columns[index + 1].label == header
     assert result == before
+
+
+def _assert_report_exports(result, source, tmp_path):
+    from openpyxl import load_workbook
+
+    from auditor_support_tool.presentation.exception_source_records import resolve_exception_sources
+    from auditor_support_tool.presentation.report_export_document import ReportExportRequest
+    from auditor_support_tool.services.audit_export_service import AuditExportService
+    from tests.test_auditor_report_export import docx_text, pdf_text
+
+    definition = (
+        create_general_ledger_procedure_registry().require(result.context.procedure_id).definition
+    )
+    request = ReportExportRequest(
+        definition, result, resolve_exception_sources(result, (source.dataset,))
+    )
+    for format in ("pdf", "docx", "xlsx"):
+        path = tmp_path / (result.context.procedure_id + "." + format)
+        AuditExportService().export_report(request, path, format)
+        if format == "pdf":
+            text = pdf_text(path)
+        elif format == "docx":
+            text = docx_text(path)
+        else:
+            book = load_workbook(path)
+            rows = list(book["Exceptions"].values)
+            assert len(rows) == result.exception_count + 1
+            assert [row[0] for row in rows[1:]] == [
+                str(e.source_row_number) for e in result.exception_records
+            ]
+            text = "\n".join(str(value) for row in rows for value in row)
+            book.close()
+        assert all(e.source_record_id in text for e in result.exception_records)
+
+
+@pytest.mark.parametrize("procedure_id", ("GL001", "GL003", "GL006"))
+def test_baseline_auditor_report_formats(baseline, procedure_id, tmp_path, qapp):
+    path, source, manifest = baseline
+    result = _run_baseline_procedure(
+        procedure_id=procedure_id, workbook_path=path, source=source, manifest=manifest
+    )
+    _assert_report_exports(result, source, tmp_path)

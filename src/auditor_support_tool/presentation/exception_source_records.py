@@ -18,6 +18,8 @@ class ExceptionSourceRecords:
 
     headers: tuple[str, ...]
     records: dict[tuple[str, int], tuple[object, ...]]
+    dataset_id: str = ""
+    source_sha256: str = ""
 
 
 def resolve_exception_sources(
@@ -53,7 +55,9 @@ def resolve_exception_sources(
             continue
         seen.add(identity)
         records[identity] = tuple(row.get(header) for header in headers)
-    return ExceptionSourceRecords(headers if records else (), records)
+    return ExceptionSourceRecords(
+        headers if records else (), records, dataset.dataset_id, table.source_sha256
+    )
 
 
 def add_source_columns(table: DashboardTable, sources: ExceptionSourceRecords) -> DashboardTable:

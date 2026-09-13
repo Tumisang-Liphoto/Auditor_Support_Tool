@@ -1,4 +1,4 @@
-"""Output-only, atomic exports of canonical reports and complete exception results."""
+﻿"""Output-only, atomic exports of canonical reports and complete exception results."""
 
 from __future__ import annotations
 
@@ -68,12 +68,15 @@ def _xlsx_cell(sheet, row: int, column: int, value: object) -> None:
         value = str(value)
     if isinstance(value, str):
         if len(value.encode("utf-16-le")) // 2 > XLSX_MAX_TEXT:
-            raise AuditExportError("A value exceeds Excel's cell text limit; use JSON or CSV.")
+            raise AuditExportError(
+                "A value exceeds Excel's cell text limit. "
+                "Choose another export format."
+            )
         if ILLEGAL_CHARACTERS_RE.search(value) or any(
             ord(char) in (0xFFFE, 0xFFFF) for char in value
         ):
             raise AuditExportError(
-                "A value contains characters Excel cannot store; use JSON or CSV."
+                "A value contains characters Excel cannot store. Choose another export format."
             )
     cell = sheet.cell(row, column)
     cell.value = value
@@ -114,6 +117,31 @@ class AuditExportService:
                         "Export temporary-file cleanup failed. Check folder permissions."
                     ) from error
 
+    def export_report(self, request, destination: Path, format: str) -> None:
+        """Write one complete auditor report atomically from a captured run."""
+        from auditor_support_tool.presentation.report_export_document import build_report_document
+        from auditor_support_tool.services.audit_report_writers import (
+            write_docx,
+            write_pdf,
+            write_xlsx,
+        )
+
+        writers = {"pdf": write_pdf, "docx": write_docx, "xlsx": write_xlsx}
+        if format not in writers or Path(destination).suffix.lower() != "." + format:
+            raise AuditExportError("Choose a matching PDF, Word (.docx) or Excel (.xlsx) filename.")
+
+        def write(path):
+            try:
+                document = build_report_document(request)
+            except (ValueError, TypeError, KeyError) as error:
+                raise AuditExportError(
+                    "The report evidence is incomplete or invalid. Refresh the source and "
+                    "rerun the procedure before exporting the report."
+                ) from error
+            writers[format](document, path)
+
+        self._write(destination, write)
+
     def export_report_json(self, report: AuditProcedureReport, destination: Path) -> None:
         self._write(destination, lambda path: path.write_bytes(report.to_json().encode("utf-8")))
 
@@ -145,7 +173,7 @@ class AuditExportService:
             )
             if len(table.rows) + 1 > XLSX_MAX_ROWS or len(table.headers) > XLSX_MAX_COLUMNS:
                 raise AuditExportError(
-                    "The export exceeds Excel's row or column limit; use CSV or JSON."
+                    "The export exceeds Excel's row or column limit; use CSV."
                 )
             book = Workbook()
             try:
