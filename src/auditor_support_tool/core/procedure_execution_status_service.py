@@ -61,6 +61,7 @@ class ProcedureExecutionStatusService:
         audit_period_start: str,
         audit_period_end: str,
         stamp: ProcedureExecutionStamp | None,
+        rerun_required: bool,
     ) -> ProcedureExecutionStatus:
         """Return Not Run, Completed or Needs Re-run."""
 
@@ -69,6 +70,9 @@ class ProcedureExecutionStatusService:
 
         if stamp.dataset_id != source.dataset_id:
             return ProcedureExecutionStatus.NOT_RUN
+
+        if rerun_required:
+            return ProcedureExecutionStatus.NEEDS_RERUN
 
         if stamp.procedure_version != definition.procedure_version.strip():
             return ProcedureExecutionStatus.NEEDS_RERUN
@@ -98,34 +102,24 @@ class ProcedureExecutionStatusService:
 
         return ProcedureExecutionStatus.COMPLETED
 
-    def remember_source_hash(
-        self,
-        source_path: str | Path,
-        source_sha256: str,
-    ) -> None:
-        """Cache a hash already calculated by the Test Engine."""
+    def refresh_source_hash(self, source_path: str | Path) -> None:
+        """Warm the status cache from freshly verified current bytes, off the GUI thread."""
 
-        path = Path(source_path).expanduser().resolve()
-        status = path.stat()
-
-        cache_key = (
-            str(path),
-            status.st_size,
-            status.st_mtime_ns,
-        )
-
-        self._source_hash_cache = {
-            key: value for key, value in self._source_hash_cache.items() if key[0] != str(path)
-        }
-        self._source_hash_cache[cache_key] = source_sha256.strip().lower()
+        self._source_sha256(source_path, refresh=True)
 
     def _source_sha256(
         self,
         source_path: str | Path,
+        *,
+        refresh: bool = False,
     ) -> str:
         """Return the current source hash, cached by inexpensive file metadata."""
 
         path = Path(source_path).expanduser().resolve()
+        if refresh:
+            self._source_hash_cache = {
+                key: value for key, value in self._source_hash_cache.items() if key[0] != str(path)
+            }
         status = path.stat()
 
         cache_key = (
@@ -136,10 +130,17 @@ class ProcedureExecutionStatusService:
 
         cached = self._source_hash_cache.get(cache_key)
 
-        if cached is not None:
+        if cached is not None and not refresh:
             return cached
 
+        # Invalidate before reading: a failed refresh must not leave a trusted old entry.
+        self._source_hash_cache = {
+            key: value for key, value in self._source_hash_cache.items() if key[0] != str(path)
+        }
         source_hash = self._source_integrity_service.sha256_file(path)
+        after = path.stat()
+        if (status.st_size, status.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+            raise OSError("Source changed while verifying its execution status.")
 
         # Retain only the newest cache entry for this path.
         self._source_hash_cache = {

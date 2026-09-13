@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import qtawesome as qta
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -69,6 +71,7 @@ from auditor_support_tool.core.workspace_state import (
 from auditor_support_tool.gui.dialogs.procedure_parameters_dialog import (
     ProcedureParametersDialog,
 )
+from auditor_support_tool.gui.workers.audit_execution_worker import AuditExecutionWorker
 
 
 class AuditProceduresPage(QWidget):
@@ -103,6 +106,8 @@ class AuditProceduresPage(QWidget):
         self._test_engine = TestEngineService(registry=procedure_registry)
         self._execution_status_service = ProcedureExecutionStatusService()
 
+        self._worker: AuditExecutionWorker | None = None
+        self._run_workspace_id: str | None = None
         self._updating_dataset_selector = False
 
         self._build_interface()
@@ -138,6 +143,10 @@ class AuditProceduresPage(QWidget):
 
         navigation_layout.addWidget(self._back_button)
         navigation_layout.addStretch(1)
+        self._cancel_button = QPushButton("Cancel Run")
+        self._cancel_button.setVisible(False)
+        self._cancel_button.clicked.connect(self.cancel_execution)
+        navigation_layout.addWidget(self._cancel_button)
 
         title = QLabel("Audit Procedures")
         title.setObjectName("pageTitle")
@@ -247,6 +256,9 @@ class AuditProceduresPage(QWidget):
         )
         self._dataset_selector.currentIndexChanged.connect(self._dataset_selection_changed)
 
+        self._workspace_state.source_changed.connect(self.cancel_execution)
+        self._workspace_state.workbook_package_changed.connect(self.cancel_execution)
+        self._workspace_state.workspace_cleared.connect(self._invalidate_execution)
         self._workspace_state.workbook_package_changed.connect(self._refresh_page)
         self._workspace_state.active_dataset_changed.connect(self._refresh_page)
         self._workspace_state.workspace_identity_changed.connect(self._refresh_page)
@@ -261,6 +273,8 @@ class AuditProceduresPage(QWidget):
     def _refresh_page(self) -> None:
         """Refresh datasets, readiness and procedure actions."""
 
+        if self.is_executing:
+            return
         self._refresh_dataset_selector()
         self._clear_page_status()
 
@@ -501,6 +515,9 @@ class AuditProceduresPage(QWidget):
     def _run_procedure(self, procedure_id: str) -> None:
         """Run a ready procedure and send its outcome to the Results page."""
 
+        if self.is_executing:
+            return
+
         dataset = self._active_mapped_dataset()
         source_path = self._workspace_state.source_path
         identity = self._workspace_state.workspace_identity
@@ -526,7 +543,7 @@ class AuditProceduresPage(QWidget):
             )
             return
 
-        source = PreparedAuditDataset(dataset)
+        source = self._execution_source(dataset)
 
         procedure = self._procedure_registry.get(procedure_id)
 
@@ -561,21 +578,80 @@ class AuditProceduresPage(QWidget):
             "neutral",
         )
 
-        outcome = self._test_engine.run(
-            procedure_id=procedure_id,
+        worker = AuditExecutionWorker(
+            engine=self._test_engine,
+            procedure_id=procedure.definition.procedure_id,
             source=source,
             source_path=source_path,
             audit_period_start=audit_period_start,
             audit_period_end=audit_period_end,
             parameters=effective_parameters,
-            dataset_sources=self._procedure_dataset_sources(),
+            dataset_sources=tuple(
+                ProcedureDatasetSource.create(
+                    dataset_type=item.confirmed_dataset_type,
+                    source=self._execution_source(item),
+                )
+                for item in self._mapped_datasets()
+                if item.confirmed_dataset_type != DatasetType.UNCLASSIFIED
+            ),
+            status_service=self._execution_status_service,
+        )
+        self._worker = worker
+        self._run_workspace_id = identity.workspace_id
+        self.destroyed.connect(worker.cancel)
+        worker.finished.connect(self._execution_finished)
+        self._procedures_container.setEnabled(False)
+        self._dataset_selector.setEnabled(False)
+        self._back_button.setEnabled(False)
+        self._cancel_button.setEnabled(True)
+        self._cancel_button.setVisible(True)
+        worker.start()
+
+    @staticmethod
+    def _execution_source(dataset: WorksheetDataset) -> PreparedAuditDataset:
+        # Preparation changes metadata, never the loaded population. Retain the frozen
+        # LoadedTable and its read-only rows without copying the entire audit population.
+        return PreparedAuditDataset(
+            replace(
+                dataset,
+                columns=[replace(column) for column in dataset.columns],
+                field_mappings=dict(dataset.field_mappings),
+            )
         )
 
+    @property
+    def is_executing(self) -> bool:
+        return self._worker is not None
+
+    @Slot()
+    def cancel_execution(self) -> None:
+        if self._worker is not None:
+            self._worker.cancel()
+            self._cancel_button.setEnabled(False)
+            self._set_page_status("Cancelling audit procedure…", "neutral")
+
+    @Slot()
+    def _invalidate_execution(self) -> None:
+        # A cleared/reopened workspace must never receive an old run's outcome.
+        self._run_workspace_id = None
+        self.cancel_execution()
+
+    @Slot()
+    def _execution_finished(self) -> None:
+        worker = self._worker
+        if worker is None:
+            return
+        outcome = worker.outcome
+        self._worker = None
+        self._procedures_container.setEnabled(True)
+        self._back_button.setEnabled(True)
+        self._cancel_button.setVisible(False)
+        identity = self._workspace_state.workspace_identity
+        if identity is None or identity.workspace_id != self._run_workspace_id or outcome is None:
+            self._refresh_page()
+            return
+
         if outcome.status == TestEngineStatus.COMPLETED and outcome.result is not None:
-            self._execution_status_service.remember_source_hash(
-                source_path,
-                outcome.result.context.source_sha256,
-            )
             self._workspace_state.record_procedure_execution(
                 ProcedureExecutionStamp.from_context(outcome.result.context)
             )
@@ -585,11 +661,11 @@ class AuditProceduresPage(QWidget):
             TestEngineStatus.FAILED,
         }:
             self._workspace_state.mark_procedure_rerun_required(
-                procedure_id,
-                dataset.dataset_id,
+                outcome.procedure_id,
+                outcome.dataset_id,
             )
 
-        self._clear_page_status()
+        self._refresh_page()
         self.result_ready.emit(outcome)
 
     def _procedure_execution_status(
@@ -608,12 +684,6 @@ class AuditProceduresPage(QWidget):
 
         if stamp is None:
             return ProcedureExecutionStatus.NOT_RUN
-
-        if self._workspace_state.procedure_requires_rerun(
-            definition.procedure_id,
-            source.dataset_id,
-        ):
-            return ProcedureExecutionStatus.NEEDS_RERUN
 
         source_path = self._workspace_state.source_path
         identity = self._workspace_state.workspace_identity
@@ -669,6 +739,9 @@ class AuditProceduresPage(QWidget):
             audit_period_start=audit_period_start,
             audit_period_end=audit_period_end,
             stamp=stamp,
+            rerun_required=self._workspace_state.procedure_requires_rerun(
+                definition.procedure_id, source.dataset_id
+            ),
         )
 
     def _update_dataset_selector_presentation(self) -> None:

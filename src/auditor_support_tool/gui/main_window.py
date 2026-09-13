@@ -335,6 +335,16 @@ class MainWindow(QMainWindow):
     def _confirm_workspace_transition(self) -> bool:
         """Confirm that the current workspace may be replaced or closed."""
 
+        page = getattr(self, "_pages", {}).get("workspace.audit_procedures")
+        if page is not None and page.is_executing:
+            page.cancel_execution()
+            QMessageBox.information(
+                self,
+                "Audit Procedure Running",
+                "Cancellation requested. Wait for the procedure to finish, then try again.",
+            )
+            return False
+
         if not self._workspace_state.has_workspace or not self._workspace_state.is_dirty:
             return True
 

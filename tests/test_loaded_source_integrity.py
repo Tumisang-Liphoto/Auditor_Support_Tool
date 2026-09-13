@@ -104,7 +104,8 @@ def test_changed_source_does_not_create_execution_stamp(tmp_path, qtbot):
     outcomes = []
     page.result_ready.connect(outcomes.append)
     path.write_text("reference,amount\nCHANGED,900\n", encoding="utf-8")
-    page._run_procedure("PROC001")
+    with qtbot.waitSignal(page.result_ready, timeout=5000):
+        page._run_procedure("PROC001")
     assert outcomes[-1].status == EngineStatus.FAILED
     assert procedure.run_count == 0
     assert state.procedure_execution_stamps == ()
@@ -207,7 +208,8 @@ def test_failed_rerun_does_not_report_previous_success_as_completed(
     page.result_ready.connect(outcomes.append)
 
     # First execution succeeds and creates valid historical evidence.
-    page._run_procedure("PROC001")
+    with qtbot.waitSignal(page.result_ready, timeout=5000):
+        page._run_procedure("PROC001")
 
     assert outcomes[-1].status == EngineStatus.COMPLETED
 
@@ -221,7 +223,8 @@ def test_failed_rerun_does_not_report_previous_success_as_completed(
     # The same procedure is attempted again, but this attempt fails.
     procedure.behavior = "raise"
 
-    page._run_procedure("PROC001")
+    with qtbot.waitSignal(page.result_ready, timeout=5000):
+        page._run_procedure("PROC001")
 
     assert outcomes[-1].status == EngineStatus.FAILED
 

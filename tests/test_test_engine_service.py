@@ -406,3 +406,60 @@ def test_malformed_procedure_identifier_is_rejected() -> None:
             source=source,
             source_path=Path("unused.csv"),
         )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("source_sha256", "c" * 64),
+        ("mapping_fingerprint", "c" * 64),
+        ("procedure_version", "999"),
+        ("parameters", {"limit": 99}),
+        ("audit_period_start", "2026-02-01"),
+        ("audit_period_end", "2026-11-30"),
+        ("execution_id", "other-run"),
+        ("procedure_id", "PROC002"),
+        ("dataset_id", "other-dataset"),
+    ),
+)
+def test_engine_rejects_altered_authoritative_context(tmp_path, field, value):
+    from dataclasses import replace
+
+    class AlteredContextProcedure(StubProcedure):
+        def run(self, **kwargs):
+            result = super().run(**kwargs)
+            return replace(result, context=replace(result.context, **{field: value}))
+
+    outcome = create_engine(AlteredContextProcedure()).run(
+        procedure_id="PROC001",
+        source=StubRecordSource(),
+        source_path=create_source_file(tmp_path),
+        parameters={"limit": 10},
+        audit_period_start="2026-01-01",
+        audit_period_end="2026-12-31",
+    )
+    assert outcome.status == EngineStatus.FAILED
+    assert outcome.result is None
+    assert "authoritative execution evidence" in outcome.error_message
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_in_place_parameter_mutation_cannot_change_expected_evidence(tmp_path, nested):
+    class MutatingProcedure(StubProcedure):
+        def run(self, **kwargs):
+            context = kwargs["context"]
+            if nested:
+                context.parameters["options"]["days"].append("Sunday")
+            else:
+                context.parameters["limit"] = 99
+            return super().run(**kwargs)
+
+    outcome = create_engine(MutatingProcedure()).run(
+        procedure_id="PROC001",
+        source=StubRecordSource(),
+        source_path=create_source_file(tmp_path),
+        parameters={"limit": 10, "options": {"days": ["Saturday"]}},
+    )
+    assert outcome.status == EngineStatus.FAILED
+    assert outcome.result is None
+    assert "authoritative execution evidence" in outcome.error_message
