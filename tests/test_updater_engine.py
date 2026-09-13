@@ -277,3 +277,180 @@ def test_termination_failure_leaves_backup_and_installation_for_recovery(update_
     mocks["restore_backup"].assert_not_called()
     mocks["prune_backups"].assert_not_called()
     relaunch.assert_not_called()
+
+def test_copy_directory_replaces_existing_contents(tmp_path):
+    """Installing a directory should remove stale target content completely."""
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+
+    source.mkdir()
+    target.mkdir()
+
+    (source / "new.txt").write_text("new")
+    nested = source / "nested"
+    nested.mkdir()
+    (nested / "payload.txt").write_text("payload")
+
+    (target / "stale.txt").write_text("stale")
+    stale_dir = target / "obsolete"
+    stale_dir.mkdir()
+    (stale_dir / "old.txt").write_text("old")
+
+    engine.copy_directory(source, target)
+
+    assert (target / "new.txt").read_text() == "new"
+    assert (target / "nested" / "payload.txt").read_text() == "payload"
+
+    assert not (target / "stale.txt").exists()
+    assert not (target / "obsolete").exists()
+
+
+def test_create_backup_copies_complete_installation(tmp_path):
+    """The installation should be copied completely before replacement."""
+    target = tmp_path / "application"
+    backup_root = tmp_path / "backups"
+
+    target.mkdir()
+
+    (target / "app.exe").write_bytes(b"old application")
+
+    nested = target / "data"
+    nested.mkdir()
+    (nested / "settings.json").write_text('{"version": 1}')
+
+    backup = engine.create_backup(
+        target,
+        backup_root,
+        "0.1.0",
+    )
+
+    assert backup.parent == backup_root
+    assert backup.name.startswith("before-0.1.0-")
+
+    assert (backup / "app.exe").read_bytes() == b"old application"
+    assert (
+        backup / "data" / "settings.json"
+    ).read_text() == '{"version": 1}'
+
+    (target / "app.exe").write_bytes(b"changed")
+
+    assert (backup / "app.exe").read_bytes() == b"old application"
+
+
+def test_prune_backups_retains_only_newest_backups(tmp_path):
+    """Successful pruning should keep the configured number of newest backups."""
+    import os
+
+    total = engine.UPDATE_BACKUP_RETENTION + 3
+    backups = []
+
+    for index in range(total):
+        backup = tmp_path / f"backup-{index}"
+        backup.mkdir()
+
+        timestamp = 100 + index
+        os.utime(
+            backup,
+            (timestamp, timestamp),
+        )
+
+        backups.append(backup)
+
+    engine.prune_backups(tmp_path)
+
+    remaining = {
+        path.name
+        for path in tmp_path.iterdir()
+        if path.is_dir()
+    }
+
+    expected = {
+        path.name
+        for path in backups[-engine.UPDATE_BACKUP_RETENTION :]
+    }
+
+    assert remaining == expected
+
+
+def test_wait_for_health_returns_true_when_marker_exists(
+    tmp_path,
+):
+    """A health marker should commit the new application as healthy."""
+    marker = tmp_path / "health.ok"
+    marker.write_text("healthy")
+
+    process = Mock()
+
+    assert engine.wait_for_health(marker, process) is True
+
+    process.poll.assert_not_called()
+
+
+def test_wait_for_health_returns_false_when_child_exits(
+    tmp_path,
+):
+    """An updater child that exits before health confirmation should fail."""
+    marker = tmp_path / "health.ok"
+
+    process = Mock()
+    process.poll.return_value = 1
+
+    assert engine.wait_for_health(marker, process) is False
+
+    process.poll.assert_called_once_with()
+
+
+def test_missing_manifest_stops_before_backup_or_replacement(
+    monkeypatch,
+    tmp_path,
+):
+    """A missing staged manifest must stop before installation mutation."""
+    source = tmp_path / "staged"
+    source.mkdir()
+
+    backup = Mock(
+        side_effect=AssertionError(
+            "backup must not start without a staged manifest"
+        )
+    )
+    replace = Mock(
+        side_effect=AssertionError(
+            "installation must not change without a staged manifest"
+        )
+    )
+
+    monkeypatch.setattr(
+        engine,
+        "wait_for_process_exit",
+        Mock(),
+    )
+    monkeypatch.setattr(
+        engine,
+        "create_backup",
+        backup,
+    )
+    monkeypatch.setattr(
+        engine,
+        "copy_directory",
+        replace,
+    )
+
+    args = SimpleNamespace(
+        source=str(source),
+        target=str(tmp_path / "application"),
+        backup_root=str(tmp_path / "backups"),
+        health_marker=str(tmp_path / "health.ok"),
+        app_exe="app.exe",
+        wait_pid=456,
+        version="0.2.0",
+        health_token="token",
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="staged update manifest is missing",
+    ):
+        engine.run_update(args)
+
+    backup.assert_not_called()
+    replace.assert_not_called()
