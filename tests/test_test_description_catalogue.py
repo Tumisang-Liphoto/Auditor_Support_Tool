@@ -57,4 +57,5 @@ def test_description_paths_use_catalogue_file_names() -> None:
         "GL-001-Duplicate-Invoice-Detection.pdf",
         "GL-003-Weekend-Postings.pdf",
         "GL-006-Segregation-of-Duties.pdf",
+        "GL-011-Unmapped-Accounts.pdf",
     )

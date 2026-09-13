@@ -318,3 +318,48 @@ def test_gl006_regression_baseline(
         assert (
             actual_row["transaction_amount_records"] == expected_row["transaction_amount_records"]
         )
+
+
+def test_gl011_regression_baseline():
+    """Frozen GL rows 1956-1958 use 9999, absent from the existing 29-account COA."""
+    from auditor_support_tool.core.procedure_dataset_resolution import ProcedureDatasetSource
+    from auditor_support_tool.core.workbook_package import DatasetType
+
+    mapping = _load_json(_MAPPING_PATH)
+    manifest = _load_json(_EXPECTED_PATH)
+    path = _FIXTURE_DIRECTORY / manifest["workbook_file"]
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == manifest["workbook_sha256"]
+    package = WorkbookPackageService().build_package(path)
+    descriptors = []
+    for item in mapping["gl011_dataset_mappings"]:
+        dataset = package.get_dataset_by_worksheet(item["dataset_sheet"])
+        dataset_type = getattr(DatasetType, item["dataset_type"])
+        dataset.confirmed_dataset_type = dataset_type
+        column = next(c for c in dataset.columns if c.source_column == item["source_column"])
+        column.confirmed_type = getattr(DetectedDataType, item["confirmed_type"])
+        dataset.field_mappings = {column.column_id: item["standard_field"]}
+        descriptors.append(
+            ProcedureDatasetSource.create(
+                dataset_type=dataset_type,
+                source=PreparedAuditDataset(dataset),
+            )
+        )
+    outcome = EngineService(registry=create_general_ledger_procedure_registry()).run(
+        procedure_id="GL011",
+        source=descriptors[0].source,
+        source_path=path,
+        dataset_sources=descriptors,
+        audit_period_start=manifest["audit_period"]["start"],
+        audit_period_end=manifest["audit_period"]["end"],
+        parameters=manifest["procedure_parameters"]["GL011"],
+    )
+    assert outcome.status == EngineStatus.COMPLETED
+    result = outcome.result
+    expected = manifest["expected"]["GL011"]
+    _assert_common_result(result=result, expected=expected, manifest=manifest)
+    _assert_metric_subset(actual=result.metrics, expected=expected["metrics"])
+    assert [str(e.values["account_code"]) for e in result.exception_records] == expected[
+        "exception_account_codes"
+    ]
+    assert result.exception_rate == pytest.approx(0.15)
+    assert result.context.mapping_fingerprint != descriptors[0].source.mapping_fingerprint

@@ -375,7 +375,7 @@ def test_gl001_runs_through_generic_test_engine(
 
 
 def test_gl001_and_gl003_are_registered_as_executable_procedures() -> None:
-    """The GL bootstrap should expose both implemented procedures."""
+    """The GL bootstrap should expose all implemented procedures."""
 
     registry = create_general_ledger_procedure_registry()
 
@@ -383,4 +383,5 @@ def test_gl001_and_gl003_are_registered_as_executable_procedures() -> None:
         "GL001",
         "GL003",
         "GL006",
+        "GL011",
     )

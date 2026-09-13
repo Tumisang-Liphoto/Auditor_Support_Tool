@@ -53,3 +53,21 @@ The next step is to add an automated regression test that builds the prepared
 dataset from this workbook, applies these mappings, runs GL-001 / GL-003 /
 GL-006 through the generic Test Engine, and compares results with
 `expected_results.json`.
+
+
+## GL011 extension
+
+GL011 uses the existing `General_Ledger` primary dataset and `Chart_of_Accounts`
+reference dataset without altering the frozen workbook. Both roles map `Account
+Code` to `account_code` as TEXT; see `gl011_dataset_mappings` in the mapping
+manifest. No new date dependency or period filtering is introduced.
+
+Independent comparison of the original account columns establishes 29 distinct
+COA accounts and three unmatched GL transactions: source rows 1956, 1957 and
+1958, all using account `9999`. GL011 therefore evaluates 2,000 records, excludes
+zero, flags three (0.15% of evaluated records), and reports one unique unmapped
+account. There are no blank or duplicate COA accounts in this fixture.
+
+The GL001/GL003/GL006 expected results and source SHA-256 remain unchanged.
+Compact synthetic GL011 tests cover blanks, duplicates, account identity and
+other boundaries absent from the frozen workbook.

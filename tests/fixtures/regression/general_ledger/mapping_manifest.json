@@ -73,5 +73,23 @@
   "notes": [
     "The mappings cover all required and useful fields needed by the current GL-001, GL-003 and GL-006 regression baseline.",
     "Journal Type and Vendor Name are intentionally not mapped because those source columns are not present in General_Ledger."
+  ],
+  "gl011_dataset_mappings": [
+    {
+      "role": "general_ledger",
+      "dataset_sheet": "General_Ledger",
+      "dataset_type": "GENERAL_LEDGER",
+      "source_column": "Account Code",
+      "standard_field": "account_code",
+      "confirmed_type": "TEXT"
+    },
+    {
+      "role": "chart_of_accounts",
+      "dataset_sheet": "Chart_of_Accounts",
+      "dataset_type": "CHART_OF_ACCOUNTS",
+      "source_column": "Account Code",
+      "standard_field": "account_code",
+      "confirmed_type": "TEXT"
+    }
   ]
 }
