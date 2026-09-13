@@ -17,7 +17,10 @@ from openpyxl.utils import get_column_letter
 
 from auditor_support_tool.core.audit_procedure_models import ProcedureResult
 from auditor_support_tool.core.audit_procedure_report_models import AuditProcedureReport
-from auditor_support_tool.presentation.exception_export_table import build_exception_export_table
+from auditor_support_tool.presentation.exception_export_table import (
+    ExceptionExportTable,
+    build_exception_export_table,
+)
 
 XLSX_MAX_ROWS = 1_048_576
 XLSX_MAX_COLUMNS = 16_384
@@ -114,9 +117,15 @@ class AuditExportService:
     def export_report_json(self, report: AuditProcedureReport, destination: Path) -> None:
         self._write(destination, lambda path: path.write_bytes(report.to_json().encode("utf-8")))
 
-    def export_exceptions_csv(self, result: ProcedureResult, destination: Path) -> None:
+    def export_exceptions_csv(
+        self, result: ProcedureResult | ExceptionExportTable, destination: Path
+    ) -> None:
         def write(path: Path) -> None:
-            table = build_exception_export_table(result)
+            table = (
+                result
+                if isinstance(result, ExceptionExportTable)
+                else build_exception_export_table(result)
+            )
             with path.open("w", encoding="utf-8-sig", newline="") as stream:
                 writer = csv.writer(stream)
                 writer.writerow([_csv_cell(value) for value in table.headers])
@@ -125,9 +134,15 @@ class AuditExportService:
 
         self._write(destination, write)
 
-    def export_exceptions_xlsx(self, result: ProcedureResult, destination: Path) -> None:
+    def export_exceptions_xlsx(
+        self, result: ProcedureResult | ExceptionExportTable, destination: Path
+    ) -> None:
         def write(path: Path) -> None:
-            table = build_exception_export_table(result)
+            table = (
+                result
+                if isinstance(result, ExceptionExportTable)
+                else build_exception_export_table(result)
+            )
             if len(table.rows) + 1 > XLSX_MAX_ROWS or len(table.headers) > XLSX_MAX_COLUMNS:
                 raise AuditExportError(
                     "The export exceeds Excel's row or column limit; use CSV or JSON."

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
 
@@ -47,6 +48,10 @@ from auditor_support_tool.gui.dialogs.audit_procedure_report_dialog import (
     AuditProcedureReportDialog,
 )
 from auditor_support_tool.gui.workers.audit_export_worker import AuditExportWorker
+from auditor_support_tool.presentation.exception_source_records import (
+    add_source_columns,
+    resolve_exception_sources,
+)
 from auditor_support_tool.presentation.result_dashboard_models import (
     DashboardIndicator,
     DashboardMetric,
@@ -197,6 +202,7 @@ class ResultsPage(QWidget):
         self._export_worker = None
         self._outcome: TestEngineOutcome | None = None
         self._presentation: ResultDashboardPresentation | None = None
+        self._source_records = None
         self._procedure_breadcrumb_title = "Procedure"
 
         self._active_filter = "all"
@@ -233,6 +239,7 @@ class ResultsPage(QWidget):
         """Display a Test Engine outcome."""
 
         self._outcome = outcome
+        self._source_records = None
 
         procedure = self._procedure_registry.require(outcome.procedure_id)
 
@@ -249,6 +256,13 @@ class ResultsPage(QWidget):
                 procedure_id=outcome.procedure_id,
                 result=outcome.result,
             )
+            self._source_records = resolve_exception_sources(
+                outcome.result, self._workspace_state.datasets
+            )
+            self._presentation = replace(
+                self._presentation,
+                table=add_source_columns(self._presentation.table, self._source_records),
+            )
             self._populate_dashboard(self._presentation)
         else:
             self._presentation = None
@@ -264,6 +278,7 @@ class ResultsPage(QWidget):
         """Clear the current result."""
 
         self._outcome = None
+        self._source_records = None
         self._presentation = None
         self._procedure_breadcrumb_title = "Procedure"
         self._show_empty_state()
@@ -818,6 +833,8 @@ class ResultsPage(QWidget):
         self._exceptions_table.setAlternatingRowColors(True)
         self._exceptions_table.verticalHeader().setVisible(False)
         self._exceptions_table.setMinimumHeight(300)
+        self._exceptions_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._exceptions_table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
         layout.addWidget(self._exceptions_table)
 
@@ -1297,21 +1314,11 @@ class ResultsPage(QWidget):
 
         header = self._exceptions_table.horizontalHeader()
 
+        header.setStretchLastSection(False)
+        header.setMinimumSectionSize(100)
         for index, column in enumerate(table.columns):
-            if column.key in {
-                "transaction_description",
-                "details",
-                "reason",
-                "risk_indicators",
-            }:
-                mode = QHeaderView.ResizeMode.Stretch
-            else:
-                mode = QHeaderView.ResizeMode.Interactive
-
-            header.setSectionResizeMode(
-                index,
-                mode,
-            )
+            header.setSectionResizeMode(index, QHeaderView.ResizeMode.Interactive)
+            self._exceptions_table.setColumnHidden(index, not column.visible_by_default)
 
         self._apply_table_view()
 
@@ -1378,7 +1385,8 @@ class ResultsPage(QWidget):
                 columns_menu,
             )
             action.setCheckable(True)
-            action.setChecked(True)
+            action.setChecked(column.visible_by_default)
+            action.setEnabled(column.key not in {"source_row", "reason"})
             action.setData(index)
             action.toggled.connect(self._column_visibility_changed)
             columns_menu.addAction(action)
@@ -1664,7 +1672,9 @@ class ResultsPage(QWidget):
         else:
             QMessageBox.warning(self, "Export Exceptions", "Choose a filename ending in ." + format)
             return
-        worker = AuditExportWorker(payload=result, destination=destination, format=format)
+        worker = AuditExportWorker(
+            payload=result, destination=destination, format=format, sources=self._source_records
+        )
         self._export_worker = worker
         worker.completed.connect(self._export_completed)
         worker.failed.connect(self._export_failed)

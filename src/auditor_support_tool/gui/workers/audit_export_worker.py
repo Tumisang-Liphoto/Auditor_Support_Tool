@@ -5,6 +5,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication, QThread, Signal
 
+from auditor_support_tool.presentation.exception_export_table import build_exception_export_table
 from auditor_support_tool.services.audit_export_service import AuditExportError, AuditExportService
 
 
@@ -13,10 +14,11 @@ class AuditExportWorker(QThread):
     failed = Signal(str)
     _active = set()
 
-    def __init__(self, *, payload, destination: str, format: str, service=None):
+    def __init__(self, *, payload, destination: str, format: str, service=None, sources=None):
         # Application ownership keeps running threads alive if their page/dialog closes.
         super().__init__(QCoreApplication.instance())
         self._payload = deepcopy(payload)
+        self._sources = deepcopy(sources)
         self._destination = Path(destination)
         self._format = format
         self._service = service or AuditExportService()
@@ -43,7 +45,10 @@ class AuditExportWorker(QThread):
                 "csv": self._service.export_exceptions_csv,
                 "xlsx": self._service.export_exceptions_xlsx,
             }
-            methods[self._format](self._payload, self._destination)
+            payload = self._payload
+            if self._sources is not None and self._format in {"csv", "xlsx"}:
+                payload = build_exception_export_table(payload, self._sources)
+            methods[self._format](payload, self._destination)
         except AuditExportError as error:
             self.failed.emit(str(error))
         except Exception:
