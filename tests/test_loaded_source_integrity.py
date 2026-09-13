@@ -7,6 +7,9 @@ import pytest
 
 from auditor_support_tool.core.data_import_service import DataImportError, DataImportService
 from auditor_support_tool.core.prepared_audit_dataset import PreparedAuditDataset
+from auditor_support_tool.core.procedure_execution_status_service import (
+    ProcedureExecutionStatus,
+)
 from auditor_support_tool.core.procedure_registry import ProcedureRegistry
 from auditor_support_tool.core.source_integrity_service import SourceIntegrityService
 from auditor_support_tool.core.test_engine_models import TestEngineStatus as EngineStatus
@@ -167,3 +170,75 @@ def test_package_rejects_worksheets_loaded_from_different_source_versions(tmp_pa
     monkeypatch.setattr(importer, "load_table", change_between_worksheets)
     with pytest.raises(DataImportError, match="changed while loading"):
         WorkbookPackageService(import_service=importer).build_package(path)
+
+
+def test_failed_rerun_does_not_report_previous_success_as_completed(
+    tmp_path,
+    qtbot,
+):
+    """A failed latest attempt must not appear Completed because an older success exists."""
+
+    path = create_source_file(tmp_path)
+
+    package = WorkbookPackageService().build_package(path)
+    dataset = package.datasets[0]
+    dataset.mapping_status = FieldMappingStatus.CONFIRMED
+
+    state = WorkspaceState()
+    state.start_workspace(
+        WorkspaceIdentity.create(
+            name="Latest execution status",
+        )
+    )
+    state.set_workbook_package(package)
+
+    procedure = StubProcedure()
+
+    registry = ProcedureRegistry()
+    registry.register(procedure)
+
+    page = AuditProceduresPage(
+        workspace_state=state,
+        procedure_registry=registry,
+    )
+    qtbot.addWidget(page)
+
+    outcomes = []
+    page.result_ready.connect(outcomes.append)
+
+    # First execution succeeds and creates valid historical evidence.
+    page._run_procedure("PROC001")
+
+    assert outcomes[-1].status == EngineStatus.COMPLETED
+
+    successful_stamp = state.get_procedure_execution_stamp(
+        "PROC001",
+        dataset.dataset_id,
+    )
+
+    assert successful_stamp is not None
+
+    # The same procedure is attempted again, but this attempt fails.
+    procedure.behavior = "raise"
+
+    page._run_procedure("PROC001")
+
+    assert outcomes[-1].status == EngineStatus.FAILED
+
+    # Preserve the previous successful run as reproducibility evidence.
+    assert (
+        state.get_procedure_execution_stamp(
+            "PROC001",
+            dataset.dataset_id,
+        )
+        == successful_stamp
+    )
+
+    # But the procedure list must represent the latest failed attempt
+    # as requiring another run rather than showing Completed.
+    status = page._procedure_execution_status(
+        definition=procedure.definition,
+        source=PreparedAuditDataset(dataset),
+    )
+
+    assert status == ProcedureExecutionStatus.NEEDS_RERUN

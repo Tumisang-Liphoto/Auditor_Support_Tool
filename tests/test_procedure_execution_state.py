@@ -115,3 +115,94 @@ def test_restoring_execution_stamps_can_keep_workspace_clean() -> None:
         == stamp
     )
     assert state.is_dirty is False
+
+
+def test_failed_rerun_requirement_preserves_successful_stamp() -> None:
+    """A newer failed attempt must not destroy successful execution evidence."""
+
+    state = WorkspaceState()
+    state.start_workspace(WorkspaceIdentity.create(name="Audit"))
+
+    stamp = create_stamp(
+        procedure_id="GL001",
+        dataset_id="dataset-1",
+    )
+
+    state.record_procedure_execution(stamp)
+    state.mark_saved()
+
+    state.mark_procedure_rerun_required(
+        "GL001",
+        "dataset-1",
+    )
+
+    assert (
+        state.get_procedure_execution_stamp(
+            "GL001",
+            "dataset-1",
+        )
+        == stamp
+    )
+    assert state.procedure_requires_rerun(
+        "GL001",
+        "dataset-1",
+    )
+    assert state.is_dirty is True
+
+
+def test_first_failed_attempt_does_not_create_rerun_requirement() -> None:
+    """Needs Re-run only qualifies an earlier successful execution."""
+
+    state = WorkspaceState()
+    state.start_workspace(WorkspaceIdentity.create(name="Audit"))
+
+    state.mark_procedure_rerun_required(
+        "GL001",
+        "dataset-1",
+    )
+
+    assert not state.procedure_requires_rerun(
+        "GL001",
+        "dataset-1",
+    )
+
+
+def test_successful_rerun_clears_rerun_requirement() -> None:
+    """A later successful execution becomes authoritative again."""
+
+    state = WorkspaceState()
+    state.start_workspace(WorkspaceIdentity.create(name="Audit"))
+
+    first_stamp = create_stamp(
+        procedure_id="GL001",
+        dataset_id="dataset-1",
+    )
+    state.record_procedure_execution(first_stamp)
+    state.mark_procedure_rerun_required(
+        "GL001",
+        "dataset-1",
+    )
+
+    assert state.procedure_requires_rerun(
+        "GL001",
+        "dataset-1",
+    )
+
+    second_stamp = create_stamp(
+        procedure_id="GL001",
+        dataset_id="dataset-1",
+    )
+    state.record_procedure_execution(second_stamp)
+
+    assert (
+        state.get_procedure_execution_stamp(
+            "GL001",
+            "dataset-1",
+        )
+        == second_stamp
+    )
+    assert not state.procedure_requires_rerun(
+        "GL001",
+        "dataset-1",
+    )
+

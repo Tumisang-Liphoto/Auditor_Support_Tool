@@ -579,6 +579,15 @@ class AuditProceduresPage(QWidget):
             self._workspace_state.record_procedure_execution(
                 ProcedureExecutionStamp.from_context(outcome.result.context)
             )
+        elif outcome.status in {
+            TestEngineStatus.BLOCKED,
+            TestEngineStatus.CANCELLED,
+            TestEngineStatus.FAILED,
+        }:
+            self._workspace_state.mark_procedure_rerun_required(
+                procedure_id,
+                dataset.dataset_id,
+            )
 
         self._clear_page_status()
         self.result_ready.emit(outcome)
@@ -599,6 +608,12 @@ class AuditProceduresPage(QWidget):
 
         if stamp is None:
             return ProcedureExecutionStatus.NOT_RUN
+
+        if self._workspace_state.procedure_requires_rerun(
+            definition.procedure_id,
+            source.dataset_id,
+        ):
+            return ProcedureExecutionStatus.NEEDS_RERUN
 
         source_path = self._workspace_state.source_path
         identity = self._workspace_state.workspace_identity

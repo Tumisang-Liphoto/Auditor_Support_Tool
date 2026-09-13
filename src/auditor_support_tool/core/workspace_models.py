@@ -242,6 +242,7 @@ class WorkspaceDocument:
     field_mappings: dict[str, object] = field(default_factory=dict)
     procedure_parameters: dict[str, dict[str, object]] = field(default_factory=dict)
     procedure_execution_stamps: list[dict[str, object]] = field(default_factory=list)
+    procedure_rerun_requirements: list[dict[str, str]] = field(default_factory=list)
     transformation_history: list[dict[str, object]] = field(default_factory=list)
     data_quality_issues: list[dict[str, object]] = field(default_factory=list)
 

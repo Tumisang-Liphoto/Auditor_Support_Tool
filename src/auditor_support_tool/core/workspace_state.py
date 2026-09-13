@@ -73,6 +73,7 @@ class WorkspaceState(QObject):
             tuple[str, str],
             ProcedureExecutionStamp,
         ] = {}
+        self._procedure_rerun_requirements: set[tuple[str, str]] = set()
 
         # Temporary compatibility properties for the existing pages.
         self._selected_worksheet: str | None = None
@@ -317,6 +318,124 @@ class WorkspaceState(QObject):
             )
         )
 
+    @property
+    def procedure_rerun_requirements(
+        self,
+    ) -> tuple[tuple[str, str], ...]:
+        """Return procedure/dataset pairs whose latest attempt requires a rerun."""
+
+        return tuple(sorted(self._procedure_rerun_requirements))
+
+    def procedure_requires_rerun(
+        self,
+        procedure_id: str,
+        dataset_id: str,
+    ) -> bool:
+        """Return whether a newer unsuccessful attempt requires another run."""
+
+        canonical_id = canonical_procedure_id(procedure_id)
+        cleaned_dataset_id = dataset_id.strip()
+
+        if not cleaned_dataset_id:
+            raise ValueError("Dataset identifier is required.")
+
+        return (
+            canonical_id,
+            cleaned_dataset_id,
+        ) in self._procedure_rerun_requirements
+
+    def mark_procedure_rerun_required(
+        self,
+        procedure_id: str,
+        dataset_id: str,
+        *,
+        mark_dirty: bool = True,
+    ) -> None:
+        """Mark an earlier successful execution as requiring another run."""
+
+        if self._workspace_identity is None:
+            raise ValueError(
+                "An active audit workspace is required before recording procedure execution state."
+            )
+
+        canonical_id = canonical_procedure_id(procedure_id)
+        cleaned_dataset_id = dataset_id.strip()
+
+        if not cleaned_dataset_id:
+            raise ValueError("Dataset identifier is required.")
+
+        key = (
+            canonical_id,
+            cleaned_dataset_id,
+        )
+
+        # A rerun requirement qualifies an earlier successful run. A first-ever
+        # unsuccessful attempt has no successful execution evidence to invalidate.
+        if key not in self._procedure_execution_stamps:
+            return
+
+        if key in self._procedure_rerun_requirements:
+            return
+
+        self._procedure_rerun_requirements.add(key)
+
+        self.procedure_execution_changed.emit(
+            canonical_id,
+            cleaned_dataset_id,
+        )
+
+        if mark_dirty:
+            self.mark_dirty()
+
+    def set_all_procedure_rerun_requirements(
+        self,
+        requirements: tuple[tuple[str, str], ...] | list[tuple[str, str]],
+        *,
+        mark_dirty: bool = True,
+    ) -> None:
+        """Replace persisted rerun requirements, primarily during workspace load."""
+
+        if self._workspace_identity is None:
+            raise ValueError(
+                "An active audit workspace is required before restoring procedure execution state."
+            )
+
+        cleaned: set[tuple[str, str]] = set()
+
+        for procedure_id, dataset_id in requirements:
+            canonical_id = canonical_procedure_id(procedure_id)
+            cleaned_dataset_id = dataset_id.strip()
+
+            if not cleaned_dataset_id:
+                raise ValueError("Dataset identifier is required.")
+
+            key = (
+                canonical_id,
+                cleaned_dataset_id,
+            )
+
+            if key not in self._procedure_execution_stamps:
+                raise ValueError(
+                    "A procedure rerun requirement must reference a successful execution."
+                )
+
+            cleaned.add(key)
+
+        if cleaned == self._procedure_rerun_requirements:
+            return
+
+        changed_keys = self._procedure_rerun_requirements | cleaned
+        self._procedure_rerun_requirements = cleaned
+
+        for procedure_id, dataset_id in sorted(changed_keys):
+            self.procedure_execution_changed.emit(
+                procedure_id,
+                dataset_id,
+            )
+
+        if mark_dirty:
+            self.mark_dirty()
+
     def record_procedure_execution(
         self,
         stamp: ProcedureExecutionStamp,
@@ -335,10 +454,14 @@ class WorkspaceState(QObject):
             stamp.dataset_id,
         )
 
-        if self._procedure_execution_stamps.get(key) == stamp:
+        stamp_changed = self._procedure_execution_stamps.get(key) != stamp
+        rerun_cleared = key in self._procedure_rerun_requirements
+
+        if not stamp_changed and not rerun_cleared:
             return
 
         self._procedure_execution_stamps[key] = stamp
+        self._procedure_rerun_requirements.discard(key)
 
         self.procedure_execution_changed.emit(
             stamp.procedure_id,
@@ -378,10 +501,19 @@ class WorkspaceState(QObject):
 
         previous_keys = set(self._procedure_execution_stamps)
         new_keys = set(cleaned)
+        previous_rerun_keys = set(self._procedure_rerun_requirements)
 
         self._procedure_execution_stamps = cleaned
+        self._procedure_rerun_requirements.intersection_update(new_keys)
 
-        for procedure_id, dataset_id in sorted(previous_keys | new_keys):
+        changed_keys = (
+            previous_keys
+            | new_keys
+            | previous_rerun_keys
+            | self._procedure_rerun_requirements
+        )
+
+        for procedure_id, dataset_id in sorted(changed_keys):
             self.procedure_execution_changed.emit(
                 procedure_id,
                 dataset_id,
@@ -815,6 +947,9 @@ class WorkspaceState(QObject):
         procedure_execution_keys = tuple(self._procedure_execution_stamps)
         self._procedure_execution_stamps = {}
 
+        procedure_rerun_keys = tuple(self._procedure_rerun_requirements)
+        self._procedure_rerun_requirements = set()
+
         self._selected_worksheet = None
         self._loaded_table = None
         self._data_profile = None
@@ -837,7 +972,9 @@ class WorkspaceState(QObject):
         for procedure_id in procedure_parameter_ids:
             self.procedure_parameters_changed.emit(procedure_id)
 
-        for procedure_id, dataset_id in procedure_execution_keys:
+        for procedure_id, dataset_id in sorted(
+            set(procedure_execution_keys) | set(procedure_rerun_keys)
+        ):
             self.procedure_execution_changed.emit(
                 procedure_id,
                 dataset_id,

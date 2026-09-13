@@ -19,6 +19,7 @@ from auditor_support_tool.core.paths import ApplicationPaths
 from auditor_support_tool.core.procedure_execution_models import (
     ProcedureExecutionStamp,
 )
+from auditor_support_tool.core.procedure_identity import canonical_procedure_id
 from auditor_support_tool.core.source_integrity_service import (
     SourceIntegrityService,
     SourceIntegrityStatus,
@@ -123,6 +124,13 @@ class WorkspaceService:
             procedure_parameters=state.procedure_parameters,
             procedure_execution_stamps=[
                 stamp.to_dict() for stamp in state.procedure_execution_stamps
+            ],
+            procedure_rerun_requirements=[
+                {
+                    "procedure_id": procedure_id,
+                    "dataset_id": dataset_id,
+                }
+                for procedure_id, dataset_id in state.procedure_rerun_requirements
             ],
             transformation_history=[asdict(record) for record in state.transformation_history],
             data_quality_issues=[asdict(issue) for issue in state.data_quality_issues],
@@ -333,6 +341,13 @@ class WorkspaceService:
             ProcedureExecutionStamp.from_dict(raw_stamp)
             for raw_stamp in document.procedure_execution_stamps
         ]
+        procedure_rerun_requirements = [
+            (
+                requirement["procedure_id"],
+                requirement["dataset_id"],
+            )
+            for requirement in document.procedure_rerun_requirements
+        ]
 
         state.start_workspace(
             document.identity,
@@ -359,6 +374,10 @@ class WorkspaceService:
         )
         state.set_all_procedure_execution_stamps(
             procedure_execution_stamps,
+            mark_dirty=False,
+        )
+        state.set_all_procedure_rerun_requirements(
+            procedure_rerun_requirements,
             mark_dirty=False,
         )
 
@@ -480,6 +499,12 @@ class WorkspaceService:
                     [],
                 )
             )
+            procedure_rerun_requirements = self._procedure_rerun_requirements_from_raw(
+                raw_document.get(
+                    "procedure_rerun_requirements",
+                    [],
+                )
+            )
 
             transformation_history = raw_document.get(
                 "transformation_history",
@@ -535,6 +560,7 @@ class WorkspaceService:
             field_mappings=field_mappings,
             procedure_parameters=procedure_parameters,
             procedure_execution_stamps=procedure_execution_stamps,
+            procedure_rerun_requirements=procedure_rerun_requirements,
             transformation_history=transformation_history,
             data_quality_issues=data_quality_issues,
         )
@@ -564,6 +590,61 @@ class WorkspaceService:
                 raise TypeError(f"Invalid procedure execution stamp: {error}") from error
 
             cleaned.append(stamp.to_dict())
+
+        return cleaned
+
+    @staticmethod
+    def _procedure_rerun_requirements_from_raw(
+        raw_requirements: object,
+    ) -> list[dict[str, str]]:
+        """Validate persisted procedure rerun requirements."""
+
+        if not isinstance(raw_requirements, list):
+            raise TypeError("Procedure rerun requirements must be an array.")
+
+        cleaned: list[dict[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+
+        for raw_requirement in raw_requirements:
+            if not isinstance(raw_requirement, dict):
+                raise TypeError(
+                    "Procedure rerun requirement entries must be objects."
+                )
+
+            try:
+                procedure_id = canonical_procedure_id(
+                    str(raw_requirement["procedure_id"])
+                )
+                dataset_id = str(raw_requirement["dataset_id"]).strip()
+            except (
+                KeyError,
+                TypeError,
+                ValueError,
+            ) as error:
+                raise TypeError(
+                    f"Invalid procedure rerun requirement: {error}"
+                ) from error
+
+            if not dataset_id:
+                raise TypeError(
+                    "Procedure rerun requirement dataset identifiers cannot be blank."
+                )
+
+            key = (
+                procedure_id,
+                dataset_id,
+            )
+
+            if key in seen:
+                continue
+
+            seen.add(key)
+            cleaned.append(
+                {
+                    "procedure_id": procedure_id,
+                    "dataset_id": dataset_id,
+                }
+            )
 
         return cleaned
 
@@ -767,9 +848,40 @@ class WorkspaceService:
             raise WorkspaceServiceError(f"Invalid procedure parameters: {error}") from error
 
         try:
-            self._procedure_execution_stamps_from_raw(document.procedure_execution_stamps)
+            validated_stamps = self._procedure_execution_stamps_from_raw(
+                document.procedure_execution_stamps
+            )
         except TypeError as error:
             raise WorkspaceServiceError(f"Invalid procedure execution stamps: {error}") from error
+
+        try:
+            rerun_requirements = self._procedure_rerun_requirements_from_raw(
+                document.procedure_rerun_requirements
+            )
+        except TypeError as error:
+            raise WorkspaceServiceError(
+                f"Invalid procedure rerun requirements: {error}"
+            ) from error
+
+        successful_keys = {
+            (
+                str(stamp["procedure_id"]),
+                str(stamp["dataset_id"]),
+            )
+            for stamp in validated_stamps
+        }
+
+        for requirement in rerun_requirements:
+            key = (
+                requirement["procedure_id"],
+                requirement["dataset_id"],
+            )
+
+            if key not in successful_keys:
+                raise WorkspaceServiceError(
+                    "A procedure rerun requirement must reference "
+                    "a successful procedure execution."
+                )
 
         if not document.identity.created_at.strip():
             raise WorkspaceServiceError("Workspace creation date is required.")

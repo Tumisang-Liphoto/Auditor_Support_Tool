@@ -7,6 +7,9 @@ import pytest
 
 from auditor_support_tool.core.constants import APP_VERSION
 from auditor_support_tool.core.paths import ApplicationPaths
+from auditor_support_tool.core.procedure_execution_models import (
+    ProcedureExecutionStamp,
+)
 from auditor_support_tool.core.workbook_package_service import (
     WorkbookPackageService,
 )
@@ -1182,3 +1185,87 @@ def test_required_workspace_metadata_cannot_be_blank(
         match=message,
     ):
         workspace_service.load_document(workspace_path)
+
+
+def test_rerun_requirement_survives_workspace_save_and_reopen(
+    workspace_service: WorkspaceService,
+    tmp_path: Path,
+) -> None:
+    """A failed latest attempt must remain Needs Re-run after reopening."""
+
+    state = WorkspaceState()
+    state.start_workspace(
+        WorkspaceIdentity.create(
+            name="Execution State Persistence",
+        )
+    )
+
+    stamp = ProcedureExecutionStamp.create(
+        execution_id="successful-run-001",
+        procedure_id="GL001",
+        procedure_version="1.0",
+        dataset_id="dataset-1",
+        source_sha256="a" * 64,
+        mapping_fingerprint="b" * 64,
+        completed_at="2026-09-13T08:00:00+00:00",
+    )
+
+    state.record_procedure_execution(stamp)
+    state.mark_procedure_rerun_required(
+        "GL001",
+        "dataset-1",
+    )
+
+    saved_path = workspace_service.save_state(
+        state,
+        tmp_path / "rerun-state.astworkspace",
+    )
+
+    reopened = WorkspaceState()
+    workspace_service.load_into_state(
+        reopened,
+        saved_path,
+    )
+
+    assert (
+        reopened.get_procedure_execution_stamp(
+            "GL001",
+            "dataset-1",
+        )
+        == stamp
+    )
+    assert reopened.procedure_requires_rerun(
+        "GL001",
+        "dataset-1",
+    )
+    assert reopened.is_dirty is False
+
+
+def test_rerun_requirement_requires_successful_execution(
+    workspace_service: WorkspaceService,
+    tmp_path: Path,
+) -> None:
+    """Persisted rerun state must never exist without successful evidence."""
+
+    document = WorkspaceDocument.create(
+        identity=WorkspaceIdentity.create(
+            name="Invalid Rerun State",
+        ),
+        application_version=APP_VERSION,
+    )
+    document.procedure_rerun_requirements = [
+        {
+            "procedure_id": "GL001",
+            "dataset_id": "dataset-1",
+        }
+    ]
+
+    with pytest.raises(
+        WorkspaceServiceError,
+        match="must reference a successful procedure execution",
+    ):
+        workspace_service.save_document(
+            document,
+            tmp_path / "invalid-rerun.astworkspace",
+        )
+
