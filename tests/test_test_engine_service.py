@@ -13,6 +13,7 @@ from auditor_support_tool.core.audit_execution_models import (
     ExecutionCancellationToken,
 )
 from auditor_support_tool.core.audit_procedure_models import (
+    ProcedureExecutorIdentity,
     ProcedureResult,
     ProcedureRunContext,
 )
@@ -276,12 +277,20 @@ def test_engine_carries_audit_period_and_parameters(
     engine = create_engine(procedure)
     source = StubRecordSource()
 
+    executor = ProcedureExecutorIdentity.create(
+        full_name="Example Auditor",
+        job_title="Senior Auditor",
+        directorate="Financial Audit",
+        organization="Example Audit Office",
+    )
+
     outcome = engine.run(
         procedure_id="PROC001",
         source=source,
         source_path=create_source_file(tmp_path),
         audit_period_start="2026-04-01",
         audit_period_end="2027-03-31",
+        executor_identity=executor,
         parameters={
             "threshold": 1000,
         },
@@ -297,6 +306,7 @@ def test_engine_carries_audit_period_and_parameters(
         "threshold": 1000,
     }
     assert context.procedure_version == "2.0"
+    assert context.executor == executor
 
 
 def test_pre_cancelled_request_returns_cancelled(
@@ -420,6 +430,15 @@ def test_malformed_procedure_identifier_is_rejected() -> None:
         ("execution_id", "other-run"),
         ("procedure_id", "PROC002"),
         ("dataset_id", "other-dataset"),
+        (
+            "executor",
+            ProcedureExecutorIdentity.create(
+                full_name="Different Auditor",
+                job_title="Audit Manager",
+                directorate="Quality",
+                organization="Example Audit Office",
+            ),
+        ),
     ),
 )
 def test_engine_rejects_altered_authoritative_context(tmp_path, field, value):

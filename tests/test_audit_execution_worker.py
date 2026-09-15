@@ -6,6 +6,7 @@ import pytest
 from PySide6.QtCore import QCoreApplication, QEvent, QThread
 from shiboken6 import isValid
 
+from auditor_support_tool.core.audit_procedure_models import ProcedureExecutorIdentity
 from auditor_support_tool.core.prepared_audit_dataset import PreparedAuditDataset
 from auditor_support_tool.core.procedure_execution_status_service import ProcedureExecutionStatus
 from auditor_support_tool.core.procedure_registry import ProcedureRegistry
@@ -16,6 +17,7 @@ from auditor_support_tool.core.workspace_models import WorkspaceIdentity
 from auditor_support_tool.core.workspace_state import WorkspaceState
 from auditor_support_tool.gui.pages.audit_procedures_page import AuditProceduresPage
 from auditor_support_tool.gui.workers.audit_execution_worker import AuditExecutionWorker
+from auditor_support_tool.services.settings_service import SettingsService, UserProfile
 from tests.test_test_engine_service import StubProcedure, create_source_file
 
 
@@ -48,7 +50,21 @@ def execution_page(tmp_path, qtbot):
     procedure = GatedProcedure()
     registry = ProcedureRegistry()
     registry.register(procedure)
-    page = AuditProceduresPage(workspace_state=state, procedure_registry=registry)
+    settings = SettingsService(tmp_path / "settings.ini")
+    settings.save_user_profile(
+        UserProfile(
+            preferred_name="Example",
+            full_name="Example Auditor",
+            job_title="Senior Auditor",
+            organization="Example Audit Office",
+            directorate="Financial Audit",
+        )
+    )
+    page = AuditProceduresPage(
+        workspace_state=state,
+        procedure_registry=registry,
+        settings_service=settings,
+    )
     outcomes = []
     page.result_ready.connect(outcomes.append)
     yield page, state, procedure, path, dataset, outcomes
@@ -93,6 +109,75 @@ def test_engine_and_hashing_run_off_gui_thread_and_duplicate_click_is_ignored(
     assert page._procedures_container.isEnabled()
     assert state.get_procedure_execution_stamp("PROC001", dataset.dataset_id)
     qtbot.waitUntil(lambda: not AuditExecutionWorker._active)
+
+
+def test_executor_identity_is_snapshotted_on_gui_thread_before_worker_hashing(
+    execution_page, qtbot, monkeypatch
+):
+    """Profile edits after Run is accepted must not rewrite that run's attribution."""
+
+    page, state, procedure, path, dataset, outcomes = execution_page
+    capture_on_gui_thread = []
+    real_capture = page._execution_user_identity
+
+    def checked_capture():
+        capture_on_gui_thread.append(QThread.currentThread() == page.thread())
+        return real_capture()
+
+    monkeypatch.setattr(page, "_execution_user_identity", checked_capture)
+
+    hashing_started = Event()
+    release_hash = Event()
+    integrity = page._test_engine._run_context_service._source_integrity_service
+    real_hash = integrity.sha256_file
+
+    def gated_hash(source_path):
+        hashing_started.set()
+        assert release_hash.wait(5)
+        return real_hash(source_path)
+
+    monkeypatch.setattr(integrity, "sha256_file", gated_hash)
+
+    page._run_procedure("PROC001")
+    qtbot.waitUntil(hashing_started.is_set)
+
+    assert capture_on_gui_thread == [True]
+
+    page._settings_service.save_user_profile(
+        UserProfile(
+            preferred_name="Changed",
+            full_name="Changed Auditor",
+            job_title="Audit Manager",
+            organization="Example Audit Office",
+            directorate="Quality",
+        )
+    )
+
+    release_hash.set()
+    qtbot.waitUntil(procedure.entered.is_set)
+    procedure.release.set()
+    qtbot.waitUntil(lambda: bool(outcomes))
+
+    first = outcomes[-1]
+    assert first.status == EngineStatus.COMPLETED
+    assert first.result is not None
+    assert first.result.context.executor.full_name == "Example Auditor"
+    assert first.result.context.executor.job_title == "Senior Auditor"
+
+    first_stamp = state.get_procedure_execution_stamp("PROC001", dataset.dataset_id)
+    assert first_stamp is not None
+    assert first_stamp.executor.full_name == "Example Auditor"
+    assert first.execution is not None
+    assert first_stamp.completed_at == first.execution.finished_at
+
+    procedure.entered.clear()
+    with qtbot.waitSignal(page.result_ready):
+        page._run_procedure("PROC001")
+
+    second = outcomes[-1]
+    assert second.result is not None
+    assert second.result.context.executor.full_name == "Changed Auditor"
+    assert second.result.context.executor.job_title == "Audit Manager"
 
 
 @pytest.mark.parametrize("prior_success", [False, True])
@@ -313,6 +398,7 @@ def test_worker_preserves_multi_dataset_engine_semantics(tmp_path, qtbot):
         source_path=path,
         audit_period_start="",
         audit_period_end="",
+        executor_identity=ProcedureExecutorIdentity(),
         parameters={},
         dataset_sources=descriptors,
         status_service=ProcedureExecutionStatusService(),

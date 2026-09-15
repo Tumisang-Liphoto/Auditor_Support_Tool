@@ -164,6 +164,9 @@ def test_complete_formats_preserve_values_and_evidence(report_request, tmp_path,
         *(e.source_record_id for e in report_request.result.exception_records),
     ):
         assert value in text
+    normalized_text = " ".join(text.split())
+    assert "Executor identity" in normalized_text
+    assert "digital signature" in normalized_text
     assert report_request == before
     assert build_report_document(report_request).report.to_json() == model.report.to_json()
 
@@ -183,8 +186,22 @@ def test_execution_timestamp_is_presented_in_system_local_time(report_request) -
     )
 
     assert dict(execution.rows)["Execution date/time"] == expected
-    assert dict(document.evidence.rows)["Execution timestamp"] == expected
+    assert dict(document.evidence.rows)["Execution timestamp (stored ISO)"] == stored_timestamp
     assert document.report.created_at == stored_timestamp
+
+
+def test_execution_evidence_discloses_fingerprint_and_identity_boundaries(
+    report_request,
+) -> None:
+    """Attribution must not be presented as fingerprinted or authenticated authorship."""
+
+    document = build_report_document(report_request)
+    disclosure = " ".join(document.evidence.paragraphs)
+
+    assert "Executor identity" in disclosure
+    assert "are not covered by this fingerprint" in disclosure
+    assert "local User Profile" in disclosure
+    assert "not a digital signature or authenticated proof of authorship" in disclosure
 
 
 def test_executor_identity_is_presentation_context_not_structured_report_content(

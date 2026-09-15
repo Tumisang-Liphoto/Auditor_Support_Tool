@@ -37,8 +37,10 @@ class ProcedureExecutionStamp:
     def from_context(
         cls,
         context: ProcedureRunContext,
+        *,
+        completed_at: str,
     ) -> ProcedureExecutionStamp:
-        """Create a persistent stamp from a successful run context."""
+        """Create a persistent stamp from a successful run and its completion time."""
 
         return cls.create(
             execution_id=context.execution_id,
@@ -51,7 +53,7 @@ class ProcedureExecutionStamp:
             audit_period_end=context.audit_period_end,
             executor=context.executor,
             parameters=context.parameters,
-            completed_at=context.created_at,
+            completed_at=completed_at,
         )
 
     @classmethod
@@ -154,6 +156,8 @@ class ProcedureExecutionStamp:
             audit_period_end=str(raw.get("audit_period_end", "")),
             executor=executor,
             parameters=parameters,
+            # Older workspaces may contain the pre-hardening context-creation time here.
+            # Preserve the recorded value rather than inventing a historical completion time.
             completed_at=str(raw["completed_at"]),
         )
 

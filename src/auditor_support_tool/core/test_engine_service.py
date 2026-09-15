@@ -17,6 +17,7 @@ from auditor_support_tool.core.audit_execution_service import (
     AuditExecutionService,
 )
 from auditor_support_tool.core.audit_procedure_models import (
+    ProcedureExecutorIdentity,
     ProcedureResult,
     ProcedureRunContext,
 )
@@ -77,6 +78,7 @@ class TestEngineService:
         source_path: str | Path,
         audit_period_start: str = "",
         audit_period_end: str = "",
+        executor_identity: ProcedureExecutorIdentity | None = None,
         parameters: Mapping[str, object] | None = None,
         dataset_sources: Iterable[ProcedureDatasetSource] = (),
         cancellation_token: ExecutionCancellationToken | None = None,
@@ -179,6 +181,7 @@ class TestEngineService:
                 procedure_version=(definition.procedure_version),
                 audit_period_start=audit_period_start,
                 audit_period_end=audit_period_end,
+                executor_identity=executor_identity,
                 parameters=resolved_parameters,
             )
             # Keep immutable expected evidence that is never exposed to the procedure.

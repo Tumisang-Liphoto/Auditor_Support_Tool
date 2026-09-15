@@ -229,16 +229,19 @@ def build_report_document(request: ReportExportRequest) -> ReportDocument:
             ("Executor job title", executor.job_title or "Not recorded"),
             ("Executor directorate", executor.directorate or "Not recorded"),
             ("Executor organisation", executor.organization or "Not recorded"),
-            ("Execution timestamp", execution_time),
+            ("Execution timestamp (stored ISO)", report.created_at),
             ("Structured report fingerprint", report.report_fingerprint),
             ("Parameters", _cell(report.scope.parameters)),
         ),
         paragraphs=(
             "The structured report fingerprint covers the deterministic structured report "
-            "generated from the execution result. Procedure methodology metadata, workspace "
-            "labels and "
-            "resolved source cells are supplementary presentation context; source cells are linked "
-            "by dataset, source hash, record ID and source row.",
+            "generated from the execution result. Executor identity, procedure methodology "
+            "metadata, workspace labels, local-time display values and resolved source cells are "
+            "supplementary provenance or presentation context and are not covered by this "
+            "fingerprint. When recorded, executor identity is captured from the local User Profile "
+            "when the run is initiated; it is not a digital signature or authenticated proof of "
+            "authorship. "
+            "Source cells are linked by dataset, source hash, record ID and source row.",
         ),
     )
     document = ReportDocument(

@@ -204,11 +204,12 @@ def test_run_context_service_uses_actual_source_hash_and_mapping(
         organization="Example Audit Office",
     )
 
-    context = AuditRunContextService(executor_identity=executor).build(
+    context = AuditRunContextService().build(
         request=request,
         record_source=prepared_dataset,
         source_path=source_path,
         procedure_version="1.0.0",
+        executor_identity=executor,
         parameters={"weekend_days": [5, 6]},
     )
 

@@ -21,9 +21,6 @@ from PySide6.QtWidgets import (
 from auditor_support_tool.core.audit_procedure_models import (
     ProcedureExecutorIdentity,
 )
-from auditor_support_tool.core.audit_run_context_service import (
-    AuditRunContextService,
-)
 from auditor_support_tool.core.prepared_audit_dataset import (
     PreparedAuditDataset,
 )
@@ -115,9 +112,6 @@ class AuditProceduresPage(QWidget):
         self._test_engine = TestEngineService(
             registry=procedure_registry,
             readiness_service=self._readiness_service,
-            run_context_service=AuditRunContextService(
-                executor_identity_provider=self._execution_user_identity,
-            ),
         )
         self._execution_status_service = ProcedureExecutionStatusService()
 
@@ -596,6 +590,8 @@ class AuditProceduresPage(QWidget):
         audit_period_start = str(getattr(identity, "audit_period_start", "") or "")
         audit_period_end = str(getattr(identity, "audit_period_end", "") or "")
 
+        executor_identity = self._execution_user_identity()
+
         self._set_page_status(
             "Running audit procedure...",
             "neutral",
@@ -608,6 +604,7 @@ class AuditProceduresPage(QWidget):
             source_path=source_path,
             audit_period_start=audit_period_start,
             audit_period_end=audit_period_end,
+            executor_identity=executor_identity,
             parameters=effective_parameters,
             dataset_sources=tuple(
                 ProcedureDatasetSource.create(
@@ -690,9 +687,13 @@ class AuditProceduresPage(QWidget):
             return
 
         if outcome.status == TestEngineStatus.COMPLETED and outcome.result is not None:
-            self._workspace_state.record_procedure_execution(
-                ProcedureExecutionStamp.from_context(outcome.result.context)
-            )
+            if outcome.execution is not None:
+                self._workspace_state.record_procedure_execution(
+                    ProcedureExecutionStamp.from_context(
+                        outcome.result.context,
+                        completed_at=outcome.execution.finished_at,
+                    )
+                )
         elif outcome.status in {
             TestEngineStatus.BLOCKED,
             TestEngineStatus.CANCELLED,

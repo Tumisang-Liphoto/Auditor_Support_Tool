@@ -6,6 +6,7 @@ from pathlib import Path
 from PySide6.QtCore import QCoreApplication, QThread, Slot
 
 from auditor_support_tool.core.audit_execution_models import ExecutionCancellationToken
+from auditor_support_tool.core.audit_procedure_models import ProcedureExecutorIdentity
 from auditor_support_tool.core.audit_record_source import AuditRecordSource
 from auditor_support_tool.core.procedure_dataset_resolution import ProcedureDatasetSource
 from auditor_support_tool.core.procedure_execution_status_service import (
@@ -29,18 +30,28 @@ class AuditExecutionWorker(QThread):
         source_path: Path,
         audit_period_start: str,
         audit_period_end: str,
+        executor_identity: ProcedureExecutorIdentity,
         parameters: dict[str, object],
         dataset_sources: tuple[ProcedureDatasetSource, ...],
         status_service: ProcedureExecutionStatusService,
     ) -> None:
         super().__init__(QCoreApplication.instance())
         self._engine = engine
+        if not isinstance(executor_identity, ProcedureExecutorIdentity):
+            raise TypeError("Executor identity must be a ProcedureExecutorIdentity.")
+        executor_snapshot = ProcedureExecutorIdentity.create(
+            full_name=executor_identity.full_name,
+            job_title=executor_identity.job_title,
+            directorate=executor_identity.directorate,
+            organization=executor_identity.organization,
+        )
         self._inputs = dict(
             procedure_id=procedure_id,
             source=source,
             source_path=source_path,
             audit_period_start=audit_period_start,
             audit_period_end=audit_period_end,
+            executor_identity=executor_snapshot,
             parameters=deepcopy(parameters),
             dataset_sources=dataset_sources,
         )

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from pathlib import Path
 
 from auditor_support_tool.core.audit_execution_models import (
@@ -30,24 +30,8 @@ class AuditRunContextService:
     def __init__(
         self,
         source_integrity_service: SourceIntegrityService | None = None,
-        executor_identity: ProcedureExecutorIdentity | None = None,
-        executor_identity_provider: Callable[[], ProcedureExecutorIdentity] | None = None,
     ) -> None:
         self._source_integrity_service = source_integrity_service or SourceIntegrityService()
-
-        if executor_identity is not None and not isinstance(
-            executor_identity, ProcedureExecutorIdentity
-        ):
-            raise TypeError("Executor identity must be a ProcedureExecutorIdentity.")
-
-        if executor_identity is not None and executor_identity_provider is not None:
-            raise ValueError(
-                "Provide either a fixed executor identity or an executor identity "
-                "provider, not both."
-            )
-
-        self._executor_identity = executor_identity or ProcedureExecutorIdentity()
-        self._executor_identity_provider = executor_identity_provider
 
     def build(
         self,
@@ -58,6 +42,7 @@ class AuditRunContextService:
         procedure_version: str,
         audit_period_start: str = "",
         audit_period_end: str = "",
+        executor_identity: ProcedureExecutorIdentity | None = None,
         parameters: Mapping[str, object] | None = None,
     ) -> ProcedureRunContext:
         """Return the reproducibility context for one procedure run."""
@@ -90,15 +75,10 @@ class AuditRunContextService:
                 "before running audit procedures."
             )
 
-        executor_identity = self._executor_identity
-
-        if self._executor_identity_provider is not None:
-            executor_identity = self._executor_identity_provider()
-
-            if not isinstance(executor_identity, ProcedureExecutorIdentity):
-                raise TypeError(
-                    "Executor identity provider must return a ProcedureExecutorIdentity."
-                )
+        if executor_identity is not None and not isinstance(
+            executor_identity, ProcedureExecutorIdentity
+        ):
+            raise TypeError("Executor identity must be a ProcedureExecutorIdentity.")
 
         return ProcedureRunContext.create(
             request=request,

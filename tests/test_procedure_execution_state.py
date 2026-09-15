@@ -43,7 +43,34 @@ def create_stamp(
         ),
     )
 
-    return ProcedureExecutionStamp.from_context(context)
+    return ProcedureExecutionStamp.from_context(
+        context,
+        completed_at="2026-09-15T08:30:00+00:00",
+    )
+
+
+def test_execution_stamp_uses_actual_completion_time_not_context_creation_time() -> None:
+    """Persisted completion time must describe the finished execution, not context creation."""
+
+    request = AuditExecutionRequest.create(
+        procedure_id="GL003",
+        dataset_id="dataset-1",
+    )
+    context = ProcedureRunContext.create(
+        request=request,
+        procedure_version="1.0",
+        source_sha256="a" * 64,
+        mapping_fingerprint="b" * 64,
+    )
+    completed_at = "2026-09-15T08:45:30+00:00"
+
+    stamp = ProcedureExecutionStamp.from_context(
+        context,
+        completed_at=completed_at,
+    )
+
+    assert stamp.completed_at == completed_at
+    assert stamp.completed_at != context.created_at
 
 
 def test_execution_stamp_preserves_executor_and_loads_legacy_stamps() -> None:
@@ -63,9 +90,11 @@ def test_execution_stamp_preserves_executor_and_loads_legacy_stamps() -> None:
 
     legacy_payload = dict(payload)
     legacy_payload.pop("executor")
+    legacy_payload["completed_at"] = "2026-09-15T08:00:00+00:00"
     legacy = ProcedureExecutionStamp.from_dict(legacy_payload)
 
     assert legacy.executor.is_recorded is False
+    assert legacy.completed_at == "2026-09-15T08:00:00+00:00"
 
 
 def test_execution_stamps_are_dataset_specific() -> None:
