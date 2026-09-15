@@ -1,6 +1,7 @@
 """One complete presentation of authoritative report evidence for every export format."""
 
 from dataclasses import dataclass
+from datetime import datetime
 from itertools import chain
 
 from auditor_support_tool.core.audit_procedure_models import ProcedureResult
@@ -51,6 +52,25 @@ class ReportDocument:
             )
 
 
+def _system_local_timestamp(value: str) -> str:
+    """Present an aware ISO timestamp using the system timezone in audit-report format."""
+
+    cleaned = value.strip()
+    if not cleaned:
+        return "Not recorded"
+
+    try:
+        timestamp = datetime.fromisoformat(cleaned.replace("Z", "+00:00"))
+    except ValueError:
+        return cleaned
+
+    if timestamp.tzinfo is None:
+        return cleaned
+
+    local_timestamp = timestamp.astimezone()
+    return f"{local_timestamp:%d/%m/%y %H:%M}"
+
+
 def _pairs(value: object, prefix: str = "") -> list[tuple[str, Cell]]:
     """Display nested deterministic metrics/parameters without Python object reprs."""
     if isinstance(value, (dict, list, tuple)) and not value:
@@ -73,6 +93,7 @@ def _pairs(value: object, prefix: str = "") -> list[tuple[str, Cell]]:
 def build_report_document(request: ReportExportRequest) -> ReportDocument:
     """Use all result exceptions; refuse incomplete or mismatched source evidence."""
     result = request.result
+    executor = result.context.executor
     report = AuditProcedureReportBuilder().build(definition=request.definition, result=result)
     if len(report.exceptions) != report.summary.exception_count:
         raise ValueError("The report exception count does not match its evidence.")
@@ -113,6 +134,7 @@ def build_report_document(request: ReportExportRequest) -> ReportDocument:
         )
     presentation = present_result(procedure_id=report.identity.procedure_id, result=result)
     summary = report.summary
+    execution_time = _system_local_timestamp(report.created_at)
     period = " to ".join(
         filter(None, (report.scope.audit_period_start, report.scope.audit_period_end))
     )
@@ -124,10 +146,19 @@ def build_report_document(request: ReportExportRequest) -> ReportDocument:
                 ("Audit / workspace", request.workspace_name or "Not recorded"),
                 ("Auditee", request.auditee_name or "Not recorded"),
                 ("Audit period", period or "Not specified"),
-                ("Executed", report.created_at),
                 ("Dataset", request.dataset_name or report.scope.dataset_id),
                 ("Worksheet", request.worksheet_name or "Not recorded"),
                 ("Procedure version", report.identity.procedure_version),
+            ),
+        ),
+        ReportSection(
+            "Execution details",
+            rows=(
+                ("Executed by", executor.full_name or "Not recorded"),
+                ("Job title", executor.job_title or "Not recorded"),
+                ("Directorate", executor.directorate or "Not recorded"),
+                ("Organisation", executor.organization or "Not recorded"),
+                ("Execution date/time", execution_time),
             ),
         ),
     ]
@@ -194,7 +225,11 @@ def build_report_document(request: ReportExportRequest) -> ReportDocument:
             ("Mapping fingerprint", report.mapping_fingerprint),
             ("Audit period start", report.scope.audit_period_start),
             ("Audit period end", report.scope.audit_period_end),
-            ("Execution timestamp", report.created_at),
+            ("Executed by", executor.full_name or "Not recorded"),
+            ("Executor job title", executor.job_title or "Not recorded"),
+            ("Executor directorate", executor.directorate or "Not recorded"),
+            ("Executor organisation", executor.organization or "Not recorded"),
+            ("Execution timestamp", execution_time),
             ("Structured report fingerprint", report.report_fingerprint),
             ("Parameters", _cell(report.scope.parameters)),
         ),

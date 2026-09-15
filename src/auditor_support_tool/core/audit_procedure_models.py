@@ -19,6 +19,40 @@ DEFAULT_AUDIT_USE_STATEMENT = (
 
 
 @dataclass(frozen=True, slots=True)
+class ProcedureExecutorIdentity:
+    """User-profile snapshot identifying who initiated one procedure run."""
+
+    full_name: str = ""
+    job_title: str = ""
+    directorate: str = ""
+    organization: str = ""
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        full_name: str = "",
+        job_title: str = "",
+        directorate: str = "",
+        organization: str = "",
+    ) -> ProcedureExecutorIdentity:
+        """Create a normalised immutable execution-user snapshot."""
+
+        return cls(
+            full_name=full_name.strip(),
+            job_title=job_title.strip(),
+            directorate=directorate.strip(),
+            organization=organization.strip(),
+        )
+
+    @property
+    def is_recorded(self) -> bool:
+        """Return whether an executor name was captured for this run."""
+
+        return bool(self.full_name)
+
+
+@dataclass(frozen=True, slots=True)
 class ProcedureRunContext:
     """Reproducibility context attached to one audit-procedure run."""
 
@@ -33,6 +67,7 @@ class ProcedureRunContext:
     audit_period_start: str = ""
     audit_period_end: str = ""
 
+    executor: ProcedureExecutorIdentity = field(default_factory=ProcedureExecutorIdentity)
     parameters: dict[str, object] = field(default_factory=dict)
     created_at: str = field(default_factory=utc_now_iso)
 
@@ -46,6 +81,7 @@ class ProcedureRunContext:
         mapping_fingerprint: str,
         audit_period_start: str = "",
         audit_period_end: str = "",
+        executor: ProcedureExecutorIdentity | None = None,
         parameters: Mapping[str, object] | None = None,
     ) -> ProcedureRunContext:
         """Create and validate the reproducibility context for a run."""
@@ -69,6 +105,18 @@ class ProcedureRunContext:
             audit_period_end,
         )
 
+        if executor is None:
+            cleaned_executor = ProcedureExecutorIdentity()
+        elif not isinstance(executor, ProcedureExecutorIdentity):
+            raise TypeError("Procedure executor identity must be a ProcedureExecutorIdentity.")
+        else:
+            cleaned_executor = ProcedureExecutorIdentity.create(
+                full_name=executor.full_name,
+                job_title=executor.job_title,
+                directorate=executor.directorate,
+                organization=executor.organization,
+            )
+
         return cls(
             execution_id=request.execution_id,
             procedure_id=request.procedure_id,
@@ -78,6 +126,7 @@ class ProcedureRunContext:
             mapping_fingerprint=cleaned_mapping_hash,
             audit_period_start=cleaned_period_start,
             audit_period_end=cleaned_period_end,
+            executor=cleaned_executor,
             parameters=dict(parameters or {}),
         )
 

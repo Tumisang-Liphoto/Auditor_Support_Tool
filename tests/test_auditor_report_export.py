@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from dataclasses import replace
+from datetime import datetime
 from decimal import Decimal
 from zipfile import ZipFile
 
@@ -11,6 +12,7 @@ from openpyxl import load_workbook
 from PySide6.QtPdf import QPdfDocument
 from PySide6.QtWidgets import QRadioButton
 
+from auditor_support_tool.core.audit_procedure_models import ProcedureExecutorIdentity
 from auditor_support_tool.gui.dialogs.report_export_dialog import ReportExportDialog
 from auditor_support_tool.presentation.exception_source_records import ExceptionSourceRecords
 from auditor_support_tool.presentation.report_export_document import (
@@ -24,6 +26,18 @@ from tests.test_audit_procedure_report import _definition, _result
 @pytest.fixture
 def report_request():
     result = _result()
+    result = replace(
+        result,
+        context=replace(
+            result.context,
+            executor=ProcedureExecutorIdentity.create(
+                full_name="Example Auditor",
+                job_title="Senior Auditor",
+                directorate="Financial Audit",
+                organization="Example Audit Office",
+            ),
+        ),
+    )
     sources = ExceptionSourceRecords(
         ("Original Ref", "Value", "Narrative"),
         {
@@ -142,11 +156,67 @@ def test_complete_formats_preserve_values_and_evidence(report_request, tmp_path,
         "ISA-supported methodology",
         "A record met the configured deterministic selection rule.",
         "A flagged record is not by itself an audit finding.",
+        "Execution details",
+        "Example Auditor",
+        "Senior Auditor",
+        "Financial Audit",
+        "Example Audit Office",
         *(e.source_record_id for e in report_request.result.exception_records),
     ):
         assert value in text
     assert report_request == before
     assert build_report_document(report_request).report.to_json() == model.report.to_json()
+
+
+def test_execution_timestamp_is_presented_in_system_local_time(report_request) -> None:
+    """Visible execution time should use the operating system's configured local timezone."""
+
+    stored_timestamp = "2026-09-15T07:00:00+00:00"
+    context = replace(report_request.result.context, created_at=stored_timestamp)
+    result = replace(report_request.result, context=context)
+    document = build_report_document(replace(report_request, result=result))
+
+    local_timestamp = datetime.fromisoformat(stored_timestamp).astimezone()
+    expected = f"{local_timestamp:%d/%m/%y %H:%M}"
+    execution = next(
+        section for section in document.sections if section.title == "Execution details"
+    )
+
+    assert dict(execution.rows)["Execution date/time"] == expected
+    assert dict(document.evidence.rows)["Execution timestamp"] == expected
+    assert document.report.created_at == stored_timestamp
+
+
+def test_executor_identity_is_presentation_context_not_structured_report_content(
+    report_request,
+) -> None:
+    """Execution attribution should not change deterministic structured report content."""
+
+    first = build_report_document(report_request)
+    other_context = replace(
+        report_request.result.context,
+        executor=ProcedureExecutorIdentity.create(
+            full_name="Another Auditor",
+            job_title="Audit Manager",
+            directorate="Quality",
+            organization="Example Audit Office",
+        ),
+    )
+    other_result = replace(report_request.result, context=other_context)
+    second = build_report_document(replace(report_request, result=other_result))
+
+    assert first.report.to_json() == second.report.to_json()
+    assert first.report.report_fingerprint == second.report.report_fingerprint
+
+    first_execution = next(
+        section for section in first.sections if section.title == "Execution details"
+    )
+    second_execution = next(
+        section for section in second.sections if section.title == "Execution details"
+    )
+
+    assert dict(first_execution.rows)["Executed by"] == "Example Auditor"
+    assert dict(second_execution.rows)["Executed by"] == "Another Auditor"
 
 
 @pytest.mark.parametrize("fault", ("missing", "hash", "dataset", "row", "invalid", "width"))

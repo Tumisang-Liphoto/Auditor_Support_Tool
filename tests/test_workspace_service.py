@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from auditor_support_tool.core.audit_procedure_models import ProcedureExecutorIdentity
 from auditor_support_tool.core.constants import APP_VERSION
 from auditor_support_tool.core.paths import ApplicationPaths
 from auditor_support_tool.core.procedure_execution_models import (
@@ -428,6 +429,7 @@ def test_missing_workspace_file_is_rejected(
     ):
         workspace_service.load_document(tmp_path / "missing.astworkspace")
 
+
 def _create_saved_source_workspace(
     workspace_service: WorkspaceService,
     tmp_path: Path,
@@ -446,9 +448,7 @@ def _create_saved_source_workspace(
             name="Source Workspace",
         )
     )
-    state.set_workbook_package(
-        WorkbookPackageService().build_package(source_path)
-    )
+    state.set_workbook_package(WorkbookPackageService().build_package(source_path))
 
     return workspace_service.save_state(
         state,
@@ -708,17 +708,13 @@ def test_missing_managed_source_blocks_workspace_restore(
         tmp_path,
     )
 
-    document = workspace_service.load_document(
-        workspace_path
-    )
+    document = workspace_service.load_document(workspace_path)
 
     assert document.source is not None
 
-    managed_source = (
-        workspace_service._resolve_workspace_source_path(
-            document.source,
-            workspace_path,
-        )
+    managed_source = workspace_service._resolve_workspace_source_path(
+        document.source,
+        workspace_path,
     )
     managed_source.unlink()
 
@@ -900,6 +896,7 @@ def test_invalid_saved_audit_history_blocks_workspace_restore(
         )
 
     assert not state.has_workspace
+
 
 def test_invalid_procedure_execution_stamp_is_rejected(
     workspace_service: WorkspaceService,
@@ -1207,6 +1204,12 @@ def test_rerun_requirement_survives_workspace_save_and_reopen(
         dataset_id="dataset-1",
         source_sha256="a" * 64,
         mapping_fingerprint="b" * 64,
+        executor=ProcedureExecutorIdentity.create(
+            full_name="Example Auditor",
+            job_title="Senior Auditor",
+            directorate="Financial Audit",
+            organization="Example Audit Office",
+        ),
         completed_at="2026-09-13T08:00:00+00:00",
     )
 
@@ -1268,4 +1271,3 @@ def test_rerun_requirement_requires_successful_execution(
             document,
             tmp_path / "invalid-rerun.astworkspace",
         )
-

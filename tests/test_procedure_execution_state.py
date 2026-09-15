@@ -4,6 +4,7 @@ from auditor_support_tool.core.audit_execution_models import (
     AuditExecutionRequest,
 )
 from auditor_support_tool.core.audit_procedure_models import (
+    ProcedureExecutorIdentity,
     ProcedureRunContext,
 )
 from auditor_support_tool.core.procedure_execution_models import (
@@ -34,9 +35,37 @@ def create_stamp(
         procedure_version="1.0",
         source_sha256="a" * 64,
         mapping_fingerprint="b" * 64,
+        executor=ProcedureExecutorIdentity.create(
+            full_name="Example Auditor",
+            job_title="Senior Auditor",
+            directorate="Financial Audit",
+            organization="Example Audit Office",
+        ),
     )
 
     return ProcedureExecutionStamp.from_context(context)
+
+
+def test_execution_stamp_preserves_executor_and_loads_legacy_stamps() -> None:
+    """Executor identity should persist while older stamps remain readable."""
+
+    stamp = create_stamp(
+        procedure_id="GL003",
+        dataset_id="dataset-1",
+    )
+    payload = stamp.to_dict()
+
+    restored = ProcedureExecutionStamp.from_dict(payload)
+
+    assert restored == stamp
+    assert restored.executor.full_name == "Example Auditor"
+    assert restored.executor.job_title == "Senior Auditor"
+
+    legacy_payload = dict(payload)
+    legacy_payload.pop("executor")
+    legacy = ProcedureExecutionStamp.from_dict(legacy_payload)
+
+    assert legacy.executor.is_recorded is False
 
 
 def test_execution_stamps_are_dataset_specific() -> None:
@@ -205,4 +234,3 @@ def test_successful_rerun_clears_rerun_requirement() -> None:
         "GL001",
         "dataset-1",
     )
-

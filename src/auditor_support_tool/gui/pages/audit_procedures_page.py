@@ -18,6 +18,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from auditor_support_tool.core.audit_procedure_models import (
+    ProcedureExecutorIdentity,
+)
+from auditor_support_tool.core.audit_run_context_service import (
+    AuditRunContextService,
+)
 from auditor_support_tool.core.prepared_audit_dataset import (
     PreparedAuditDataset,
 )
@@ -72,6 +78,7 @@ from auditor_support_tool.gui.dialogs.procedure_parameters_dialog import (
     ProcedureParametersDialog,
 )
 from auditor_support_tool.gui.workers.audit_execution_worker import AuditExecutionWorker
+from auditor_support_tool.services.settings_service import SettingsService
 
 
 class AuditProceduresPage(QWidget):
@@ -92,18 +99,26 @@ class AuditProceduresPage(QWidget):
         *,
         workspace_state: WorkspaceState,
         procedure_registry: ProcedureRegistry,
+        settings_service: SettingsService | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
 
         self._workspace_state = workspace_state
         self._procedure_registry = procedure_registry
+        self._settings_service = settings_service
 
         self._readiness_service = ProcedureReadinessService()
         self._availability_service = ProcedureAvailabilityService(
             readiness_service=self._readiness_service
         )
-        self._test_engine = TestEngineService(registry=procedure_registry)
+        self._test_engine = TestEngineService(
+            registry=procedure_registry,
+            readiness_service=self._readiness_service,
+            run_context_service=AuditRunContextService(
+                executor_identity_provider=self._execution_user_identity,
+            ),
+        )
         self._execution_status_service = ProcedureExecutionStatusService()
 
         self._worker: AuditExecutionWorker | None = None
@@ -614,6 +629,21 @@ class AuditProceduresPage(QWidget):
         self._cancel_button.setEnabled(True)
         self._cancel_button.setVisible(True)
         worker.start()
+
+    def _execution_user_identity(self) -> ProcedureExecutorIdentity:
+        """Snapshot the current local profile for one procedure execution."""
+
+        if self._settings_service is None:
+            return ProcedureExecutorIdentity()
+
+        profile = self._settings_service.get_user_profile()
+
+        return ProcedureExecutorIdentity.create(
+            full_name=profile.full_name,
+            job_title=profile.job_title,
+            directorate=profile.directorate,
+            organization=profile.organization,
+        )
 
     @staticmethod
     def _execution_source(dataset: WorksheetDataset) -> PreparedAuditDataset:

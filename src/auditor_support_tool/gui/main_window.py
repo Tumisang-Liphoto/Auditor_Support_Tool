@@ -905,6 +905,7 @@ class MainWindow(QMainWindow):
         audit_procedures_page = AuditProceduresPage(
             workspace_state=self._workspace_state,
             procedure_registry=self._procedure_registry,
+            settings_service=self._settings_service,
         )
         audit_procedures_page.back_requested.connect(self.show_route)
         audit_procedures_page.result_ready.connect(self._handle_procedure_outcome)

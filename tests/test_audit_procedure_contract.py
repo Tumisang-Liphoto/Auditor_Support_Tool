@@ -14,6 +14,7 @@ from auditor_support_tool.core.audit_execution_models import (
 from auditor_support_tool.core.audit_procedure_models import (
     DEFAULT_AUDIT_USE_STATEMENT,
     ProcedureExceptionRecord,
+    ProcedureExecutorIdentity,
     ProcedureResult,
     ProcedureRunContext,
 )
@@ -135,6 +136,35 @@ def test_run_context_copies_execution_identity() -> None:
     ]
 
 
+def test_run_context_captures_executor_snapshot() -> None:
+    """Run context should retain a normalised immutable executor identity."""
+
+    request = AuditExecutionRequest.create(
+        procedure_id="GL003",
+        dataset_id="dataset-123",
+    )
+    executor = ProcedureExecutorIdentity.create(
+        full_name="  Example Auditor  ",
+        job_title=" Senior Auditor ",
+        directorate=" Financial Audit ",
+        organization=" Example Audit Office ",
+    )
+
+    context = ProcedureRunContext.create(
+        request=request,
+        procedure_version="1.0.0",
+        source_sha256="a" * 64,
+        mapping_fingerprint="b" * 64,
+        executor=executor,
+    )
+
+    assert context.executor.full_name == "Example Auditor"
+    assert context.executor.job_title == "Senior Auditor"
+    assert context.executor.directorate == "Financial Audit"
+    assert context.executor.organization == "Example Audit Office"
+    assert context.executor.is_recorded is True
+
+
 def test_run_context_requires_valid_hashes() -> None:
     """Source and mapping fingerprints must be proper SHA-256 digests."""
 
@@ -167,7 +197,14 @@ def test_run_context_service_uses_actual_source_hash_and_mapping(
         dataset_id=prepared_dataset.dataset_id,
     )
 
-    context = AuditRunContextService().build(
+    executor = ProcedureExecutorIdentity.create(
+        full_name="Example Auditor",
+        job_title="Senior Auditor",
+        directorate="Financial Audit",
+        organization="Example Audit Office",
+    )
+
+    context = AuditRunContextService(executor_identity=executor).build(
         request=request,
         record_source=prepared_dataset,
         source_path=source_path,
@@ -177,6 +214,7 @@ def test_run_context_service_uses_actual_source_hash_and_mapping(
 
     assert context.source_sha256 == (SourceIntegrityService().sha256_file(source_path))
     assert context.mapping_fingerprint == (prepared_dataset.mapping_fingerprint)
+    assert context.executor == executor
 
 
 def test_run_context_rejects_wrong_dataset() -> None:

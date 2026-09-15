@@ -12,6 +12,7 @@ from auditor_support_tool.core.procedure_execution_status_service import (
 )
 from auditor_support_tool.core.workspace_state import WorkspaceState
 from auditor_support_tool.gui.pages.audit_procedures_page import AuditProceduresPage
+from auditor_support_tool.services.settings_service import SettingsService, UserProfile
 
 
 class StubRegistry:
@@ -158,3 +159,31 @@ def test_methodology_summary_is_empty_for_legacy_definition() -> None:
     )
 
     assert AuditProceduresPage._methodology_summary(definition) == ""
+
+
+def test_execution_identity_comes_from_current_user_profile(qtbot, tmp_path) -> None:
+    """A procedure run should snapshot the existing local User Profile fields."""
+
+    settings = SettingsService(tmp_path / "settings.ini")
+    settings.save_user_profile(
+        UserProfile(
+            preferred_name="Example",
+            full_name="Example Auditor",
+            job_title="Senior Auditor",
+            organization="Example Audit Office",
+            directorate="Financial Audit",
+        )
+    )
+    widget = AuditProceduresPage(
+        workspace_state=WorkspaceState(),
+        procedure_registry=StubRegistry(),
+        settings_service=settings,
+    )
+    qtbot.addWidget(widget)
+
+    executor = widget._execution_user_identity()
+
+    assert executor.full_name == "Example Auditor"
+    assert executor.job_title == "Senior Auditor"
+    assert executor.directorate == "Financial Audit"
+    assert executor.organization == "Example Audit Office"
