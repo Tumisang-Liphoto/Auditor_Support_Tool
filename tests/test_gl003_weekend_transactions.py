@@ -172,6 +172,15 @@ def test_gl003_uses_authoritative_catalogue_definition() -> None:
     assert procedure.definition.procedure_id == "GL003"
     assert procedure.definition.display_id == "GL-003"
     assert procedure.definition.required_fields == ("transaction_date",)
+    assert procedure.definition.has_methodology_metadata is True
+    assert procedure.definition.isa_basis_type == "ISA-supported methodology"
+    assert procedure.definition.isa_references == (
+        "ISA 240, paragraph 33(a)",
+        "ISA 240, A42-A45",
+        "ISA 315 (Revised 2019), A27-A31",
+    )
+    assert "configured weekend days" in procedure.definition.audit_objective
+    assert "ISAs do not prescribe weekend testing" in procedure.definition.audit_rationale
 
 
 def test_gl003_flags_saturday_and_sunday(

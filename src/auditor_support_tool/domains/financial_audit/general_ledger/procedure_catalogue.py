@@ -114,6 +114,12 @@ def _entry(
     readiness_band: str,
     *,
     description: str = "",
+    audit_objective: str = "",
+    isa_references: tuple[str, ...] = (),
+    isa_basis_type: str = "",
+    audit_rationale: str = "",
+    result_meaning: str = "",
+    limitations: tuple[str, ...] = (),
     required_fields: tuple[str, ...] = (),
     helpful_fields: tuple[str, ...] = (),
     dataset_requirements: tuple[ProcedureDatasetRequirement, ...] = (),
@@ -128,6 +134,12 @@ def _entry(
             name=name,
             category="General Ledger",
             description=description,
+            audit_objective=audit_objective,
+            isa_references=isa_references,
+            isa_basis_type=isa_basis_type,
+            audit_rationale=audit_rationale,
+            result_meaning=result_meaning,
+            limitations=limitations,
             required_fields=required_fields,
             helpful_fields=helpful_fields,
             dataset_requirements=dataset_requirements,
@@ -188,6 +200,33 @@ GENERAL_LEDGER_PROCEDURES: tuple[
         description=(
             "Identifies transactions dated on Saturdays or Sundays for further audit scrutiny."
         ),
+        audit_objective=(
+            "Identify transactions dated on configured weekend days for further auditor "
+            "evaluation as potentially unusual timing."
+        ),
+        isa_references=(
+            "ISA 240, paragraph 33(a)",
+            "ISA 240, A42-A45",
+            "ISA 315 (Revised 2019), A27-A31",
+        ),
+        isa_basis_type="ISA-supported methodology",
+        audit_rationale=(
+            "ISA 240 requires journal-entry testing in response to management override risk "
+            "and consideration of journal entries and other adjustments throughout the period. "
+            "ISA 315 supports analytical procedures that identify unusual transactions and events. "
+            "Weekend timing is an Auditor Support Tool selection characteristic; the ISAs do not "
+            "prescribe weekend testing as a standalone procedure."
+        ),
+        result_meaning=(
+            "A flagged record has a valid mapped transaction date that falls on one of the "
+            "configured weekend days within the applicable audit period."
+        ),
+        limitations=(
+            "Weekend timing is a methodology-derived risk indicator and does not by itself "
+            "establish fraud, error, or misstatement.",
+            "Legitimate weekend processing may occur, and the mapped transaction date may differ "
+            "from the authorization, approval, posting, or economic-event date.",
+        ),
         required_fields=("transaction_date",),
         helpful_fields=(
             "journal_number",
@@ -216,6 +255,31 @@ GENERAL_LEDGER_PROCEDURES: tuple[
             "Identifies transactions entered and approved by the same "
             "user for further audit scrutiny."
         ),
+        audit_objective=(
+            "Identify records where the same normalized user appears in both the entry and "
+            "approval roles for auditor evaluation of segregation-of-duties risk."
+        ),
+        isa_references=(
+            "ISA 315 (Revised 2019), A153",
+            "ISA 240, A33",
+        ),
+        isa_basis_type="ISA-supported methodology",
+        audit_rationale=(
+            "ISA 315 identifies segregation of duties as a control activity, while ISA 240 notes "
+            "that a lack of segregation of duties may be relevant to fraud risk. Comparing the "
+            "mapped entry and approval users is the procedure's deterministic implementation of "
+            "that control-risk concept."
+        ),
+        result_meaning=(
+            "A flagged record has nonblank valid entry and approval user values that match after "
+            "the procedure's documented case and surrounding-space normalization."
+        ),
+        limitations=(
+            "A same-user match is a segregation-of-duties risk indicator and does not by itself "
+            "establish a control failure or fraud.",
+            "System or service accounts and possible compensating controls are not automatically "
+            "excluded and require auditor evaluation.",
+        ),
         required_fields=(
             "entry_user",
             "approval_user",
@@ -242,6 +306,36 @@ GENERAL_LEDGER_PROCEDURES: tuple[
         "Priority 1 - Nearly Ready",
         description=(
             "Identifies General Ledger account codes that are not present in the Chart of Accounts."
+        ),
+        audit_objective=(
+            "Identify populated General Ledger account codes that are absent from the supplied "
+            "Chart of Accounts for auditor evaluation of account integrity and classification risk."
+        ),
+        isa_references=(
+            "ISA 240, A44",
+            "ISA 500, paragraph 9 and A60-A62",
+        ),
+        isa_basis_type="ISA-supported methodology",
+        audit_rationale=(
+            "ISA 240 identifies unusual or seldom-used accounts and journal entries without "
+            "account numbers as characteristics that may be relevant in journal-entry testing. "
+            "ISA 500 requires information produced by the entity and used as audit evidence to be "
+            "evaluated for reliability, including accuracy and completeness. GL011 specifically "
+            "tests "
+            "populated ledger account identifiers against the supplied Chart of Accounts."
+        ),
+        result_meaning=(
+            "A flagged record contains a nonblank General Ledger account identifier that, after "
+            "the procedure's documented normalization, is absent from the supplied Chart of "
+            "Accounts."
+        ),
+        limitations=(
+            "The authority and completeness of the supplied Chart of Accounts require auditor "
+            "confirmation.",
+            "Blank General Ledger account identifiers are excluded from GL011 and require a "
+            "separate data-quality or journal-entry test.",
+            "GL011 does not test whether an account is active, blocked, closed, or otherwise valid "
+            "for the transaction.",
         ),
         dataset_requirements=(
             ProcedureDatasetRequirement.create(
@@ -371,6 +465,33 @@ GENERAL_LEDGER_PROCEDURES: tuple[
         "Priority 2 - Moderate Definition",
         description=(
             "Identifies repeated invoice numbers that may require further audit scrutiny."
+        ),
+        audit_objective=(
+            "Identify repeated nonblank invoice numbers across the audit population for auditor "
+            "evaluation of possible duplicate processing, erroneous recording, or unsupported "
+            "expenditure."
+        ),
+        isa_references=(
+            "ISA 240, A5",
+            "ISA 315 (Revised 2019), A27-A31",
+        ),
+        isa_basis_type="ISA-supported methodology",
+        audit_rationale=(
+            "ISA 240 recognizes payments for goods and services not received, including payments "
+            "to fictitious vendors, as a form of asset misappropriation. ISA 315 supports "
+            "analytical procedures that identify unusual transactions or events. Duplicate-invoice "
+            "matching is the application's deterministic selection method; the ISAs do not "
+            "prescribe this exact test."
+        ),
+        result_meaning=(
+            "A flagged record has a nonblank invoice number that, after the procedure's documented "
+            "normalization, occurs more than once in the evaluated population."
+        ),
+        limitations=(
+            "A repeated invoice number does not by itself establish duplicate payment, fraud, or "
+            "misstatement.",
+            "Legitimate credit notes, reversals, recurring references, or source-data conventions "
+            "may produce repeated invoice numbers and require auditor evaluation.",
         ),
         required_fields=("invoice_number",),
         helpful_fields=(

@@ -130,25 +130,49 @@ def build_report_document(request: ReportExportRequest) -> ReportDocument:
                 ("Procedure version", report.identity.procedure_version),
             ),
         ),
-        ReportSection("Procedure purpose", (report.identity.description,)),
-        ReportSection(
-            "Result summary",
-            rows=(
-                ("Population", summary.population_count),
-                ("Evaluated", summary.records_evaluated_count),
-                ("Excluded", summary.excluded_record_count),
-                ("Exceptions", summary.exception_count),
-                ("Exception rate (%)", summary.exception_rate),
-                ("Related value total", summary.related_value_total),
-            ),
-        ),
-        ReportSection("Procedure metrics", rows=tuple(_pairs(report.metrics))),
-        ReportSection("Key observations", presentation.observations),
-        ReportSection("Areas requiring attention", presentation.attention_areas),
-        ReportSection(
-            "Interpretation and limitations", (report.audit_use_statement, *report.limitations)
-        ),
     ]
+
+    if request.definition.has_methodology_metadata:
+        sections.append(
+            ReportSection(
+                "Audit procedure basis",
+                paragraphs=tuple(
+                    f"Methodology limitation: {limitation}"
+                    for limitation in request.definition.limitations
+                ),
+                rows=(
+                    ("Audit objective", request.definition.audit_objective),
+                    ("ISA references", "; ".join(request.definition.isa_references)),
+                    ("Basis type", request.definition.isa_basis_type),
+                    ("Audit rationale", request.definition.audit_rationale),
+                    ("Result meaning", request.definition.result_meaning),
+                ),
+            )
+        )
+
+    sections.extend(
+        [
+            ReportSection("Procedure purpose", (report.identity.description,)),
+            ReportSection(
+                "Result summary",
+                rows=(
+                    ("Population", summary.population_count),
+                    ("Evaluated", summary.records_evaluated_count),
+                    ("Excluded", summary.excluded_record_count),
+                    ("Exceptions", summary.exception_count),
+                    ("Exception rate (%)", summary.exception_rate),
+                    ("Related value total", summary.related_value_total),
+                ),
+            ),
+            ReportSection("Procedure metrics", rows=tuple(_pairs(report.metrics))),
+            ReportSection("Key observations", presentation.observations),
+            ReportSection("Areas requiring attention", presentation.attention_areas),
+            ReportSection(
+                "Interpretation and limitations",
+                (report.audit_use_statement, *report.limitations),
+            ),
+        ]
+    )
     if report.exclusion_counts:
         sections.append(ReportSection("Exclusions", rows=tuple(_pairs(report.exclusion_counts))))
     for section in report.analysis_sections:
@@ -175,9 +199,11 @@ def build_report_document(request: ReportExportRequest) -> ReportDocument:
             ("Parameters", _cell(report.scope.parameters)),
         ),
         paragraphs=(
-            "The structured report fingerprint covers the authoritative report. "
-            "Workspace labels and resolved source cells are supplementary presentation evidence; "
-            "source cells are linked by dataset, source hash, record ID and source row.",
+            "The structured report fingerprint covers the deterministic structured report "
+            "generated from the execution result. Procedure methodology metadata, workspace "
+            "labels and "
+            "resolved source cells are supplementary presentation context; source cells are linked "
+            "by dataset, source hash, record ID and source row.",
         ),
     )
     document = ReportDocument(

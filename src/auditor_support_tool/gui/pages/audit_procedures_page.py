@@ -415,6 +415,14 @@ class AuditProceduresPage(QWidget):
         text_layout.addLayout(header_layout)
         text_layout.addWidget(requirements_label)
 
+        methodology_summary = self._methodology_summary(definition)
+
+        if methodology_summary:
+            methodology_label = QLabel(methodology_summary)
+            methodology_label.setObjectName("fieldHint")
+            methodology_label.setWordWrap(True)
+            text_layout.addWidget(methodology_label)
+
         if definition.parameter_definitions:
             settings_label = QLabel(self._parameter_summary(definition))
             settings_label.setObjectName("fieldHint")
@@ -820,6 +828,19 @@ class AuditProceduresPage(QWidget):
             )
             for dataset in self._mapped_datasets()
             if dataset.confirmed_dataset_type != DatasetType.UNCLASSIFIED
+        )
+
+    @staticmethod
+    def _methodology_summary(definition: ProcedureDefinition) -> str:
+        """Return concise auditor-facing objective and ISA basis text."""
+
+        if not definition.has_methodology_metadata:
+            return ""
+
+        references = "; ".join(definition.isa_references)
+        return (
+            f"Objective: {definition.audit_objective}\n"
+            f"ISA basis: {references} | {definition.isa_basis_type}"
         )
 
     def _parameter_summary(

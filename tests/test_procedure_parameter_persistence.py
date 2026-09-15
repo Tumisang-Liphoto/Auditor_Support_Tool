@@ -95,6 +95,45 @@ def test_procedure_definition_exposes_parameter_keys() -> None:
         )
 
 
+def test_procedure_definition_normalises_complete_methodology_metadata() -> None:
+    """Procedure methodology metadata should be stable, complete and presentation-only."""
+
+    definition = ProcedureDefinition.create(
+        procedure_id="GL003",
+        name="Weekend Transactions",
+        category="General Ledger",
+        audit_objective=" Identify unusual weekend-dated transactions. ",
+        isa_references=(" ISA 240, paragraph 33(a) ", "ISA 240, A42-A45"),
+        isa_basis_type=" ISA-supported methodology ",
+        audit_rationale=" Journal-entry testing provides the audit context. ",
+        result_meaning=" A configured weekend date was identified. ",
+        limitations=(" Weekend activity may be legitimate. ",),
+    )
+
+    assert definition.has_methodology_metadata is True
+    assert definition.audit_objective == "Identify unusual weekend-dated transactions."
+    assert definition.isa_references == (
+        "ISA 240, paragraph 33(a)",
+        "ISA 240, A42-A45",
+    )
+    assert definition.isa_basis_type == "ISA-supported methodology"
+    assert definition.audit_rationale == "Journal-entry testing provides the audit context."
+    assert definition.result_meaning == "A configured weekend date was identified."
+    assert definition.limitations == ("Weekend activity may be legitimate.",)
+
+
+def test_procedure_definition_rejects_partial_methodology_metadata() -> None:
+    """A half-populated methodology block should never enter the procedure catalogue."""
+
+    with pytest.raises(ValueError, match="methodology metadata must be complete"):
+        ProcedureDefinition.create(
+            procedure_id="GL003",
+            name="Weekend Transactions",
+            category="General Ledger",
+            audit_objective="Identify unusual weekend-dated transactions.",
+        )
+
+
 def test_workspace_state_stores_canonical_procedure_parameters() -> None:
     """Workspace state should retain defensive JSON-safe parameter values."""
 

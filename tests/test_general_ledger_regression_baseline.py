@@ -167,6 +167,28 @@ def _assert_metric_subset(
         assert actual_value == expected_value
 
 
+def test_registered_gl_procedures_have_complete_methodology_metadata() -> None:
+    """Every executable GL procedure must carry the approved methodology block."""
+
+    definitions = create_general_ledger_procedure_registry().definitions
+
+    assert {definition.procedure_id for definition in definitions} == {
+        "GL001",
+        "GL003",
+        "GL006",
+        "GL011",
+    }
+
+    for definition in definitions:
+        assert definition.has_methodology_metadata is True
+        assert definition.audit_objective
+        assert definition.isa_references
+        assert definition.isa_basis_type
+        assert definition.audit_rationale
+        assert definition.result_meaning
+        assert definition.limitations
+
+
 def test_general_ledger_regression_fixture_integrity(
     baseline: tuple[
         Path,
@@ -443,9 +465,31 @@ def _assert_report_exports(result, source, tmp_path):
             assert [row[0] for row in rows[1:]] == [
                 str(e.source_row_number) for e in result.exception_records
             ]
-            text = "\n".join(str(value) for row in rows for value in row)
+            text = "\n".join(
+                str(cell.value)
+                for sheet in book
+                for row in sheet.iter_rows()
+                for cell in row
+                if cell.value is not None
+            )
             book.close()
         assert all(e.source_record_id in text for e in result.exception_records)
+
+        # PDF text extraction may insert line breaks where ReportLab wraps long
+        # methodology values in table cells. Compare whitespace-normalised text so
+        # the regression checks report content rather than a renderer's line layout.
+        searchable_text = " ".join(text.split())
+
+        assert " ".join(definition.audit_objective.split()) in searchable_text
+        assert " ".join(definition.isa_basis_type.split()) in searchable_text
+        assert all(
+            " ".join(reference.split()) in searchable_text
+            for reference in definition.isa_references
+        )
+        assert " ".join(definition.result_meaning.split()) in searchable_text
+        assert all(
+            " ".join(limitation.split()) in searchable_text for limitation in definition.limitations
+        )
 
 
 @pytest.mark.parametrize("procedure_id", ("GL001", "GL003", "GL006"))

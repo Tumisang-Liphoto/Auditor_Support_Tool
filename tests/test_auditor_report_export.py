@@ -33,9 +33,39 @@ def report_request():
         result.context.dataset_id,
         result.context.source_sha256,
     )
-    return ReportExportRequest(
-        _definition(), result, sources, "Annual review", "Example auditee", "Ledger", "Transactions"
+    definition = replace(
+        _definition(),
+        audit_objective="Identify configured transactions for auditor evaluation.",
+        isa_references=("ISA 240, A44",),
+        isa_basis_type="ISA-supported methodology",
+        audit_rationale="The ISA provides the audit context; the deterministic rule is documented.",
+        result_meaning="A record met the configured deterministic selection rule.",
+        limitations=("A flagged record is not by itself an audit finding.",),
     )
+    return ReportExportRequest(
+        definition, result, sources, "Annual review", "Example auditee", "Ledger", "Transactions"
+    )
+
+
+def test_methodology_metadata_is_presentation_only(report_request) -> None:
+    """ISA metadata must not alter the deterministic structured report or its fingerprint."""
+
+    with_metadata = build_report_document(report_request)
+    legacy_definition = replace(
+        report_request.definition,
+        audit_objective="",
+        isa_references=(),
+        isa_basis_type="",
+        audit_rationale="",
+        result_meaning="",
+        limitations=(),
+    )
+    without_metadata = build_report_document(replace(report_request, definition=legacy_definition))
+
+    assert with_metadata.report.to_json() == without_metadata.report.to_json()
+    assert with_metadata.report.report_fingerprint == without_metadata.report.report_fingerprint
+    assert any(section.title == "Audit procedure basis" for section in with_metadata.sections)
+    assert all(section.title != "Audit procedure basis" for section in without_metadata.sections)
 
 
 def pdf_text(path):
@@ -107,6 +137,11 @@ def test_complete_formats_preserve_values_and_evidence(report_request, tmp_path,
         report_request.result.context.source_sha256,
         report_request.result.context.mapping_fingerprint,
         model.report.report_fingerprint,
+        "Audit procedure basis",
+        "ISA 240, A44",
+        "ISA-supported methodology",
+        "A record met the configured deterministic selection rule.",
+        "A flagged record is not by itself an audit finding.",
         *(e.source_record_id for e in report_request.result.exception_records),
     ):
         assert value in text

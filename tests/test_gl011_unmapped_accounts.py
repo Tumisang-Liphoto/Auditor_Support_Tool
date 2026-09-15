@@ -95,6 +95,17 @@ def test_gl011_registration_definition_and_bundled_description():
     ]
     assert procedure.definition.parameter_definitions == ()
     assert procedure.definition.procedure_version == "1.0"
+    assert procedure.definition.has_methodology_metadata is True
+    assert procedure.definition.isa_basis_type == "ISA-supported methodology"
+    assert procedure.definition.isa_references == (
+        "ISA 240, A44",
+        "ISA 500, paragraph 9 and A60-A62",
+    )
+    assert "populated General Ledger account codes" in procedure.definition.audit_objective
+    assert any(
+        "Blank General Ledger account identifiers" in item
+        for item in procedure.definition.limitations
+    )
     assert get_test_description_definition("GL011").title == "Unmapped Accounts"
     assert has_test_description_document("GL-011")
 

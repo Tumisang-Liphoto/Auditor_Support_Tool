@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from auditor_support_tool.core.procedure_definition import ProcedureDefinition
 from auditor_support_tool.core.procedure_execution_status_service import (
     ProcedureExecutionStatus,
 )
@@ -126,3 +127,34 @@ def test_execution_status_uses_actionable_wording(status, expected):
 )
 def test_run_button_wording_is_compact(status, expected):
     assert AuditProceduresPage._run_button_text(status) == expected
+
+
+def test_methodology_summary_shows_objective_and_isa_basis() -> None:
+    definition = ProcedureDefinition.create(
+        procedure_id="GL003",
+        name="Weekend Transactions",
+        category="General Ledger",
+        audit_objective="Identify weekend-dated transactions for auditor evaluation.",
+        isa_references=("ISA 240, paragraph 33(a)", "ISA 240, A42-A45"),
+        isa_basis_type="ISA-supported methodology",
+        audit_rationale="Journal-entry testing provides the audit context.",
+        result_meaning="A configured weekend date was identified.",
+        limitations=("Weekend activity may be legitimate.",),
+    )
+
+    summary = AuditProceduresPage._methodology_summary(definition)
+
+    assert "Objective: Identify weekend-dated transactions" in summary
+    assert "ISA 240, paragraph 33(a)" in summary
+    assert "ISA 240, A42-A45" in summary
+    assert "ISA-supported methodology" in summary
+
+
+def test_methodology_summary_is_empty_for_legacy_definition() -> None:
+    definition = ProcedureDefinition.create(
+        procedure_id="PROC001",
+        name="Legacy Procedure",
+        category="Example",
+    )
+
+    assert AuditProceduresPage._methodology_summary(definition) == ""

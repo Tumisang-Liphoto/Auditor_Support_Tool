@@ -223,6 +223,14 @@ def test_gl001_uses_authoritative_catalogue_definition() -> None:
     assert procedure.definition.display_id == "GL-001"
     assert procedure.definition.required_fields == ("invoice_number",)
     assert procedure.definition.parameter_definitions == ()
+    assert procedure.definition.has_methodology_metadata is True
+    assert procedure.definition.isa_basis_type == "ISA-supported methodology"
+    assert procedure.definition.isa_references == (
+        "ISA 240, A5",
+        "ISA 315 (Revised 2019), A27-A31",
+    )
+    assert "repeated nonblank invoice numbers" in procedure.definition.audit_objective
+    assert "does not by itself establish duplicate payment" in procedure.definition.limitations[0]
 
 
 def test_gl001_flags_all_records_in_repeated_invoice_groups(
