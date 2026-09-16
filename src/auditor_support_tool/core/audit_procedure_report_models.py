@@ -17,7 +17,7 @@ from decimal import Decimal
 from enum import Enum
 from pathlib import Path
 
-REPORT_SCHEMA_VERSION = 2
+REPORT_SCHEMA_VERSION = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +51,7 @@ class AuditProcedureReportSummary:
     records_evaluated_count: int
     excluded_record_count: int
     exception_count: int
+    non_exception_count: int
     exception_rate: float
     related_value_total: str | None
 
@@ -111,6 +112,7 @@ class AuditProcedureReport:
     summary: AuditProcedureReportSummary
 
     exclusion_counts: dict[str, int]
+    data_quality_observation_counts: dict[str, int]
     metrics: dict[str, object]
     limitations: tuple[str, ...]
     audit_use_statement: str
@@ -180,10 +182,12 @@ class AuditProcedureReport:
                 "records_evaluated_count": (self.summary.records_evaluated_count),
                 "excluded_record_count": (self.summary.excluded_record_count),
                 "exception_count": self.summary.exception_count,
+                "non_exception_count": self.summary.non_exception_count,
                 "exception_rate": self.summary.exception_rate,
                 "related_value_total": (self.summary.related_value_total),
             },
             "exclusion_counts": dict(self.exclusion_counts),
+            "data_quality_observation_counts": dict(self.data_quality_observation_counts),
             "metrics": normalise_report_mapping(self.metrics),
             "limitations": list(self.limitations),
             "audit_use_statement": self.audit_use_statement,

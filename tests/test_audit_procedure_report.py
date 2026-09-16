@@ -96,6 +96,10 @@ def _result() -> ProcedureResult:
         exclusion_counts={
             "blank_entry_or_approval_user": 2,
         },
+        data_quality_observation_counts={
+            "blank_entry_user": 2,
+            "blank_approval_user": 1,
+        },
         related_value_total=Decimal("209000.50"),
         limitations=("Shared or service accounts require auditor interpretation.",),
         metrics={
@@ -142,11 +146,16 @@ def test_report_builder_captures_complete_procedure_result() -> None:
     assert report.summary.records_evaluated_count == 8
     assert report.summary.excluded_record_count == 2
     assert report.summary.exception_count == 2
+    assert report.summary.non_exception_count == 6
     assert report.summary.exception_rate == pytest.approx(25.0)
     assert report.summary.related_value_total == "209000.50"
 
     assert report.exclusion_counts == {
         "blank_entry_or_approval_user": 2,
+    }
+    assert report.data_quality_observation_counts == {
+        "blank_entry_user": 2,
+        "blank_approval_user": 1,
     }
     assert len(report.exceptions) == 2
     assert report.exceptions[0].source_row_number == 12
@@ -198,10 +207,15 @@ def test_report_json_is_complete_and_json_safe() -> None:
 
     payload = json.loads(report.to_json())
 
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 3
     assert payload["identity"]["procedure_id"] == "GL006"
     assert payload["scope"]["audit_currency"] == "LSL"
     assert payload["summary"]["exception_count"] == 2
+    assert payload["summary"]["non_exception_count"] == 6
+    assert payload["data_quality_observation_counts"] == {
+        "blank_entry_user": 2,
+        "blank_approval_user": 1,
+    }
     assert payload["metrics"]["analysis_date"] == "2024-03-31"
     assert payload["metrics"]["user_analysis"][0]["amount"] == "125000.50"
     assert len(payload["report_fingerprint"]) == 64
@@ -243,6 +257,7 @@ def test_report_fingerprint_changes_when_audit_currency_changes() -> None:
         records_evaluated_count=first_result.records_evaluated_count,
         exception_records=first_result.exception_records,
         exclusion_counts=first_result.exclusion_counts,
+        data_quality_observation_counts=first_result.data_quality_observation_counts,
         related_value_total=first_result.related_value_total,
         limitations=first_result.limitations,
         metrics=first_result.metrics,

@@ -210,6 +210,7 @@ class ProcedureResult:
         ...,
     ] = ()
     exclusion_counts: dict[str, int] = field(default_factory=dict)
+    data_quality_observation_counts: dict[str, int] = field(default_factory=dict)
 
     related_value_total: Decimal | None = None
 
@@ -230,6 +231,7 @@ class ProcedureResult:
             ...,
         ] = (),
         exclusion_counts: Mapping[str, int] | None = None,
+        data_quality_observation_counts: Mapping[str, int] | None = None,
         related_value_total: Decimal | None = None,
         limitations: tuple[str, ...] = (),
         metrics: Mapping[str, object] | None = None,
@@ -282,6 +284,22 @@ class ProcedureResult:
             (exception_count / records_evaluated_count) * 100.0 if records_evaluated_count else 0.0
         )
 
+        cleaned_data_quality_observation_counts: dict[str, int] = {}
+
+        for raw_observation, raw_count in (data_quality_observation_counts or {}).items():
+            observation = str(raw_observation).strip()
+
+            if not observation:
+                raise ValueError("Data-quality observation cannot be blank.")
+
+            count = int(raw_count)
+
+            if count < 0:
+                raise ValueError("Data-quality observation counts cannot be negative.")
+
+            if count:
+                cleaned_data_quality_observation_counts[observation] = count
+
         cleaned_limitations = tuple(
             limitation.strip() for limitation in limitations if limitation.strip()
         )
@@ -300,11 +318,18 @@ class ProcedureResult:
             exception_rate=exception_rate,
             exception_records=(exception_records_tuple),
             exclusion_counts=(cleaned_exclusion_counts),
+            data_quality_observation_counts=(cleaned_data_quality_observation_counts),
             related_value_total=(related_value_total),
             limitations=cleaned_limitations,
             metrics=dict(metrics or {}),
             audit_use_statement=(cleaned_audit_use_statement),
         )
+
+    @property
+    def non_exception_count(self) -> int:
+        """Return evaluated records that were not identified as exceptions."""
+
+        return self.records_evaluated_count - self.exception_count
 
 
 def _validate_audit_period(

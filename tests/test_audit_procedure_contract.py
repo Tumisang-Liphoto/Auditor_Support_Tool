@@ -297,7 +297,64 @@ def test_result_calculates_counts_and_exception_rate() -> None:
     assert result.records_evaluated_count == 8
     assert result.excluded_record_count == 2
     assert result.exception_count == 2
+    assert result.non_exception_count == 6
     assert result.exception_rate == 25.0
+
+
+def test_data_quality_observations_are_separate_from_population_reconciliation() -> None:
+    """Overlapping quality observations must not alter population reconciliation."""
+
+    exception = ProcedureExceptionRecord.create(
+        source_record_id="dataset-123:row-2",
+        source_row_number=2,
+        reason_code="TEST",
+        reason="Test exception.",
+    )
+
+    result = ProcedureResult.create(
+        context=create_context(),
+        population_count=3,
+        records_evaluated_count=2,
+        exception_records=(exception,),
+        exclusion_counts={"invalid_required_field": 1},
+        data_quality_observation_counts={
+            "missing_reference": 2,
+            "invalid_amount": 2,
+            "unused_zero_count": 0,
+        },
+    )
+
+    assert result.excluded_record_count == 1
+    assert result.exception_count == 1
+    assert result.non_exception_count == 1
+    assert result.data_quality_observation_counts == {
+        "missing_reference": 2,
+        "invalid_amount": 2,
+    }
+    assert sum(result.data_quality_observation_counts.values()) > result.population_count
+
+
+@pytest.mark.parametrize(
+    ("observations", "message"),
+    (
+        ({"": 1}, "Data-quality observation cannot be blank"),
+        ({"invalid_amount": -1}, "Data-quality observation counts cannot be negative"),
+    ),
+)
+def test_data_quality_observation_counts_are_validated(
+    observations: dict[str, int],
+    message: str,
+) -> None:
+    """Observation labels and counts should remain explicit and non-negative."""
+
+    with pytest.raises(ValueError, match=message):
+        ProcedureResult.create(
+            context=create_context(),
+            population_count=1,
+            records_evaluated_count=1,
+            exclusion_counts={},
+            data_quality_observation_counts=observations,
+        )
 
 
 def test_result_requires_exclusion_summary_to_reconcile() -> None:
@@ -357,6 +414,7 @@ def test_zero_evaluated_records_produces_zero_rate() -> None:
 
     assert result.exception_count == 0
     assert result.exception_rate == 0.0
+    assert result.non_exception_count == 0
 
 
 def test_result_preserves_related_value_and_limitations() -> None:

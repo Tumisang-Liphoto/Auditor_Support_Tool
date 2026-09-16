@@ -294,6 +294,14 @@ class WeekendTransactionsProcedure:
             records_evaluated_count=records_evaluated,
             exception_records=tuple(exceptions),
             exclusion_counts=exclusion_counts,
+            data_quality_observation_counts={
+                key: count
+                for key, count in (
+                    ("blank_transaction_date", blank_dates),
+                    ("invalid_transaction_date", invalid_dates),
+                )
+                if count
+            },
             limitations=limitations,
             metrics={
                 "weekend_transactions": len(exceptions),

@@ -78,6 +78,7 @@ class AuditProcedureReportBuilder:
                 records_evaluated_count=(result.records_evaluated_count),
                 excluded_record_count=result.excluded_record_count,
                 exception_count=result.exception_count,
+                non_exception_count=result.non_exception_count,
                 exception_rate=result.exception_rate,
                 related_value_total=(
                     str(result.related_value_total)
@@ -86,6 +87,7 @@ class AuditProcedureReportBuilder:
                 ),
             ),
             exclusion_counts=dict(result.exclusion_counts),
+            data_quality_observation_counts=dict(result.data_quality_observation_counts),
             metrics=normalise_report_mapping(result.metrics),
             limitations=tuple(result.limitations),
             audit_use_statement=result.audit_use_statement,

@@ -251,10 +251,14 @@ def test_gl001_flags_all_records_in_repeated_invoice_groups(
     assert result.excluded_record_count == 2
 
     assert result.exception_count == 5
+    assert result.non_exception_count == 1
     assert result.metrics["duplicate_groups"] == 2
     assert result.metrics["additional_duplicate_records"] == 3
 
     assert result.exclusion_counts == {
+        "blank_invoice_number": 2,
+    }
+    assert result.data_quality_observation_counts == {
         "blank_invoice_number": 2,
     }
 
