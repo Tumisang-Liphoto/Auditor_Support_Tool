@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
+
+from auditor_support_tool.core.numeric import NumericParseError, parse_finite_decimal
 
 DEFAULT_CURRENCY_CODE = "LSL"
 
@@ -109,24 +111,7 @@ def _as_decimal(value: object) -> Decimal | None:
     if value is None or isinstance(value, bool):
         return None
 
-    if isinstance(value, Decimal):
-        return value if value.is_finite() else None
-
-    if isinstance(value, (int, float)):
-        try:
-            converted = Decimal(str(value))
-        except InvalidOperation:
-            return None
-        return converted if converted.is_finite() else None
-
-    if isinstance(value, str):
-        cleaned = value.strip().replace(",", "")
-        if not cleaned:
-            return None
-        try:
-            converted = Decimal(cleaned)
-        except InvalidOperation:
-            return None
-        return converted if converted.is_finite() else None
-
-    return None
+    try:
+        return parse_finite_decimal(value)
+    except NumericParseError:
+        return None

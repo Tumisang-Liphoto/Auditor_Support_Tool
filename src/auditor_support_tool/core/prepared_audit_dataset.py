@@ -26,6 +26,7 @@ from auditor_support_tool.core.field_mapping_models import (
     AuditFieldSemantic,
     semantic_for_field_key,
 )
+from auditor_support_tool.core.numeric import parse_finite_decimal, parse_whole_number
 from auditor_support_tool.core.workbook_package import (
     PreparedColumn,
     WorksheetDataset,
@@ -456,35 +457,7 @@ def _to_integer(
     if isinstance(value, bool):
         raise ValueError("Boolean values cannot be interpreted as integers.")
 
-    if isinstance(value, int):
-        return value
-
-    if isinstance(value, Decimal):
-        if value != value.to_integral_value():
-            raise ValueError("The value is not a whole number.")
-
-        return int(value)
-
-    if isinstance(value, float):
-        if not value.is_integer():
-            raise ValueError("The value is not a whole number.")
-
-        return int(value)
-
-    if isinstance(value, str):
-        cleaned = value.strip().replace(",", "")
-
-        if not cleaned:
-            raise ValueError("The value is blank.")
-
-        decimal_value = Decimal(cleaned)
-
-        if decimal_value != decimal_value.to_integral_value():
-            raise ValueError("The value is not a whole number.")
-
-        return int(decimal_value)
-
-    raise TypeError("The value cannot be interpreted as an integer.")
+    return parse_whole_number(value)
 
 
 def _to_decimal(
@@ -495,21 +468,7 @@ def _to_decimal(
     if isinstance(value, bool):
         raise ValueError("Boolean values cannot be interpreted as amounts.")
 
-    if isinstance(value, Decimal):
-        return value
-
-    if isinstance(value, (int, float)):
-        return Decimal(str(value))
-
-    if isinstance(value, str):
-        cleaned = value.strip().replace(",", "")
-
-        if not cleaned:
-            raise ValueError("The value is blank.")
-
-        return Decimal(cleaned)
-
-    raise TypeError("The value cannot be interpreted as a decimal number.")
+    return parse_finite_decimal(value)
 
 
 def _to_date(

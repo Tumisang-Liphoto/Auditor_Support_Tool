@@ -530,3 +530,51 @@ def test_parameter_formatter_produces_auditor_facing_values() -> None:
         )
         == "25"
     )
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        "1,25",
+        "12,34,567",
+        "1,234,56",
+    ),
+)
+def test_decimal_parameter_rejects_ambiguous_comma_grouping(value: str) -> None:
+    """Decimal parameters must not guess whether commas are decimal separators."""
+
+    parameter = ProcedureParameterDefinition.create(
+        key="threshold",
+        label="Threshold",
+        value_type=ProcedureParameterType.DECIMAL,
+    )
+
+    with pytest.raises(
+        ProcedureParameterValidationError,
+        match="Threshold must be a number",
+    ):
+        normalise_procedure_parameter_value(parameter, value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        "1,25",
+        "12,34,567",
+        "1,234,56",
+    ),
+)
+def test_integer_parameter_rejects_ambiguous_comma_grouping(value: str) -> None:
+    """Integer parameters must accept only explicit thousands grouping."""
+
+    parameter = ProcedureParameterDefinition.create(
+        key="minimum_count",
+        label="Minimum count",
+        value_type=ProcedureParameterType.INTEGER,
+    )
+
+    with pytest.raises(
+        ProcedureParameterValidationError,
+        match="Minimum count must be a whole number",
+    ):
+        normalise_procedure_parameter_value(parameter, value)

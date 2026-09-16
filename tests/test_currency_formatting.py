@@ -31,3 +31,21 @@ def test_currency_code_validation_and_monetary_semantics_are_explicit() -> None:
 
     with pytest.raises(ValueError, match="three-letter"):
         normalise_currency_code("Maloti")
+
+
+def test_grouped_numeric_text_uses_shared_numeric_contract() -> None:
+    assert format_monetary_value("1,250.50", "LSL") == "M1,250.50"
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        "1,25",
+        "12,34,567",
+        "1,234,56",
+    ),
+)
+def test_ambiguous_numeric_text_is_not_reinterpreted_for_display(value: str) -> None:
+    """Presentation must not silently change ambiguous source values."""
+
+    assert format_monetary_value(value, "LSL") == value

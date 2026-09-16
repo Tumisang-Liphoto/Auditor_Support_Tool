@@ -895,3 +895,71 @@ def test_two_digit_year_date_is_rejected(
     )
 
     assert resolved.status == FieldValueStatus.INVALID
+
+
+@pytest.mark.parametrize(
+    "source_value",
+    (
+        "1,25",
+        "12,34,567",
+        "1,234,56",
+    ),
+)
+def test_decimal_conversion_rejects_ambiguous_comma_grouping(
+    tmp_path: Path,
+    source_value: str,
+) -> None:
+    """Ambiguous comma-separated amounts must not be guessed."""
+
+    dataset, *_columns = create_dataset(tmp_path)
+    dataset.loaded_table.rows[0]["Amount"] = source_value
+
+    prepared = PreparedAuditDataset(dataset)
+    resolved = next(prepared.iter_records()).resolve("transaction_amount")
+
+    assert resolved.status == FieldValueStatus.INVALID
+    assert resolved.value is None
+    assert resolved.raw_value == source_value
+    assert "comma grouping" in resolved.reason
+
+
+@pytest.mark.parametrize(
+    "source_value",
+    (
+        Decimal("NaN"),
+        Decimal("Infinity"),
+        float("inf"),
+        "Infinity",
+    ),
+)
+def test_decimal_conversion_rejects_non_finite_values(
+    tmp_path: Path,
+    source_value,
+) -> None:
+    """NaN and infinite values must never become valid audit amounts."""
+
+    dataset, *_columns = create_dataset(tmp_path)
+    dataset.loaded_table.rows[0]["Amount"] = source_value
+
+    prepared = PreparedAuditDataset(dataset)
+    resolved = next(prepared.iter_records()).resolve("transaction_amount")
+
+    assert resolved.status == FieldValueStatus.INVALID
+    assert resolved.value is None
+    assert "Non-finite" in resolved.reason
+
+
+def test_numeric_zero_remains_valid_and_distinct_from_blank(
+    tmp_path: Path,
+) -> None:
+    """A genuine zero must remain valid rather than being treated as blank."""
+
+    dataset, *_columns = create_dataset(tmp_path)
+    dataset.loaded_table.rows[0]["Amount"] = "0"
+
+    prepared = PreparedAuditDataset(dataset)
+    resolved = next(prepared.iter_records()).resolve("transaction_amount")
+
+    assert resolved.status == FieldValueStatus.VALID
+    assert resolved.value == Decimal("0")
+    assert resolved.raw_value == "0"
