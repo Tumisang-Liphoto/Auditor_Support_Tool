@@ -277,3 +277,51 @@ def test_file_changed_during_hash_is_not_cached(tmp_path, monkeypatch):
     with pytest.raises(OSError, match="changed while verifying"):
         service.refresh_source_hash(path)
     assert not service._source_hash_cache
+
+
+def test_nonblocking_status_does_not_hash_until_cache_is_warmed(tmp_path, monkeypatch):
+    """GUI status checks must not read the whole source file on a cold cache."""
+
+    path, source_hash = create_source_file(tmp_path)
+    service = ProcedureExecutionStatusService()
+
+    def unexpected_hash(_path):
+        raise AssertionError("Non-blocking status evaluation attempted a full SHA-256 hash.")
+
+    monkeypatch.setattr(service._source_integrity_service, "sha256_file", unexpected_hash)
+
+    status = service.evaluate(
+        definition=SimpleNamespace(procedure_version="1.0"),
+        source=SimpleNamespace(dataset_id="dataset-1", mapping_fingerprint="b" * 64),
+        source_path=path,
+        parameters={},
+        audit_period_start="2026-01-01",
+        audit_period_end="2026-12-31",
+        stamp=create_stamp(source_sha256=source_hash),
+        rerun_required=False,
+        hash_if_uncached=False,
+    )
+
+    assert status == ProcedureExecutionStatus.CHECKING
+
+
+def test_nonblocking_status_uses_background_warmed_hash(tmp_path):
+    """A cache warmed off-thread should restore the normal Completed result."""
+
+    path, source_hash = create_source_file(tmp_path)
+    service = ProcedureExecutionStatusService()
+    service.refresh_source_hash(path)
+
+    status = service.evaluate(
+        definition=SimpleNamespace(procedure_version="1.0"),
+        source=SimpleNamespace(dataset_id="dataset-1", mapping_fingerprint="b" * 64),
+        source_path=path,
+        parameters={},
+        audit_period_start="2026-01-01",
+        audit_period_end="2026-12-31",
+        stamp=create_stamp(source_sha256=source_hash),
+        rerun_required=False,
+        hash_if_uncached=False,
+    )
+
+    assert status == ProcedureExecutionStatus.COMPLETED

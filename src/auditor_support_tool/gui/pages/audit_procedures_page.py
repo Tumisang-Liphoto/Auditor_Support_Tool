@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 
 import qtawesome as qta
 from PySide6.QtCore import Qt, Signal, Slot
@@ -77,6 +78,7 @@ from auditor_support_tool.gui.dialogs.procedure_parameters_dialog import (
     ProcedureParametersDialog,
 )
 from auditor_support_tool.gui.workers.audit_execution_worker import AuditExecutionWorker
+from auditor_support_tool.gui.workers.source_hash_worker import SourceHashWorker
 from auditor_support_tool.services.settings_service import SettingsService
 
 
@@ -117,6 +119,8 @@ class AuditProceduresPage(QWidget):
 
         self._worker: AuditExecutionWorker | None = None
         self._run_workspace_id: str | None = None
+        self._source_hash_worker: SourceHashWorker | None = None
+        self._source_hash_failure_signature: tuple[str, int, int] | None = None
         self._updating_dataset_selector = False
 
         self._build_interface()
@@ -267,8 +271,10 @@ class AuditProceduresPage(QWidget):
         self._dataset_selector.currentIndexChanged.connect(self._dataset_selection_changed)
 
         self._workspace_state.source_changed.connect(self.cancel_execution)
+        self._workspace_state.source_changed.connect(self._source_changed_for_status)
         self._workspace_state.workbook_package_changed.connect(self.cancel_execution)
         self._workspace_state.workspace_cleared.connect(self._invalidate_execution)
+        self._workspace_state.workspace_cleared.connect(self._clear_source_hash_failure)
         self._workspace_state.workbook_package_changed.connect(self._refresh_page)
         self._workspace_state.active_dataset_changed.connect(self._refresh_page)
         self._workspace_state.workspace_identity_changed.connect(self._refresh_page)
@@ -819,7 +825,7 @@ class AuditProceduresPage(QWidget):
             except ValueError:
                 return ProcedureExecutionStatus.NEEDS_RERUN
 
-        return self._execution_status_service.evaluate(
+        execution_status = self._execution_status_service.evaluate(
             definition=definition,
             source=status_source,
             source_path=source_path,
@@ -831,6 +837,79 @@ class AuditProceduresPage(QWidget):
             rerun_required=self._workspace_state.procedure_requires_rerun(
                 definition.procedure_id, source.dataset_id
             ),
+            hash_if_uncached=False,
+        )
+
+        if execution_status == ProcedureExecutionStatus.CHECKING:
+            signature = self._source_hash_signature(source_path)
+            if signature == self._source_hash_failure_signature:
+                return ProcedureExecutionStatus.NEEDS_RERUN
+            self._ensure_source_hash_refresh(source_path)
+
+        return execution_status
+
+    def _ensure_source_hash_refresh(self, source_path: str | Path) -> None:
+        """Start one background source hash when the status cache is cold."""
+
+        if self._source_hash_worker is not None:
+            return
+
+        source_signature = self._source_hash_signature(source_path)
+        if source_signature is None:
+            return
+
+        worker = SourceHashWorker(
+            status_service=self._execution_status_service,
+            source_path=source_path,
+            source_signature=source_signature,
+        )
+        self._source_hash_worker = worker
+        worker.finished.connect(self._source_hash_finished)
+        worker.start()
+
+    @Slot()
+    def _source_hash_finished(self) -> None:
+        """Refresh status presentation after an asynchronous source hash."""
+
+        worker = self._source_hash_worker
+        if worker is None:
+            return
+
+        self._source_hash_worker = None
+
+        if worker.error is not None:
+            self._source_hash_failure_signature = worker.source_signature
+        else:
+            self._source_hash_failure_signature = None
+
+        self._refresh_page()
+
+    @Slot()
+    def _source_changed_for_status(self) -> None:
+        """Allow verification of a newly loaded or replaced source."""
+
+        self._source_hash_failure_signature = None
+
+    @Slot()
+    def _clear_source_hash_failure(self) -> None:
+        """Discard source-verification failure state with the workspace."""
+
+        self._source_hash_failure_signature = None
+
+    @staticmethod
+    def _source_hash_signature(source_path: str | Path) -> tuple[str, int, int] | None:
+        """Return the cheap file signature used to scope a hash failure."""
+
+        try:
+            path = Path(source_path).expanduser().resolve()
+            status = path.stat()
+        except (FileNotFoundError, OSError):
+            return None
+
+        return (
+            str(path),
+            status.st_size,
+            status.st_mtime_ns,
         )
 
     def _update_dataset_selector_presentation(self) -> None:
@@ -1136,6 +1215,7 @@ class AuditProceduresPage(QWidget):
             ProcedureExecutionStatus.NOT_RUN: "Ready to Run",
             ProcedureExecutionStatus.COMPLETED: "✓ Completed",
             ProcedureExecutionStatus.NEEDS_RERUN: "↻ Needs Re-run",
+            ProcedureExecutionStatus.CHECKING: "Checking source…",
         }
 
         return labels[status]

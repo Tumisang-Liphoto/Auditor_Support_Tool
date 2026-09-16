@@ -23,6 +23,7 @@ class ProcedureExecutionStatus(StrEnum):
     NOT_RUN = "not_run"
     COMPLETED = "completed"
     NEEDS_RERUN = "needs_rerun"
+    CHECKING = "checking"
 
 
 class ProcedureDefinitionLike(Protocol):
@@ -64,8 +65,15 @@ class ProcedureExecutionStatusService:
         audit_currency: str = "",
         stamp: ProcedureExecutionStamp | None,
         rerun_required: bool,
+        hash_if_uncached: bool = True,
     ) -> ProcedureExecutionStatus:
-        """Return Not Run, Completed or Needs Re-run."""
+        """Return the current execution state.
+
+        ``hash_if_uncached=False`` is intended for GUI presentation. It performs
+        only inexpensive metadata checks and returns ``CHECKING`` when a fresh
+        SHA-256 digest is not already cached. A background worker can then warm
+        the cache without blocking the GUI thread.
+        """
 
         if stamp is None:
             return ProcedureExecutionStatus.NOT_RUN
@@ -98,12 +106,19 @@ class ProcedureExecutionStatusService:
             return ProcedureExecutionStatus.NEEDS_RERUN
 
         try:
-            current_source_hash = self._source_sha256(source_path)
+            current_source_hash = (
+                self._source_sha256(source_path)
+                if hash_if_uncached
+                else self._cached_source_sha256(source_path)
+            )
         except (
             FileNotFoundError,
             OSError,
         ):
             return ProcedureExecutionStatus.NEEDS_RERUN
+
+        if current_source_hash is None:
+            return ProcedureExecutionStatus.CHECKING
 
         if stamp.source_sha256 != current_source_hash:
             return ProcedureExecutionStatus.NEEDS_RERUN
@@ -114,6 +129,30 @@ class ProcedureExecutionStatusService:
         """Warm the status cache from freshly verified current bytes, off the GUI thread."""
 
         self._source_sha256(source_path, refresh=True)
+
+    def _cached_source_sha256(
+        self,
+        source_path: str | Path,
+    ) -> str | None:
+        """Return a metadata-matched cached hash without reading the source file."""
+
+        path = Path(source_path).expanduser().resolve()
+        status = path.stat()
+        cache_key = (
+            str(path),
+            status.st_size,
+            status.st_mtime_ns,
+        )
+
+        cached = self._source_hash_cache.get(cache_key)
+
+        if cached is None:
+            # Drop stale entries for this path while keeping this lookup cheap.
+            self._source_hash_cache = {
+                key: value for key, value in self._source_hash_cache.items() if key[0] != str(path)
+            }
+
+        return cached
 
     def _source_sha256(
         self,

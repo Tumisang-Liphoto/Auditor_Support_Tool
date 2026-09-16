@@ -8,7 +8,10 @@ from shiboken6 import isValid
 
 from auditor_support_tool.core.audit_procedure_models import ProcedureExecutorIdentity
 from auditor_support_tool.core.prepared_audit_dataset import PreparedAuditDataset
-from auditor_support_tool.core.procedure_execution_status_service import ProcedureExecutionStatus
+from auditor_support_tool.core.procedure_execution_status_service import (
+    ProcedureExecutionStatus,
+    ProcedureExecutionStatusService,
+)
 from auditor_support_tool.core.procedure_registry import ProcedureRegistry
 from auditor_support_tool.core.test_engine_models import TestEngineStatus as EngineStatus
 from auditor_support_tool.core.workbook_package import FieldMappingStatus
@@ -17,6 +20,7 @@ from auditor_support_tool.core.workspace_models import WorkspaceIdentity
 from auditor_support_tool.core.workspace_state import WorkspaceState
 from auditor_support_tool.gui.pages.audit_procedures_page import AuditProceduresPage
 from auditor_support_tool.gui.workers.audit_execution_worker import AuditExecutionWorker
+from auditor_support_tool.gui.workers.source_hash_worker import SourceHashWorker
 from auditor_support_tool.services.settings_service import SettingsService, UserProfile
 from tests.test_test_engine_service import StubProcedure, create_source_file
 
@@ -72,6 +76,8 @@ def execution_page(tmp_path, qtbot):
     for worker in tuple(AuditExecutionWorker._active):
         worker.cancel()
         assert worker.wait(5000)
+    for worker in tuple(SourceHashWorker._active):
+        assert worker.wait(5000)
     QCoreApplication.processEvents()
     if isValid(page):
         page.close()
@@ -109,6 +115,46 @@ def test_engine_and_hashing_run_off_gui_thread_and_duplicate_click_is_ignored(
     assert page._procedures_container.isEnabled()
     assert state.get_procedure_execution_stamp("PROC001", dataset.dataset_id)
     qtbot.waitUntil(lambda: not AuditExecutionWorker._active)
+
+
+def test_completed_status_hashes_cold_cache_off_gui_thread(execution_page, qtbot, monkeypatch):
+    """Opening a completed run must not calculate SHA-256 on the GUI thread."""
+
+    page, state, procedure, path, dataset, outcomes = execution_page
+    procedure.release.set()
+    with qtbot.waitSignal(page.result_ready):
+        page._run_procedure("PROC001")
+
+    cold_service = ProcedureExecutionStatusService()
+    page._execution_status_service = cold_service
+    hash_threads = []
+    hashing_started = Event()
+    release_hash = Event()
+    real_hash = cold_service._source_integrity_service.sha256_file
+
+    def gated_hash(source_path):
+        hash_threads.append(QThread.currentThread())
+        hashing_started.set()
+        assert release_hash.wait(5)
+        return real_hash(source_path)
+
+    monkeypatch.setattr(cold_service._source_integrity_service, "sha256_file", gated_hash)
+
+    page._refresh_page()
+    qtbot.waitUntil(hashing_started.is_set)
+
+    status_labels = page.findChildren(type(page._dataset_summary), "procedureExecutionStatus")
+    assert any(label.text() == "Checking source…" for label in status_labels)
+    assert hash_threads and all(thread != page.thread() for thread in hash_threads)
+
+    release_hash.set()
+    qtbot.waitUntil(lambda: not SourceHashWorker._active)
+    qtbot.waitUntil(
+        lambda: any(
+            label.text() == "✓ Completed"
+            for label in page.findChildren(type(page._dataset_summary), "procedureExecutionStatus")
+        )
+    )
 
 
 def test_executor_identity_is_snapshotted_on_gui_thread_before_worker_hashing(
@@ -252,14 +298,14 @@ def test_success_evidence_does_not_depend_on_cache_or_current_file(
     assert outcomes[-1].status == EngineStatus.COMPLETED
     stamp = state.get_procedure_execution_stamp("PROC001", dataset.dataset_id)
     assert stamp.source_sha256 == original_hash
+    if change == "cache_failure":
+        qtbot.waitUntil(lambda: not SourceHashWorker._active)
+        QCoreApplication.processEvents()
+
     status = page._procedure_execution_status(
         definition=procedure.definition, source=PreparedAuditDataset(dataset)
     )
-    assert status == (
-        ProcedureExecutionStatus.COMPLETED
-        if change == "cache_failure"
-        else ProcedureExecutionStatus.NEEDS_RERUN
-    )
+    assert status == ProcedureExecutionStatus.NEEDS_RERUN
 
 
 def test_workspace_clear_discards_pending_outcome(execution_page, qtbot):
@@ -373,9 +419,6 @@ def test_execution_snapshot_detaches_mapping_metadata(execution_page):
 
 
 def test_worker_preserves_multi_dataset_engine_semantics(tmp_path, qtbot):
-    from auditor_support_tool.core.procedure_execution_status_service import (
-        ProcedureExecutionStatusService,
-    )
     from tests.test_multi_dataset_test_engine import (
         StubMultiDatasetProcedure,
         _engine,

@@ -216,6 +216,7 @@ def test_missing_fields_are_presented_as_setup_work():
         (ProcedureExecutionStatus.NOT_RUN, "Ready to Run"),
         (ProcedureExecutionStatus.COMPLETED, "✓ Completed"),
         (ProcedureExecutionStatus.NEEDS_RERUN, "↻ Needs Re-run"),
+        (ProcedureExecutionStatus.CHECKING, "Checking source…"),
     ),
 )
 def test_execution_status_uses_actionable_wording(status, expected):
@@ -228,6 +229,7 @@ def test_execution_status_uses_actionable_wording(status, expected):
         (ProcedureExecutionStatus.NOT_RUN, "Run"),
         (ProcedureExecutionStatus.COMPLETED, "Run Again"),
         (ProcedureExecutionStatus.NEEDS_RERUN, "Re-run"),
+        (ProcedureExecutionStatus.CHECKING, "Run Again"),
     ),
 )
 def test_run_button_wording_is_compact(status, expected):
