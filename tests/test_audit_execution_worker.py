@@ -163,10 +163,12 @@ def test_executor_identity_is_snapshotted_on_gui_thread_before_worker_hashing(
     assert first.result is not None
     assert first.result.context.executor.full_name == "Example Auditor"
     assert first.result.context.executor.job_title == "Senior Auditor"
+    assert first.result.context.audit_currency == "LSL"
 
     first_stamp = state.get_procedure_execution_stamp("PROC001", dataset.dataset_id)
     assert first_stamp is not None
     assert first_stamp.executor.full_name == "Example Auditor"
+    assert first_stamp.audit_currency == "LSL"
     assert first.execution is not None
     assert first_stamp.completed_at == first.execution.finished_at
 

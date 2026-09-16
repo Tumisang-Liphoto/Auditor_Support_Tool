@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Mapping
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from auditor_support_tool.core.audit_execution_models import (
@@ -28,6 +28,7 @@ from auditor_support_tool.core.audit_run_context_service import (
     AuditRunContextError,
     AuditRunContextService,
 )
+from auditor_support_tool.core.currency import normalise_currency_code
 from auditor_support_tool.core.procedure_dataset_resolution import (
     ProcedureDatasetBundle,
     ProcedureDatasetResolver,
@@ -78,6 +79,7 @@ class TestEngineService:
         source_path: str | Path,
         audit_period_start: str = "",
         audit_period_end: str = "",
+        audit_currency: str = "",
         executor_identity: ProcedureExecutorIdentity | None = None,
         parameters: Mapping[str, object] | None = None,
         dataset_sources: Iterable[ProcedureDatasetSource] = (),
@@ -183,6 +185,13 @@ class TestEngineService:
                 audit_period_end=audit_period_end,
                 executor_identity=executor_identity,
                 parameters=resolved_parameters,
+            )
+            context = replace(
+                context,
+                audit_currency=normalise_currency_code(
+                    audit_currency,
+                    allow_blank=True,
+                ),
             )
             # Keep immutable expected evidence that is never exposed to the procedure.
             # In particular, frozen dataclasses do not freeze nested parameters.

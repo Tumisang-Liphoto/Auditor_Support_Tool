@@ -70,6 +70,7 @@ class AuditProcedureReportBuilder:
                 dataset_id=context.dataset_id,
                 audit_period_start=context.audit_period_start,
                 audit_period_end=context.audit_period_end,
+                audit_currency=context.audit_currency,
                 parameters=normalise_report_mapping(context.parameters),
             ),
             summary=AuditProcedureReportSummary(

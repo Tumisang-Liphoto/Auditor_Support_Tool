@@ -290,6 +290,7 @@ def test_engine_carries_audit_period_and_parameters(
         source_path=create_source_file(tmp_path),
         audit_period_start="2026-04-01",
         audit_period_end="2027-03-31",
+        audit_currency="LSL",
         executor_identity=executor,
         parameters={
             "threshold": 1000,
@@ -302,6 +303,7 @@ def test_engine_carries_audit_period_and_parameters(
 
     assert context.audit_period_start == "2026-04-01"
     assert context.audit_period_end == "2027-03-31"
+    assert context.audit_currency == "LSL"
     assert context.parameters == {
         "threshold": 1000,
     }

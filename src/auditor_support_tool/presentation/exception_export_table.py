@@ -94,6 +94,7 @@ def build_exception_export_table(
         ("mapping_fingerprint", ctx.mapping_fingerprint),
         ("audit_period_start", ctx.audit_period_start),
         ("audit_period_end", ctx.audit_period_end),
+        ("audit_currency", ctx.audit_currency),
         ("scope_note", "Search, filters, pagination and hidden columns do not affect this export."),
         (
             "fidelity_note",

@@ -89,6 +89,7 @@ def test_save_and_load_document_round_trip(
         audit_year="2026",
         audit_period_start="2026-04-01",
         audit_period_end="2027-03-31",
+        audit_currency="USD",
     )
 
     document = WorkspaceDocument.create(
@@ -115,6 +116,7 @@ def test_save_and_load_document_round_trip(
     assert loaded.identity.audit_year == "2026"
     assert loaded.identity.audit_period_start == "2026-04-01"
     assert loaded.identity.audit_period_end == "2027-03-31"
+    assert loaded.identity.audit_currency == "USD"
     assert loaded.identity.has_audit_period is True
     assert loaded.active_dataset_id == "dataset-001"
     assert loaded.field_mappings == document.field_mappings
@@ -167,6 +169,7 @@ def test_legacy_workspace_without_audit_period_loads(
     assert loaded.identity.audit_year == "2026"
     assert loaded.identity.audit_period_start == ""
     assert loaded.identity.audit_period_end == ""
+    assert loaded.identity.audit_currency == "LSL"
     assert loaded.identity.has_audit_period is False
 
 
@@ -198,6 +201,29 @@ def test_saved_workspace_contains_audit_period(
 
     assert raw_identity["audit_period_start"] == "2026-04-01"
     assert raw_identity["audit_period_end"] == "2027-03-31"
+    assert raw_identity["audit_currency"] == "LSL"
+
+
+def test_invalid_saved_audit_currency_is_rejected(
+    workspace_service: WorkspaceService,
+    tmp_path: Path,
+) -> None:
+    """Malformed audit currency metadata must fail closed."""
+
+    document = WorkspaceDocument.create(
+        identity=WorkspaceIdentity.create(name="Invalid Currency Audit"),
+        application_version=APP_VERSION,
+    )
+    document.identity.audit_currency = "MALOTI"
+
+    with pytest.raises(
+        WorkspaceServiceError,
+        match="Invalid audit currency",
+    ):
+        workspace_service.save_document(
+            document,
+            tmp_path / "invalid-currency.astworkspace",
+        )
 
 
 def test_invalid_saved_audit_period_is_rejected(

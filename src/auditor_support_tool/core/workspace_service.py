@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from auditor_support_tool.core.constants import APP_VERSION
+from auditor_support_tool.core.currency import DEFAULT_CURRENCY_CODE
 from auditor_support_tool.core.data_quality_models import (
     DataQualityIssue,
     DataQualityScope,
@@ -427,6 +428,12 @@ class WorkspaceService:
                         "",
                     )
                 ).strip(),
+                audit_currency=str(
+                    raw_identity.get(
+                        "audit_currency",
+                        DEFAULT_CURRENCY_CODE,
+                    )
+                ).strip(),
                 audit_domain=str(
                     raw_identity.get(
                         "audit_domain",
@@ -607,28 +614,20 @@ class WorkspaceService:
 
         for raw_requirement in raw_requirements:
             if not isinstance(raw_requirement, dict):
-                raise TypeError(
-                    "Procedure rerun requirement entries must be objects."
-                )
+                raise TypeError("Procedure rerun requirement entries must be objects.")
 
             try:
-                procedure_id = canonical_procedure_id(
-                    str(raw_requirement["procedure_id"])
-                )
+                procedure_id = canonical_procedure_id(str(raw_requirement["procedure_id"]))
                 dataset_id = str(raw_requirement["dataset_id"]).strip()
             except (
                 KeyError,
                 TypeError,
                 ValueError,
             ) as error:
-                raise TypeError(
-                    f"Invalid procedure rerun requirement: {error}"
-                ) from error
+                raise TypeError(f"Invalid procedure rerun requirement: {error}") from error
 
             if not dataset_id:
-                raise TypeError(
-                    "Procedure rerun requirement dataset identifiers cannot be blank."
-                )
+                raise TypeError("Procedure rerun requirement dataset identifiers cannot be blank.")
 
             key = (
                 procedure_id,
@@ -843,6 +842,11 @@ class WorkspaceService:
             raise WorkspaceServiceError(f"Invalid audit period: {error}") from error
 
         try:
+            document.identity.validate_audit_currency()
+        except ValueError as error:
+            raise WorkspaceServiceError(f"Invalid audit currency: {error}") from error
+
+        try:
             self._procedure_parameters_from_raw(document.procedure_parameters)
         except TypeError as error:
             raise WorkspaceServiceError(f"Invalid procedure parameters: {error}") from error
@@ -859,9 +863,7 @@ class WorkspaceService:
                 document.procedure_rerun_requirements
             )
         except TypeError as error:
-            raise WorkspaceServiceError(
-                f"Invalid procedure rerun requirements: {error}"
-            ) from error
+            raise WorkspaceServiceError(f"Invalid procedure rerun requirements: {error}") from error
 
         successful_keys = {
             (
@@ -879,8 +881,7 @@ class WorkspaceService:
 
             if key not in successful_keys:
                 raise WorkspaceServiceError(
-                    "A procedure rerun requirement must reference "
-                    "a successful procedure execution."
+                    "A procedure rerun requirement must reference a successful procedure execution."
                 )
 
         if not document.identity.created_at.strip():

@@ -35,6 +35,7 @@ def create_stamp(
         procedure_version="1.0",
         source_sha256="a" * 64,
         mapping_fingerprint="b" * 64,
+        audit_currency="LSL",
         executor=ProcedureExecutorIdentity.create(
             full_name="Example Auditor",
             job_title="Senior Auditor",
@@ -90,10 +91,12 @@ def test_execution_stamp_preserves_executor_and_loads_legacy_stamps() -> None:
 
     legacy_payload = dict(payload)
     legacy_payload.pop("executor")
+    legacy_payload.pop("audit_currency")
     legacy_payload["completed_at"] = "2026-09-15T08:00:00+00:00"
     legacy = ProcedureExecutionStamp.from_dict(legacy_payload)
 
     assert legacy.executor.is_recorded is False
+    assert legacy.audit_currency == ""
     assert legacy.completed_at == "2026-09-15T08:00:00+00:00"
 
 

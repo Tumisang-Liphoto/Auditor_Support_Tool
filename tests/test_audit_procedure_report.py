@@ -53,6 +53,7 @@ def _result() -> ProcedureResult:
         mapping_fingerprint="b" * 64,
         audit_period_start="2023-04-01",
         audit_period_end="2024-03-31",
+        audit_currency="LSL",
         parameters={
             "case_sensitive": False,
         },
@@ -132,6 +133,7 @@ def test_report_builder_captures_complete_procedure_result() -> None:
     assert report.scope.dataset_id == "dataset-gl"
     assert report.scope.audit_period_start == "2023-04-01"
     assert report.scope.audit_period_end == "2024-03-31"
+    assert report.scope.audit_currency == "LSL"
     assert report.scope.parameters == {
         "case_sensitive": False,
     }
@@ -196,8 +198,9 @@ def test_report_json_is_complete_and_json_safe() -> None:
 
     payload = json.loads(report.to_json())
 
-    assert payload["schema_version"] == 1
+    assert payload["schema_version"] == 2
     assert payload["identity"]["procedure_id"] == "GL006"
+    assert payload["scope"]["audit_currency"] == "LSL"
     assert payload["summary"]["exception_count"] == 2
     assert payload["metrics"]["analysis_date"] == "2024-03-31"
     assert payload["metrics"]["user_analysis"][0]["amount"] == "125000.50"
@@ -216,6 +219,47 @@ def test_report_fingerprint_is_stable_for_same_report() -> None:
 
     assert first.report_fingerprint == second.report_fingerprint
     assert len(first.report_fingerprint) == 64
+
+
+def test_report_fingerprint_changes_when_audit_currency_changes() -> None:
+    """Currency is execution scope and must be bound into structured report evidence."""
+
+    first_result = _result()
+    second_result = ProcedureResult.create(
+        context=ProcedureRunContext.create(
+            request=AuditExecutionRequest.create(
+                procedure_id="GL006",
+                dataset_id="dataset-gl",
+            ),
+            procedure_version="1.0",
+            source_sha256="a" * 64,
+            mapping_fingerprint="b" * 64,
+            audit_period_start="2023-04-01",
+            audit_period_end="2024-03-31",
+            audit_currency="USD",
+            parameters={"case_sensitive": False},
+        ),
+        population_count=first_result.population_count,
+        records_evaluated_count=first_result.records_evaluated_count,
+        exception_records=first_result.exception_records,
+        exclusion_counts=first_result.exclusion_counts,
+        related_value_total=first_result.related_value_total,
+        limitations=first_result.limitations,
+        metrics=first_result.metrics,
+    )
+
+    first = AuditProcedureReportBuilder().build(
+        definition=_definition(),
+        result=first_result,
+    )
+    second = AuditProcedureReportBuilder().build(
+        definition=_definition(),
+        result=second_result,
+    )
+
+    assert first.report_fingerprint != second.report_fingerprint
+    assert first.scope.audit_currency == "LSL"
+    assert second.scope.audit_currency == "USD"
 
 
 def test_report_fingerprint_changes_when_analysis_changes() -> None:

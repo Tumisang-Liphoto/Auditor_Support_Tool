@@ -265,7 +265,11 @@ class ResultsPage(QWidget):
             )
             self._presentation = replace(
                 self._presentation,
-                table=add_source_columns(self._presentation.table, self._source_records),
+                table=add_source_columns(
+                    self._presentation.table,
+                    self._source_records,
+                    currency_code=outcome.result.context.audit_currency,
+                ),
             )
             self._populate_dashboard(self._presentation)
         else:
@@ -521,6 +525,7 @@ class ResultsPage(QWidget):
         self._metadata_worksheet = QLabel()
         self._metadata_records = QLabel()
         self._metadata_period = QLabel()
+        self._metadata_currency = QLabel()
         self._metadata_executed = QLabel()
 
         metadata_items = (
@@ -539,6 +544,10 @@ class ResultsPage(QWidget):
             (
                 self._metadata_period,
                 "fa5s.calendar-alt",
+            ),
+            (
+                self._metadata_currency,
+                "fa5s.coins",
             ),
             (
                 self._metadata_executed,
@@ -995,12 +1004,15 @@ class ResultsPage(QWidget):
                 context.audit_period_start,
                 context.audit_period_end,
             )
+            currency_text = context.audit_currency or "Not recorded"
         else:
             population = 0
             period_text = "Not available"
+            currency_text = "Not available"
 
         self._metadata_records.setText(f"Records: {population:,}")
         self._metadata_period.setText(f"Period: {period_text}")
+        self._metadata_currency.setText(f"Currency: {currency_text}")
 
         executed_text = "—"
 
@@ -1536,12 +1548,7 @@ class ResultsPage(QWidget):
 
                 item = QTableWidgetItem(value)
 
-                if column.key in {
-                    "source_row",
-                    "debit_amount",
-                    "credit_amount",
-                    "transaction_amount",
-                }:
+                if column.key == "source_row" or column.value_kind == "monetary":
                     item.setTextAlignment(
                         Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
                     )

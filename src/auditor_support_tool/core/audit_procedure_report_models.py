@@ -17,7 +17,7 @@ from decimal import Decimal
 from enum import Enum
 from pathlib import Path
 
-REPORT_SCHEMA_VERSION = 1
+REPORT_SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +39,7 @@ class AuditProcedureReportScope:
     dataset_id: str
     audit_period_start: str
     audit_period_end: str
+    audit_currency: str
     parameters: dict[str, object]
 
 
@@ -171,6 +172,7 @@ class AuditProcedureReport:
                 "dataset_id": self.scope.dataset_id,
                 "audit_period_start": self.scope.audit_period_start,
                 "audit_period_end": self.scope.audit_period_end,
+                "audit_currency": self.scope.audit_currency,
                 "parameters": normalise_report_mapping(self.scope.parameters),
             },
             "summary": {

@@ -7,6 +7,11 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from auditor_support_tool.core.currency import (
+    DEFAULT_CURRENCY_CODE,
+    normalise_currency_code,
+)
+
 WORKSPACE_FILE_EXTENSION = ".astworkspace"
 WORKSPACE_FORMAT_VERSION = 1
 
@@ -75,6 +80,7 @@ class WorkspaceIdentity:
     audit_year: str = ""
     audit_period_start: str = ""
     audit_period_end: str = ""
+    audit_currency: str = DEFAULT_CURRENCY_CODE
     audit_domain: str = ""
     audit_area: str = ""
     lead_auditor: str = ""
@@ -92,6 +98,7 @@ class WorkspaceIdentity:
         audit_year: str = "",
         audit_period_start: str = "",
         audit_period_end: str = "",
+        audit_currency: str = DEFAULT_CURRENCY_CODE,
         audit_domain: str = "",
         audit_area: str = "",
         lead_auditor: str = "",
@@ -119,6 +126,7 @@ class WorkspaceIdentity:
             audit_year=audit_year.strip(),
             audit_period_start=cleaned_period_start,
             audit_period_end=cleaned_period_end,
+            audit_currency=normalise_currency_code(audit_currency),
             audit_domain=audit_domain.strip(),
             audit_area=audit_area.strip(),
             lead_auditor=lead_auditor.strip(),
@@ -130,6 +138,11 @@ class WorkspaceIdentity:
         """Return whether a complete audit period has been recorded."""
 
         return bool(self.audit_period_start and self.audit_period_end)
+
+    def validate_audit_currency(self) -> None:
+        """Validate and normalise the saved audit currency code."""
+
+        self.audit_currency = normalise_currency_code(self.audit_currency)
 
     def validate_audit_period(self) -> None:
         """Validate the saved audit-period values."""

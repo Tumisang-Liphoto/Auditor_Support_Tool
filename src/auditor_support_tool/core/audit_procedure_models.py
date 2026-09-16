@@ -10,6 +10,7 @@ from decimal import Decimal
 from auditor_support_tool.core.audit_execution_models import (
     AuditExecutionRequest,
 )
+from auditor_support_tool.core.currency import normalise_currency_code
 from auditor_support_tool.core.workspace_models import utc_now_iso
 
 DEFAULT_AUDIT_USE_STATEMENT = (
@@ -66,6 +67,7 @@ class ProcedureRunContext:
 
     audit_period_start: str = ""
     audit_period_end: str = ""
+    audit_currency: str = ""
 
     executor: ProcedureExecutorIdentity = field(default_factory=ProcedureExecutorIdentity)
     parameters: dict[str, object] = field(default_factory=dict)
@@ -81,6 +83,7 @@ class ProcedureRunContext:
         mapping_fingerprint: str,
         audit_period_start: str = "",
         audit_period_end: str = "",
+        audit_currency: str = "",
         executor: ProcedureExecutorIdentity | None = None,
         parameters: Mapping[str, object] | None = None,
     ) -> ProcedureRunContext:
@@ -126,6 +129,7 @@ class ProcedureRunContext:
             mapping_fingerprint=cleaned_mapping_hash,
             audit_period_start=cleaned_period_start,
             audit_period_end=cleaned_period_end,
+            audit_currency=normalise_currency_code(audit_currency, allow_blank=True),
             executor=cleaned_executor,
             parameters=dict(parameters or {}),
         )

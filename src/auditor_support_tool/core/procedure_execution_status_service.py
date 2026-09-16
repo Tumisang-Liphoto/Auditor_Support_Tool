@@ -7,6 +7,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
 
+from auditor_support_tool.core.currency import normalise_currency_code
 from auditor_support_tool.core.procedure_execution_models import (
     ProcedureExecutionStamp,
     normalise_execution_parameters,
@@ -60,6 +61,7 @@ class ProcedureExecutionStatusService:
         parameters: Mapping[str, object],
         audit_period_start: str,
         audit_period_end: str,
+        audit_currency: str = "",
         stamp: ProcedureExecutionStamp | None,
         rerun_required: bool,
     ) -> ProcedureExecutionStatus:
@@ -87,6 +89,12 @@ class ProcedureExecutionStatusService:
             return ProcedureExecutionStatus.NEEDS_RERUN
 
         if stamp.audit_period_end != audit_period_end.strip():
+            return ProcedureExecutionStatus.NEEDS_RERUN
+
+        if stamp.audit_currency != normalise_currency_code(
+            audit_currency,
+            allow_blank=True,
+        ):
             return ProcedureExecutionStatus.NEEDS_RERUN
 
         try:

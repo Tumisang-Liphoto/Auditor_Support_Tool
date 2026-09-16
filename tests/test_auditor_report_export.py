@@ -171,6 +171,72 @@ def test_complete_formats_preserve_values_and_evidence(report_request, tmp_path,
     assert build_report_document(report_request).report.to_json() == model.report.to_json()
 
 
+def test_human_report_formats_monetary_values_and_preserves_raw_source_cells(
+    report_request,
+) -> None:
+    """Human report values use the run currency while source evidence remains raw."""
+
+    sources = replace(
+        report_request.sources,
+        monetary_headers=frozenset({"Value"}),
+    )
+    document = build_report_document(replace(report_request, sources=sources))
+
+    execution = next(
+        section for section in document.sections if section.title == "Execution details"
+    )
+    assert dict(execution.rows)["Audit currency"] == "LSL"
+    assert "Value (LSL)" in document.exception_headers
+    assert document.exception_rows[0][3] == Decimal("12.340")
+    assert "Transaction Amount=M125,000.50" in str(document.exception_rows[0][-2])
+    assert document.exception_rows[0][-1] == "M125,000.50"
+    assert dict(document.evidence.rows)["Audit currency"] == "LSL"
+
+
+def test_legacy_report_without_currency_does_not_invent_a_unit(
+    report_request,
+) -> None:
+    """Historical results without recorded currency keep their legacy presentation."""
+
+    legacy_result = replace(
+        report_request.result,
+        context=replace(report_request.result.context, audit_currency=""),
+    )
+    sources = replace(
+        report_request.sources,
+        monetary_headers=frozenset({"Value"}),
+    )
+    document = build_report_document(
+        replace(
+            report_request,
+            result=legacy_result,
+            sources=sources,
+        )
+    )
+
+    execution = next(
+        section for section in document.sections if section.title == "Execution details"
+    )
+    assert dict(execution.rows)["Audit currency"] == "Not recorded"
+    assert "Value" in document.exception_headers
+    assert "Value (LSL)" not in document.exception_headers
+    assert "Transaction Amount=125000.50" in str(document.exception_rows[0][-2])
+    assert document.exception_rows[0][-1] == "125000.50"
+
+
+def test_structured_report_fingerprint_changes_with_currency(report_request) -> None:
+    """Changing the recorded execution currency changes structured report evidence."""
+
+    first = build_report_document(report_request)
+    usd_result = replace(
+        report_request.result,
+        context=replace(report_request.result.context, audit_currency="USD"),
+    )
+    second = build_report_document(replace(report_request, result=usd_result))
+
+    assert first.report.report_fingerprint != second.report.report_fingerprint
+
+
 def test_execution_timestamp_is_presented_in_system_local_time(report_request) -> None:
     """Visible execution time should use the operating system's configured local timezone."""
 

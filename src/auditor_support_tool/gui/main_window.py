@@ -394,7 +394,11 @@ class MainWindow(QMainWindow):
         if not self._confirm_workspace_transition():
             return
 
-        dialog = NewWorkspaceDialog(self)
+        profile = self._settings_service.get_user_profile()
+        dialog = NewWorkspaceDialog(
+            self,
+            default_currency=profile.default_currency,
+        )
 
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
@@ -453,13 +457,15 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("No audit details were changed.")
             return
 
-        period_changed = bool({"audit_period_start", "audit_period_end"} & set(changed_fields))
+        execution_context_changed = bool(
+            {"audit_period_start", "audit_period_end", "audit_currency"} & set(changed_fields)
+        )
 
-        if period_changed:
-            # Do not leave a result from the previous audit period on screen.
+        if execution_context_changed:
+            # Do not leave a result from prior execution scope on screen.
             self._results_page.clear_result()
             self.statusBar().showMessage(
-                "Audit details updated. The audit period changed; "
+                "Audit details updated. Execution scope changed; "
                 "previous procedure runs may require re-run."
             )
             return

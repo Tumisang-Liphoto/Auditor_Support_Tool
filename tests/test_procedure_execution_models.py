@@ -31,6 +31,7 @@ def create_context(
         mapping_fingerprint="b" * 64,
         audit_period_start="2026-01-01",
         audit_period_end="2026-12-31",
+        audit_currency="LSL",
         parameters=parameters or {},
     )
 
@@ -60,6 +61,7 @@ def test_execution_stamp_preserves_reproducibility_context() -> None:
     assert stamp.mapping_fingerprint == "b" * 64
     assert stamp.audit_period_start == "2026-01-01"
     assert stamp.audit_period_end == "2026-12-31"
+    assert stamp.audit_currency == "LSL"
     assert stamp.parameters == {
         "weekend_days": [
             "Saturday",

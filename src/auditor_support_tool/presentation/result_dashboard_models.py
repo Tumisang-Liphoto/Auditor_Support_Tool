@@ -51,6 +51,7 @@ class DashboardTableColumn:
     key: str
     label: str
     visible_by_default: bool = True
+    value_kind: str = "text"
 
 
 @dataclass(frozen=True, slots=True)

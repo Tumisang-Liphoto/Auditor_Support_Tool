@@ -37,6 +37,7 @@ def page(qtbot):
         procedure_version=registry.require("GL001").definition.procedure_version,
         source_sha256="a" * 64,
         mapping_fingerprint="b" * 64,
+        audit_currency="LSL",
     )
     records = tuple(
         ProcedureExceptionRecord.create(
@@ -95,7 +96,8 @@ def test_rows_and_pagination(page):
     rows = page._presentation.table.rows
     assert_visible_rows(page, rows[:50])
     assert page._exceptions_table.item(0, 0).text() == "2"
-    assert page._exceptions_table.item(0, 4).text() == "1,234.50"
+    assert page._exceptions_table.item(0, 4).text() == "M1,234.50"
+    assert page._metadata_currency.text() == "Currency: LSL"
     assert page._exceptions_table.item(0, 0).textAlignment() & Qt.AlignmentFlag.AlignRight
     assert page._page_label.text() == "Page 1 of 3"
     assert not page._previous_page_button.isEnabled()
@@ -508,6 +510,10 @@ def source_page(page, tmp_path):
     package = WorkbookPackageService().build_package(path)
     dataset = package.datasets[0]
     dataset.dataset_id = "dataset-1"
+    amount_column = next(
+        column for column in dataset.columns if column.source_column == "Original Amount"
+    )
+    dataset.field_mappings = {amount_column.column_id: "transaction_amount"}
     dataset.loaded_table = replace(
         dataset.loaded_table,
         rows=(
@@ -550,7 +556,7 @@ def test_source_values_columns_search_and_horizontal_scroll(source_page, qapp):
     assert [c.label for c in columns[:5]] == [
         "Source Row",
         "Original Ref",
-        "Original Amount",
+        "Original Amount (LSL)",
         "Reason",
         "Reason",
     ]

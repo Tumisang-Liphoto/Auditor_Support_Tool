@@ -21,6 +21,10 @@ from PySide6.QtWidgets import (
 from auditor_support_tool.core.audit_procedure_models import (
     ProcedureExecutorIdentity,
 )
+from auditor_support_tool.core.currency import (
+    format_monetary_value,
+    is_monetary_field,
+)
 from auditor_support_tool.core.prepared_audit_dataset import (
     PreparedAuditDataset,
 )
@@ -624,6 +628,7 @@ class AuditProceduresPage(QWidget):
 
         audit_period_start = str(getattr(identity, "audit_period_start", "") or "")
         audit_period_end = str(getattr(identity, "audit_period_end", "") or "")
+        audit_currency = str(getattr(identity, "audit_currency", "") or "")
 
         executor_identity = self._execution_user_identity()
 
@@ -639,6 +644,7 @@ class AuditProceduresPage(QWidget):
             source_path=source_path,
             audit_period_start=audit_period_start,
             audit_period_end=audit_period_end,
+            audit_currency=audit_currency,
             executor_identity=executor_identity,
             parameters=effective_parameters,
             dataset_sources=tuple(
@@ -793,6 +799,14 @@ class AuditProceduresPage(QWidget):
             )
             or ""
         )
+        audit_currency = str(
+            getattr(
+                identity,
+                "audit_currency",
+                "",
+            )
+            or ""
+        )
 
         status_source = source
 
@@ -812,6 +826,7 @@ class AuditProceduresPage(QWidget):
             parameters=effective_parameters,
             audit_period_start=audit_period_start,
             audit_period_end=audit_period_end,
+            audit_currency=audit_currency,
             stamp=stamp,
             rerun_required=self._workspace_state.procedure_requires_rerun(
                 definition.procedure_id, source.dataset_id
@@ -973,6 +988,10 @@ class AuditProceduresPage(QWidget):
             return f"Settings need review: {error}"
 
         parts: list[str] = []
+        identity = self._workspace_state.workspace_identity
+        audit_currency = (
+            str(getattr(identity, "audit_currency", "") or "") if identity is not None else ""
+        )
 
         for parameter in definition.parameter_definitions:
             if parameter.key not in effective_values:
@@ -983,6 +1002,12 @@ class AuditProceduresPage(QWidget):
                 parameter,
                 effective_values[parameter.key],
             )
+
+            if audit_currency and is_monetary_field(parameter.key):
+                value_text = format_monetary_value(
+                    effective_values[parameter.key],
+                    audit_currency,
+                )
             default_suffix = (
                 " (default)"
                 if parameter.key not in saved_values and parameter.default_value is not None

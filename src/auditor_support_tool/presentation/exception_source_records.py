@@ -3,6 +3,7 @@
 from dataclasses import dataclass, replace
 
 from auditor_support_tool.core.audit_procedure_models import ProcedureResult
+from auditor_support_tool.core.currency import is_monetary_field, normalise_currency_code
 from auditor_support_tool.core.data_models import SOURCE_ROW_FIELD
 from auditor_support_tool.core.prepared_audit_dataset import build_source_record_id
 from auditor_support_tool.core.workbook_package import WorksheetDataset
@@ -20,6 +21,7 @@ class ExceptionSourceRecords:
     records: dict[tuple[str, int], tuple[object, ...]]
     dataset_id: str = ""
     source_sha256: str = ""
+    monetary_headers: frozenset[str] = frozenset()
 
 
 def resolve_exception_sources(
@@ -40,6 +42,11 @@ def resolve_exception_sources(
         return empty
     wanted = {(e.source_record_id, e.source_row_number) for e in result.exception_records}
     headers = tuple(dict.fromkeys(h for h in table.headers if h != SOURCE_ROW_FIELD))
+    monetary_headers = frozenset(
+        column.source_column
+        for column in dataset.columns
+        if is_monetary_field(dataset.field_mappings.get(column.column_id, ""))
+    )
     records = {}
     seen = set()
     for row in table.rows:
@@ -56,11 +63,20 @@ def resolve_exception_sources(
         seen.add(identity)
         records[identity] = tuple(row.get(header) for header in headers)
     return ExceptionSourceRecords(
-        headers if records else (), records, dataset.dataset_id, table.source_sha256
+        headers if records else (),
+        records,
+        dataset.dataset_id,
+        table.source_sha256,
+        monetary_headers if records else frozenset(),
     )
 
 
-def add_source_columns(table: DashboardTable, sources: ExceptionSourceRecords) -> DashboardTable:
+def add_source_columns(
+    table: DashboardTable,
+    sources: ExceptionSourceRecords,
+    *,
+    currency_code: str = "",
+) -> DashboardTable:
     """Extend existing presenter rows by identity, preserving filters and explanations."""
     columns = {column.key: column for column in table.columns}
     columns.setdefault("reason", DashboardTableColumn("reason", "Reason"))
@@ -75,7 +91,17 @@ def add_source_columns(table: DashboardTable, sources: ExceptionSourceRecords) -
         key = f"source:{index}"
         while key in columns:
             key = "source:" + key
-        source_columns.append(DashboardTableColumn(key, header, index < 12))
+        monetary = header in sources.monetary_headers
+        currency = normalise_currency_code(currency_code, allow_blank=True)
+        label = f"{header} ({currency})" if monetary and currency else header
+        source_columns.append(
+            DashboardTableColumn(
+                key,
+                label,
+                index < 12,
+                "monetary" if monetary else "text",
+            )
+        )
     rows = []
     unresolved = 0
     for row in table.rows:

@@ -7,6 +7,7 @@ from itertools import chain
 from auditor_support_tool.core.audit_procedure_models import ProcedureResult
 from auditor_support_tool.core.audit_procedure_report_builder import AuditProcedureReportBuilder
 from auditor_support_tool.core.audit_procedure_report_models import AuditProcedureReport
+from auditor_support_tool.core.currency import format_monetary_value, is_monetary_field
 from auditor_support_tool.core.procedure_definition import ProcedureDefinition
 from auditor_support_tool.presentation.audit_procedure_report_formatter import report_display_label
 from auditor_support_tool.presentation.exception_export_table import Cell, _cell
@@ -71,7 +72,13 @@ def _system_local_timestamp(value: str) -> str:
     return f"{local_timestamp:%d/%m/%y %H:%M}"
 
 
-def _pairs(value: object, prefix: str = "") -> list[tuple[str, Cell]]:
+def _pairs(
+    value: object,
+    prefix: str = "",
+    *,
+    currency_code: str = "",
+    field_key: str = "",
+) -> list[tuple[str, Cell]]:
     """Display nested deterministic metrics/parameters without Python object reprs."""
     if isinstance(value, (dict, list, tuple)) and not value:
         return [(prefix, _cell(value))]
@@ -79,15 +86,34 @@ def _pairs(value: object, prefix: str = "") -> list[tuple[str, Cell]]:
         return [
             pair
             for key, item in value.items()
-            for pair in _pairs(item, f"{prefix} / {report_display_label(key)}".strip(" /"))
+            for pair in _pairs(
+                item,
+                f"{prefix} / {report_display_label(key)}".strip(" /"),
+                currency_code=currency_code,
+                field_key=str(key),
+            )
         ]
     if isinstance(value, (list, tuple)):
         return [
             pair
             for index, item in enumerate(value, 1)
-            for pair in _pairs(item, f"{prefix} / {index}")
+            for pair in _pairs(
+                item,
+                f"{prefix} / {index}",
+                currency_code=currency_code,
+                field_key=field_key,
+            )
         ]
+    if is_monetary_field(field_key) and currency_code.strip():
+        return [(prefix, _cell(format_monetary_value(value, currency_code)))]
     return [(prefix, _cell(value))]
+
+
+def _details_cell(values: dict[str, object], currency_code: str) -> str:
+    """Return readable exception details with explicit monetary formatting."""
+
+    pairs = _pairs(values, currency_code=currency_code)
+    return "; ".join(f"{label}={value}" for label, value in pairs) or "—"
 
 
 def build_report_document(request: ReportExportRequest) -> ReportDocument:
@@ -118,18 +144,28 @@ def build_report_document(request: ReportExportRequest) -> ReportDocument:
         cells = sources.records[(exception.source_record_id, exception.source_row_number)]
         if len(cells) != len(headers):
             raise ValueError("Source transaction columns do not match the evidence.")
+        source_cells = tuple(_cell(value) for value in cells)
         rows.append(
-            tuple(
-                _cell(value)
-                for value in (
-                    exception.source_row_number,
-                    exception.source_record_id,
-                    *cells,
-                    exception.reason,
-                    exception.reason_code,
-                    exception.values,
-                    exception.related_value,
-                )
+            (
+                _cell(exception.source_row_number),
+                _cell(exception.source_record_id),
+                *source_cells,
+                _cell(exception.reason),
+                _cell(exception.reason_code),
+                _cell(
+                    _details_cell(
+                        exception.values,
+                        report.scope.audit_currency,
+                    )
+                ),
+                _cell(
+                    format_monetary_value(
+                        exception.related_value,
+                        report.scope.audit_currency,
+                    )
+                    if exception.related_value is not None and report.scope.audit_currency
+                    else exception.related_value
+                ),
             )
         )
     presentation = present_result(procedure_id=report.identity.procedure_id, result=result)
@@ -146,6 +182,7 @@ def build_report_document(request: ReportExportRequest) -> ReportDocument:
                 ("Audit / workspace", request.workspace_name or "Not recorded"),
                 ("Auditee", request.auditee_name or "Not recorded"),
                 ("Audit period", period or "Not specified"),
+                ("Audit currency", report.scope.audit_currency or "Not recorded"),
                 ("Dataset", request.dataset_name or report.scope.dataset_id),
                 ("Worksheet", request.worksheet_name or "Not recorded"),
                 ("Procedure version", report.identity.procedure_version),
@@ -158,6 +195,7 @@ def build_report_document(request: ReportExportRequest) -> ReportDocument:
                 ("Job title", executor.job_title or "Not recorded"),
                 ("Directorate", executor.directorate or "Not recorded"),
                 ("Organisation", executor.organization or "Not recorded"),
+                ("Audit currency", report.scope.audit_currency or "Not recorded"),
                 ("Execution date/time", execution_time),
             ),
         ),
@@ -192,10 +230,29 @@ def build_report_document(request: ReportExportRequest) -> ReportDocument:
                     ("Excluded", summary.excluded_record_count),
                     ("Exceptions", summary.exception_count),
                     ("Exception rate (%)", summary.exception_rate),
-                    ("Related value total", summary.related_value_total),
+                    (
+                        "Related value total",
+                        (
+                            format_monetary_value(
+                                summary.related_value_total,
+                                report.scope.audit_currency,
+                            )
+                            if summary.related_value_total is not None
+                            and report.scope.audit_currency
+                            else summary.related_value_total
+                        ),
+                    ),
                 ),
             ),
-            ReportSection("Procedure metrics", rows=tuple(_pairs(report.metrics))),
+            ReportSection(
+                "Procedure metrics",
+                rows=tuple(
+                    _pairs(
+                        report.metrics,
+                        currency_code=report.scope.audit_currency,
+                    )
+                ),
+            ),
             ReportSection("Key observations", presentation.observations),
             ReportSection("Areas requiring attention", presentation.attention_areas),
             ReportSection(
@@ -211,7 +268,16 @@ def build_report_document(request: ReportExportRequest) -> ReportDocument:
             ReportSection(
                 section.title,
                 (section.narrative,) if section.narrative else (),
-                tuple(_pairs(section.data)) if section.data else (),
+                (
+                    tuple(
+                        _pairs(
+                            section.data,
+                            currency_code=report.scope.audit_currency,
+                        )
+                    )
+                    if section.data
+                    else ()
+                ),
             )
         )
     evidence = ReportSection(
@@ -225,6 +291,7 @@ def build_report_document(request: ReportExportRequest) -> ReportDocument:
             ("Mapping fingerprint", report.mapping_fingerprint),
             ("Audit period start", report.scope.audit_period_start),
             ("Audit period end", report.scope.audit_period_end),
+            ("Audit currency", report.scope.audit_currency or "Not recorded"),
             ("Executed by", executor.full_name or "Not recorded"),
             ("Executor job title", executor.job_title or "Not recorded"),
             ("Executor directorate", executor.directorate or "Not recorded"),
@@ -238,16 +305,36 @@ def build_report_document(request: ReportExportRequest) -> ReportDocument:
             "generated from the execution result. Executor identity, procedure methodology "
             "metadata, workspace labels, local-time display values and resolved source cells are "
             "supplementary provenance or presentation context and are not covered by this "
-            "fingerprint. When recorded, executor identity is captured from the local User Profile "
-            "when the run is initiated; it is not a digital signature or authenticated proof of "
+            "fingerprint. The recorded audit currency is execution scope and is covered by the "
+            "structured report fingerprint. When recorded, executor identity is captured from "
+            "the local User Profile when the run is initiated; it is not a digital signature or "
+            "authenticated proof of "
             "authorship. "
             "Source cells are linked by dataset, source hash, record ID and source row.",
         ),
     )
+    source_headers = tuple(
+        (
+            f"{header} ({report.scope.audit_currency})"
+            if sources is not None
+            and header in sources.monetary_headers
+            and report.scope.audit_currency
+            else header
+        )
+        for header in headers
+    )
     document = ReportDocument(
         report,
         tuple(sections),
-        ("Source Row", "Record ID", *headers, "Reason", "Reason code", "Details", "Related value"),
+        (
+            "Source Row",
+            "Record ID",
+            *source_headers,
+            "Reason",
+            "Reason code",
+            "Details",
+            "Related value",
+        ),
         tuple(rows),
         evidence,
     )

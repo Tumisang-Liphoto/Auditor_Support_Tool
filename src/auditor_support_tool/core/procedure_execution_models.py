@@ -9,6 +9,7 @@ from auditor_support_tool.core.audit_procedure_models import (
     ProcedureExecutorIdentity,
     ProcedureRunContext,
 )
+from auditor_support_tool.core.currency import normalise_currency_code
 from auditor_support_tool.core.procedure_identity import (
     canonical_procedure_id,
 )
@@ -29,6 +30,7 @@ class ProcedureExecutionStamp:
 
     audit_period_start: str = ""
     audit_period_end: str = ""
+    audit_currency: str = ""
 
     executor: ProcedureExecutorIdentity = field(default_factory=ProcedureExecutorIdentity)
     parameters: dict[str, object] | None = None
@@ -51,6 +53,7 @@ class ProcedureExecutionStamp:
             mapping_fingerprint=context.mapping_fingerprint,
             audit_period_start=context.audit_period_start,
             audit_period_end=context.audit_period_end,
+            audit_currency=context.audit_currency,
             executor=context.executor,
             parameters=context.parameters,
             completed_at=completed_at,
@@ -68,6 +71,7 @@ class ProcedureExecutionStamp:
         mapping_fingerprint: str,
         audit_period_start: str = "",
         audit_period_end: str = "",
+        audit_currency: str = "",
         executor: ProcedureExecutorIdentity | None = None,
         parameters: Mapping[str, object] | None = None,
         completed_at: str,
@@ -118,6 +122,7 @@ class ProcedureExecutionStamp:
             ),
             audit_period_start=audit_period_start.strip(),
             audit_period_end=audit_period_end.strip(),
+            audit_currency=normalise_currency_code(audit_currency, allow_blank=True),
             executor=cleaned_executor,
             parameters=normalise_execution_parameters(parameters or {}),
             completed_at=cleaned_completed_at,
@@ -154,6 +159,7 @@ class ProcedureExecutionStamp:
             mapping_fingerprint=str(raw["mapping_fingerprint"]),
             audit_period_start=str(raw.get("audit_period_start", "")),
             audit_period_end=str(raw.get("audit_period_end", "")),
+            audit_currency=str(raw.get("audit_currency", "")),
             executor=executor,
             parameters=parameters,
             # Older workspaces may contain the pre-hardening context-creation time here.
@@ -173,6 +179,7 @@ class ProcedureExecutionStamp:
             "mapping_fingerprint": self.mapping_fingerprint,
             "audit_period_start": self.audit_period_start,
             "audit_period_end": self.audit_period_end,
+            "audit_currency": self.audit_currency,
             "executor": {
                 "full_name": self.executor.full_name,
                 "job_title": self.executor.job_title,

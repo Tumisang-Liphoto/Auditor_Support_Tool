@@ -8,6 +8,7 @@ from auditor_support_tool.core.audit_procedure_models import (
     ProcedureExceptionRecord,
     ProcedureResult,
 )
+from auditor_support_tool.core.currency import format_monetary_value, is_monetary_field
 from auditor_support_tool.presentation.result_dashboard_models import (
     DashboardIndicator,
     DashboardMetric,
@@ -76,7 +77,7 @@ def present_gl003_result(
     )
 
     risk_indicators = (
-        _high_value_indicator(metrics),
+        _high_value_indicator(metrics, result.context.audit_currency),
         _manual_journal_indicator(metrics),
         _same_user_indicator(metrics),
     )
@@ -89,7 +90,7 @@ def present_gl003_result(
     if unavailable_indicators:
         risk_description += " N/A means the required mapping or audit rule was unavailable."
 
-    summary = _build_debit_credit_summary(metrics)
+    summary = _build_debit_credit_summary(metrics, result.context.audit_currency)
 
     observations = _build_observations(
         result=result,
@@ -113,7 +114,10 @@ def present_gl003_result(
         ),
         description=("Source-linked weekend transactions identified for auditor review."),
         columns=_table_columns(result.exception_records),
-        rows=tuple(_table_row(exception) for exception in result.exception_records),
+        rows=tuple(
+            _table_row(exception, currency_code=result.context.audit_currency)
+            for exception in result.exception_records
+        ),
         filters=(
             DashboardTableFilter(
                 key="all",
@@ -153,6 +157,7 @@ def present_gl003_result(
 
 def _high_value_indicator(
     metrics: dict[str, object],
+    currency_code: str = "",
 ) -> DashboardIndicator:
     available = bool(metrics.get("high_value_available"))
     threshold = _as_decimal(metrics.get("high_value_threshold"))
@@ -173,7 +178,7 @@ def _high_value_indicator(
     return DashboardIndicator(
         title="High-value weekend transactions",
         value=f"{_as_int(metrics.get('high_value_weekend_count')):,}",
-        detail=(f"Threshold ≥ {_format_number(threshold)}"),
+        detail=(f"Threshold ≥ {format_monetary_value(threshold, currency_code)}"),
     )
 
 
@@ -227,6 +232,7 @@ def _same_user_indicator(
 
 def _build_debit_credit_summary(
     metrics: dict[str, object],
+    currency_code: str = "",
 ) -> DashboardSummary:
     debit_available = bool(metrics.get("debit_summary_available"))
     credit_available = bool(metrics.get("credit_summary_available"))
@@ -248,10 +254,12 @@ def _build_debit_credit_summary(
                     _summary_amount(
                         metrics.get("saturday_debit_total"),
                         available=debit_available,
+                        currency_code=currency_code,
                     ),
                     _summary_amount(
                         metrics.get("saturday_credit_total"),
                         available=credit_available,
+                        currency_code=currency_code,
                     ),
                 ),
             ),
@@ -261,10 +269,12 @@ def _build_debit_credit_summary(
                     _summary_amount(
                         metrics.get("sunday_debit_total"),
                         available=debit_available,
+                        currency_code=currency_code,
                     ),
                     _summary_amount(
                         metrics.get("sunday_credit_total"),
                         available=credit_available,
+                        currency_code=currency_code,
                     ),
                 ),
             ),
@@ -274,10 +284,12 @@ def _build_debit_credit_summary(
                     _summary_amount(
                         metrics.get("weekend_debit_total"),
                         available=debit_available,
+                        currency_code=currency_code,
                     ),
                     _summary_amount(
                         metrics.get("weekend_credit_total"),
                         available=credit_available,
+                        currency_code=currency_code,
                     ),
                 ),
             ),
@@ -457,6 +469,7 @@ def _table_columns(
                 DashboardTableColumn(
                     key=key,
                     label=label,
+                    value_kind="monetary" if is_monetary_field(key) else "text",
                 )
             )
 
@@ -472,6 +485,8 @@ def _table_columns(
 
 def _table_row(
     exception: ProcedureExceptionRecord,
+    *,
+    currency_code: str = "",
 ) -> DashboardTableRow:
     values: dict[str, str] = {
         "source_row": str(exception.source_row_number),
@@ -483,6 +498,7 @@ def _table_row(
         values[key] = _display_value(
             key,
             raw_value,
+            currency_code=currency_code,
         )
 
     day_name = values.get(
@@ -511,6 +527,8 @@ def _table_row(
 def _display_value(
     key: str,
     value: object,
+    *,
+    currency_code: str = "",
 ) -> str:
     if key == "risk_indicators":
         indicators = _as_text_tuple(value)
@@ -532,6 +550,9 @@ def _display_value(
             for indicator in indicators
         )
 
+    if is_monetary_field(key):
+        return format_monetary_value(value, currency_code)
+
     if isinstance(value, Decimal):
         return _format_number(value)
 
@@ -547,11 +568,12 @@ def _summary_amount(
     value: object,
     *,
     available: bool,
+    currency_code: str = "",
 ) -> str:
     if not available:
         return "N/A"
 
-    return _format_number(_as_decimal(value))
+    return format_monetary_value(_as_decimal(value), currency_code)
 
 
 def _format_percentage(
