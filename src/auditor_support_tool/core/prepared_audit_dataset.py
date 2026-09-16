@@ -14,11 +14,17 @@ from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from hashlib import sha256
+from math import isfinite
 from typing import Any
 
 from auditor_support_tool.core.data_models import SOURCE_ROW_FIELD
 from auditor_support_tool.core.data_profile_models import (
     DetectedDataType,
+)
+from auditor_support_tool.core.field_mapping_models import (
+    FIELD_INTERPRETATION_POLICY_VERSION,
+    AuditFieldSemantic,
+    semantic_for_field_key,
 )
 from auditor_support_tool.core.workbook_package import (
     PreparedColumn,
@@ -224,10 +230,13 @@ class PreparedAuditDataset:
             )
 
         try:
-            converted_value = _convert_value(
-                raw_value,
-                column.confirmed_type,
-            )
+            if semantic_for_field_key(cleaned_key) == AuditFieldSemantic.IDENTIFIER:
+                converted_value = _to_identifier(raw_value)
+            else:
+                converted_value = _convert_value(
+                    raw_value,
+                    column.confirmed_type,
+                )
         except (TypeError, ValueError, InvalidOperation) as error:
             return ResolvedFieldValue(
                 standard_field_key=cleaned_key,
@@ -354,6 +363,7 @@ def calculate_mapping_fingerprint(
             {
                 "column_id": column.column_id,
                 "standard_field_key": field_key,
+                "field_semantic": semantic_for_field_key(field_key).value,
                 "confirmed_type": column.confirmed_type.value,
                 "included": column.included,
             }
@@ -368,6 +378,7 @@ def calculate_mapping_fingerprint(
 
     payload = {
         "dataset_id": dataset.dataset_id,
+        "interpretation_policy_version": FIELD_INTERPRETATION_POLICY_VERSION,
         "mappings": entries,
     }
 
@@ -379,6 +390,35 @@ def calculate_mapping_fingerprint(
     )
 
     return sha256(canonical_json.encode("utf-8")).hexdigest()
+
+
+def _to_identifier(
+    value: object,
+) -> str:
+    """Preserve the identity represented by a populated source value."""
+
+    if isinstance(value, bool):
+        raise ValueError("Boolean values cannot be interpreted as identifiers.")
+
+    if isinstance(value, str):
+        return value
+
+    if isinstance(value, int):
+        return str(value)
+
+    if isinstance(value, Decimal):
+        if not value.is_finite():
+            raise ValueError("Non-finite values cannot be interpreted as identifiers.")
+
+        return str(value)
+
+    if isinstance(value, float):
+        if not isfinite(value):
+            raise ValueError("Non-finite values cannot be interpreted as identifiers.")
+
+        return str(value)
+
+    raise TypeError("The value cannot be interpreted as an identifier.")
 
 
 def _convert_value(

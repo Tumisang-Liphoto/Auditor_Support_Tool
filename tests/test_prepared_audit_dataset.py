@@ -406,15 +406,15 @@ def test_integer_conversion_accepts_grouped_whole_number(
 ) -> None:
     """A whole-number string should resolve without losing meaning."""
 
-    dataset, _date, account_column, *_columns = create_dataset(tmp_path)
+    dataset, _date, _account, amount_column, *_columns = create_dataset(tmp_path)
 
-    account_column.confirmed_type = DetectedDataType.INTEGER
-    dataset.loaded_table.rows[0]["Account No"] = "1,250"
+    amount_column.confirmed_type = DetectedDataType.INTEGER
+    dataset.loaded_table.rows[0]["Amount"] = "1,250"
 
     prepared = PreparedAuditDataset(dataset)
     first_record = next(prepared.iter_records())
 
-    resolved = first_record.resolve("account_code")
+    resolved = first_record.resolve("transaction_amount")
 
     assert resolved.status == FieldValueStatus.VALID
     assert resolved.value == 1250
@@ -425,19 +425,118 @@ def test_integer_conversion_rejects_fractional_value(
 ) -> None:
     """Integer conversion must never silently round a fractional source value."""
 
-    dataset, _date, account_column, *_columns = create_dataset(tmp_path)
+    dataset, _date, _account, amount_column, *_columns = create_dataset(tmp_path)
 
-    account_column.confirmed_type = DetectedDataType.INTEGER
-    dataset.loaded_table.rows[0]["Account No"] = "1250.5"
+    amount_column.confirmed_type = DetectedDataType.INTEGER
+    dataset.loaded_table.rows[0]["Amount"] = "1250.5"
 
     prepared = PreparedAuditDataset(dataset)
     first_record = next(prepared.iter_records())
 
-    resolved = first_record.resolve("account_code")
+    resolved = first_record.resolve("transaction_amount")
 
     assert resolved.status == FieldValueStatus.INVALID
     assert resolved.value is None
     assert "not a whole number" in resolved.reason
+
+
+@pytest.mark.parametrize(
+    "confirmed_type",
+    (
+        DetectedDataType.INTEGER,
+        DetectedDataType.DECIMAL,
+    ),
+)
+def test_identifier_semantics_override_numeric_preparation(
+    tmp_path: Path,
+    confirmed_type: DetectedDataType,
+) -> None:
+    """Identifier meaning must override numeric preparation decisions."""
+
+    dataset, _date, account_column, *_columns = create_dataset(tmp_path)
+
+    account_column.confirmed_type = confirmed_type
+    dataset.loaded_table.rows[0]["Account No"] = "00120"
+
+    prepared = PreparedAuditDataset(dataset)
+    resolved = next(prepared.iter_records()).resolve("account_code")
+
+    assert resolved.status == FieldValueStatus.VALID
+    assert resolved.value == "00120"
+    assert resolved.raw_value == "00120"
+
+
+def test_identifier_preserves_punctuation_and_spacing(
+    tmp_path: Path,
+) -> None:
+    """Generic preparation must not normalise populated identifiers."""
+
+    dataset, _date, account_column, *_columns = create_dataset(tmp_path)
+
+    account_column.confirmed_type = DetectedDataType.INTEGER
+    dataset.loaded_table.rows[0]["Account No"] = " 00-12 0 "
+
+    prepared = PreparedAuditDataset(dataset)
+    resolved = next(prepared.iter_records()).resolve("account_code")
+
+    assert resolved.status == FieldValueStatus.VALID
+    assert resolved.value == " 00-12 0 "
+    assert resolved.raw_value == " 00-12 0 "
+
+
+@pytest.mark.parametrize(
+    ("source_value", "expected"),
+    (
+        (1250, "1250"),
+        (Decimal("1250"), "1250"),
+        (1250.0, "1250.0"),
+    ),
+)
+def test_native_numeric_identifier_preserves_loaded_representation(
+    tmp_path: Path,
+    source_value,
+    expected: str,
+) -> None:
+    """Native numeric identifiers should not acquire inferred equivalence."""
+
+    dataset, _date, account_column, *_columns = create_dataset(tmp_path)
+
+    account_column.confirmed_type = DetectedDataType.INTEGER
+    dataset.loaded_table.rows[0]["Account No"] = source_value
+
+    prepared = PreparedAuditDataset(dataset)
+    resolved = next(prepared.iter_records()).resolve("account_code")
+
+    assert resolved.status == FieldValueStatus.VALID
+    assert resolved.value == expected
+
+
+@pytest.mark.parametrize(
+    "source_value",
+    (
+        True,
+        date(2026, 1, 1),
+        Decimal("NaN"),
+        float("inf"),
+    ),
+)
+def test_unsupported_identifier_values_are_invalid(
+    tmp_path: Path,
+    source_value,
+) -> None:
+    """Unsupported identifier representations must fail closed."""
+
+    dataset, _date, account_column, *_columns = create_dataset(tmp_path)
+
+    account_column.confirmed_type = DetectedDataType.INTEGER
+    dataset.loaded_table.rows[0]["Account No"] = source_value
+
+    prepared = PreparedAuditDataset(dataset)
+    resolved = next(prepared.iter_records()).resolve("account_code")
+
+    assert resolved.status == FieldValueStatus.INVALID
+    assert resolved.value is None
+    assert resolved.raw_value is source_value
 
 
 def test_ambiguous_day_month_date_is_rejected(
@@ -590,13 +689,13 @@ def test_integer_conversion_accepts_exact_numeric_values(
 ) -> None:
     """Exact numeric values should convert without rounding."""
 
-    dataset, _date, account_column, *_columns = create_dataset(tmp_path)
+    dataset, _date, _account, amount_column, *_columns = create_dataset(tmp_path)
 
-    account_column.confirmed_type = DetectedDataType.INTEGER
-    dataset.loaded_table.rows[0]["Account No"] = source_value
+    amount_column.confirmed_type = DetectedDataType.INTEGER
+    dataset.loaded_table.rows[0]["Amount"] = source_value
 
     prepared = PreparedAuditDataset(dataset)
-    resolved = next(prepared.iter_records()).resolve("account_code")
+    resolved = next(prepared.iter_records()).resolve("transaction_amount")
 
     assert resolved.status == FieldValueStatus.VALID
     assert resolved.value == expected
@@ -616,13 +715,13 @@ def test_integer_conversion_rejects_non_integral_numeric_values(
 ) -> None:
     """Integer fields must never silently round source values."""
 
-    dataset, _date, account_column, *_columns = create_dataset(tmp_path)
+    dataset, _date, _account, amount_column, *_columns = create_dataset(tmp_path)
 
-    account_column.confirmed_type = DetectedDataType.INTEGER
-    dataset.loaded_table.rows[0]["Account No"] = source_value
+    amount_column.confirmed_type = DetectedDataType.INTEGER
+    dataset.loaded_table.rows[0]["Amount"] = source_value
 
     prepared = PreparedAuditDataset(dataset)
-    resolved = next(prepared.iter_records()).resolve("account_code")
+    resolved = next(prepared.iter_records()).resolve("transaction_amount")
 
     assert resolved.status == FieldValueStatus.INVALID
     assert resolved.value is None
