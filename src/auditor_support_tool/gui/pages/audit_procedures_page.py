@@ -24,12 +24,10 @@ from auditor_support_tool.core.audit_procedure_models import (
 from auditor_support_tool.core.prepared_audit_dataset import (
     PreparedAuditDataset,
 )
-from auditor_support_tool.core.procedure_availability import (
-    ProcedureAvailabilityService,
-)
 from auditor_support_tool.core.procedure_dataset_resolution import (
     ProcedureDatasetBundle,
     ProcedureDatasetResolution,
+    ProcedureDatasetResolver,
     ProcedureDatasetSource,
 )
 from auditor_support_tool.core.procedure_definition import (
@@ -106,13 +104,11 @@ class AuditProceduresPage(QWidget):
         self._settings_service = settings_service
 
         self._readiness_service = ProcedureReadinessService()
-        self._availability_service = ProcedureAvailabilityService(
-            readiness_service=self._readiness_service
-        )
         self._test_engine = TestEngineService(
             registry=procedure_registry,
             readiness_service=self._readiness_service,
         )
+        self._dataset_resolver = ProcedureDatasetResolver()
         self._execution_status_service = ProcedureExecutionStatusService()
 
         self._worker: AuditExecutionWorker | None = None
@@ -198,7 +194,7 @@ class AuditProceduresPage(QWidget):
         layout.setContentsMargins(30, 24, 30, 24)
         layout.setSpacing(12)
 
-        heading = QLabel("Dataset")
+        heading = QLabel("Analysis dataset")
         heading.setObjectName("profileSectionTitle")
 
         self._dataset_description = QLabel(
@@ -240,8 +236,9 @@ class AuditProceduresPage(QWidget):
         heading.setObjectName("profileSectionTitle")
 
         description = QLabel(
-            "Only implemented procedures that are ready for the selected dataset "
-            "are shown. Optional fields may enrich results but do not block a run."
+            "Implemented procedures that apply to the selected analysis dataset are shown. "
+            "Missing supporting data or mappings are shown as setup requirements; "
+            "optional fields may enrich results but do not block a run."
         )
         description.setObjectName("profileSectionDescription")
         description.setWordWrap(True)
@@ -305,7 +302,7 @@ class AuditProceduresPage(QWidget):
     def _refresh_dataset_selector(self) -> None:
         """Refresh mapped datasets and retain the active dataset."""
 
-        datasets = self._mapped_datasets()
+        datasets = self._analysis_datasets()
         active_dataset_id = self._workspace_state.active_dataset_id
 
         self._updating_dataset_selector = True
@@ -351,15 +348,44 @@ class AuditProceduresPage(QWidget):
         )
         mapped_sources = self._procedure_dataset_sources()
 
-        available = self._availability_service.available_for_workspace(
-            procedures=procedures,
-            active_source=active_source,
-            mapped_sources=mapped_sources,
-        )
+        applicable = []
 
-        if not available:
+        for procedure in procedures:
+            definition = procedure.definition
+
+            if not definition.uses_dataset_requirements:
+                readiness = self._readiness_service.check(
+                    definition=definition,
+                    source=source,
+                )
+
+                if readiness.can_run:
+                    applicable.append((procedure, readiness, None))
+
+                continue
+
+            primary_requirement = definition.primary_dataset_requirement
+
+            if (
+                primary_requirement is None
+                or primary_requirement.dataset_type != active_source.dataset_type
+            ):
+                continue
+
+            resolution = self._dataset_resolver.resolve(
+                definition=definition,
+                active_source=active_source,
+                available_sources=mapped_sources,
+            )
+            readiness = self._readiness_service.check_datasets(
+                definition=definition,
+                resolution=resolution,
+            )
+            applicable.append((procedure, readiness, resolution))
+
+        if not applicable:
             empty_label = QLabel(
-                "No procedures are ready for this dataset. "
+                "No procedures apply to this analysis dataset. "
                 "Review Field Mapping if you expected a procedure to appear."
             )
             empty_label.setObjectName("fieldHint")
@@ -367,17 +393,20 @@ class AuditProceduresPage(QWidget):
             self._procedure_rows_layout.addWidget(empty_label)
             return
 
-        for item in available:
-            execution_status = self._procedure_execution_status(
-                definition=item.procedure.definition,
-                source=source,
-                dataset_resolution=item.dataset_resolution,
-            )
+        for procedure, readiness, dataset_resolution in applicable:
+            execution_status = ProcedureExecutionStatus.NOT_RUN
+
+            if readiness.can_run:
+                execution_status = self._procedure_execution_status(
+                    definition=procedure.definition,
+                    source=source,
+                    dataset_resolution=dataset_resolution,
+                )
 
             self._procedure_rows_layout.addWidget(
                 self._build_procedure_row(
-                    item.procedure.definition,
-                    item.readiness,
+                    procedure.definition,
+                    readiness,
                     execution_status,
                 )
             )
@@ -406,11 +435,13 @@ class AuditProceduresPage(QWidget):
         name_label = QLabel(f"{definition.display_id}  {definition.name}")
         name_label.setObjectName("fieldLabel")
 
-        status_label = QLabel(self._execution_status_text(execution_status))
+        status_label = QLabel(
+            self._execution_status_text(execution_status) if readiness.can_run else "Needs Setup"
+        )
         status_label.setObjectName("procedureExecutionStatus")
         status_label.setProperty(
             "status",
-            execution_status.value,
+            execution_status.value if readiness.can_run else "needs_setup",
         )
 
         header_layout.addWidget(name_label)
@@ -470,6 +501,10 @@ class AuditProceduresPage(QWidget):
             actions_layout.addWidget(configure_button)
 
         action_button = QPushButton(self._run_button_text(execution_status))
+        action_button.setEnabled(readiness.can_run)
+
+        if not readiness.can_run:
+            action_button.setToolTip(self._readiness_message(readiness))
         action_button.setObjectName("primaryActionButton")
         action_button.setIcon(qta.icon("fa5s.play"))
         action_button.clicked.connect(
@@ -794,15 +829,17 @@ class AuditProceduresPage(QWidget):
 
         if count == 0:
             self._dataset_description.setText(
-                "Complete Field Mapping to make a dataset available for audit procedures."
+                "Complete Field Mapping to make an analysis dataset available for audit procedures."
             )
         elif has_choice:
             self._dataset_description.setText(
-                "Choose the mapped dataset whose audit procedures you want to review."
+                "Choose the primary analysis dataset whose audit procedures you want to review. "
+                "Supporting datasets are resolved automatically."
             )
         else:
             self._dataset_description.setText(
-                "Audit procedures will run against this mapped dataset."
+                "Audit procedures will run against this analysis dataset. "
+                "Supporting datasets are resolved automatically."
             )
 
     def _dataset_selection_changed(self, index: int) -> None:
@@ -825,18 +862,63 @@ class AuditProceduresPage(QWidget):
         self._clear_page_status()
 
     def _active_mapped_dataset(self) -> WorksheetDataset | None:
-        """Return the active dataset when mapping is complete."""
+        """Return the analysis dataset selected on this page."""
 
-        dataset = self._workspace_state.active_dataset
+        selected_dataset_id = self._dataset_selector.currentData()
 
-        if (
-            dataset is None
-            or not dataset.selected
-            or dataset.mapping_status not in self._MAPPING_COMPLETE
-        ):
+        if not isinstance(selected_dataset_id, str):
             return None
 
-        return dataset
+        for dataset in self._analysis_datasets():
+            if dataset.dataset_id == selected_dataset_id:
+                return dataset
+
+        return None
+
+    def _analysis_datasets(self) -> tuple[WorksheetDataset, ...]:
+        """Return mapped datasets that can act as procedure populations."""
+
+        mapped_datasets = self._mapped_datasets()
+        support_only_types = self._supporting_only_dataset_types()
+
+        if not support_only_types:
+            return mapped_datasets
+
+        analysis_datasets: list[WorksheetDataset] = []
+
+        for dataset in mapped_datasets:
+            if dataset.confirmed_dataset_type not in support_only_types:
+                analysis_datasets.append(dataset)
+                continue
+
+            source = PreparedAuditDataset(dataset)
+
+            if any(
+                not procedure.definition.uses_dataset_requirements
+                and self._readiness_service.check(
+                    definition=procedure.definition,
+                    source=source,
+                ).can_run
+                for procedure in self._procedure_registry.procedures
+            ):
+                analysis_datasets.append(dataset)
+
+        return tuple(analysis_datasets)
+
+    def _supporting_only_dataset_types(self) -> set[DatasetType]:
+        """Return dataset types used only as supporting procedure inputs."""
+
+        primary_types: set[DatasetType] = set()
+        supporting_types: set[DatasetType] = set()
+
+        for procedure in self._procedure_registry.procedures:
+            for requirement in procedure.definition.dataset_requirements:
+                if requirement.primary:
+                    primary_types.add(requirement.dataset_type)
+                else:
+                    supporting_types.add(requirement.dataset_type)
+
+        return supporting_types - primary_types
 
     def _mapped_datasets(self) -> tuple[WorksheetDataset, ...]:
         """Return selected datasets whose mapping stage is complete."""

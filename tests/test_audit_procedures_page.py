@@ -6,10 +6,14 @@ from types import SimpleNamespace
 
 import pytest
 
+from auditor_support_tool.core.procedure_dataset_models import (
+    ProcedureDatasetRequirement,
+)
 from auditor_support_tool.core.procedure_definition import ProcedureDefinition
 from auditor_support_tool.core.procedure_execution_status_service import (
     ProcedureExecutionStatus,
 )
+from auditor_support_tool.core.workbook_package import DatasetType
 from auditor_support_tool.core.workspace_state import WorkspaceState
 from auditor_support_tool.gui.pages.audit_procedures_page import AuditProceduresPage
 from auditor_support_tool.services.settings_service import SettingsService, UserProfile
@@ -51,7 +55,9 @@ def test_dataset_selector_is_hidden_when_only_one_dataset_exists(page):
     assert page._dataset_selector.isHidden()
     assert not page._dataset_selector.isEnabled()
     assert (
-        page._dataset_description.text() == "Audit procedures will run against this mapped dataset."
+        page._dataset_description.text()
+        == "Audit procedures will run against this analysis dataset. "
+        "Supporting datasets are resolved automatically."
     )
 
 
@@ -63,7 +69,105 @@ def test_dataset_selector_is_shown_only_when_there_is_a_choice(page):
 
     assert not page._dataset_selector.isHidden()
     assert page._dataset_selector.isEnabled()
-    assert "Choose the mapped dataset" in page._dataset_description.text()
+    assert "Choose the primary analysis dataset" in page._dataset_description.text()
+    assert "Supporting datasets are resolved automatically" in page._dataset_description.text()
+
+
+def test_reference_only_dataset_type_is_not_an_analysis_dataset(qtbot):
+    gl011 = SimpleNamespace(
+        definition=ProcedureDefinition.create(
+            procedure_id="GL011",
+            name="Unmapped Accounts",
+            category="General Ledger",
+            dataset_requirements=(
+                ProcedureDatasetRequirement.create(
+                    role="primary_data",
+                    dataset_type=DatasetType.GENERAL_LEDGER,
+                    required_fields=("account_code",),
+                    primary=True,
+                ),
+                ProcedureDatasetRequirement.create(
+                    role="reference_data",
+                    dataset_type=DatasetType.CHART_OF_ACCOUNTS,
+                    required_fields=("account_code",),
+                ),
+            ),
+        )
+    )
+    registry = SimpleNamespace(
+        procedures=(gl011,),
+        get=lambda procedure_id: gl011 if procedure_id == "GL011" else None,
+    )
+    widget = AuditProceduresPage(
+        workspace_state=WorkspaceState(),
+        procedure_registry=registry,
+    )
+    qtbot.addWidget(widget)
+
+    assert widget._supporting_only_dataset_types() == {DatasetType.CHART_OF_ACCOUNTS}
+
+
+def test_dataset_type_used_as_primary_is_not_supporting_only(qtbot):
+    mixed = SimpleNamespace(
+        definition=ProcedureDefinition.create(
+            procedure_id="PROC011",
+            name="Mixed Dataset Example",
+            category="Example",
+            dataset_requirements=(
+                ProcedureDatasetRequirement.create(
+                    role="primary_data",
+                    dataset_type=DatasetType.CHART_OF_ACCOUNTS,
+                    required_fields=("account_code",),
+                    primary=True,
+                ),
+                ProcedureDatasetRequirement.create(
+                    role="reference_data",
+                    dataset_type=DatasetType.GENERAL_LEDGER,
+                    required_fields=("account_code",),
+                ),
+            ),
+        )
+    )
+    registry = SimpleNamespace(
+        procedures=(mixed,),
+        get=lambda procedure_id: mixed if procedure_id == "PROC011" else None,
+    )
+    widget = AuditProceduresPage(
+        workspace_state=WorkspaceState(),
+        procedure_registry=registry,
+    )
+    qtbot.addWidget(widget)
+
+    assert DatasetType.CHART_OF_ACCOUNTS not in widget._supporting_only_dataset_types()
+
+
+def test_not_ready_procedure_card_disables_run_but_stays_visible(page):
+    definition = ProcedureDefinition.create(
+        procedure_id="GL011",
+        name="Unmapped Accounts",
+        category="General Ledger",
+    )
+    readiness = SimpleNamespace(
+        can_run=False,
+        dataset_readiness=(),
+        missing_required_fields=("account_code",),
+        mapped_required_fields=(),
+        warnings=(),
+    )
+
+    row = page._build_procedure_row(
+        definition,
+        readiness,
+        ProcedureExecutionStatus.NOT_RUN,
+    )
+
+    buttons = row.findChildren(type(page._back_button))
+    run_button = next(button for button in buttons if button.text() == "Run")
+    status_labels = row.findChildren(type(page._dataset_summary), "procedureExecutionStatus")
+
+    assert not run_button.isEnabled()
+    assert run_button.toolTip() == "Needs setup: Account Code"
+    assert status_labels[0].text() == "Needs Setup"
 
 
 @pytest.mark.parametrize(
