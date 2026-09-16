@@ -5,6 +5,9 @@ from decimal import Decimal
 import pytest
 
 from auditor_support_tool.core.currency import (
+    AUDIT_CURRENCY_ROLE,
+    FX_CONVERSION_APPLIED,
+    SOURCE_AMOUNT_CURRENCY_STATUS,
     format_monetary_value,
     is_monetary_field,
     normalise_currency_code,
@@ -49,3 +52,11 @@ def test_ambiguous_numeric_text_is_not_reinterpreted_for_display(value: str) -> 
     """Presentation must not silently change ambiguous source values."""
 
     assert format_monetary_value(value, "LSL") == value
+
+
+def test_currency_basis_policy_is_explicit() -> None:
+    """Display currency must not be mistaken for verified source denomination."""
+
+    assert AUDIT_CURRENCY_ROLE == "presentation_only"
+    assert SOURCE_AMOUNT_CURRENCY_STATUS == "not_verified"
+    assert FX_CONVERSION_APPLIED is False

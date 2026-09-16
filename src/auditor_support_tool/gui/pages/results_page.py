@@ -526,6 +526,10 @@ class ResultsPage(QWidget):
         self._metadata_records = QLabel()
         self._metadata_period = QLabel()
         self._metadata_currency = QLabel()
+        self._metadata_currency.setToolTip(
+            "Display currency is presentation context only. Source amount currency is "
+            "not verified and no FX conversion is performed."
+        )
         self._metadata_executed = QLabel()
 
         metadata_items = (
@@ -1012,7 +1016,7 @@ class ResultsPage(QWidget):
 
         self._metadata_records.setText(f"Records: {population:,}")
         self._metadata_period.setText(f"Period: {period_text}")
-        self._metadata_currency.setText(f"Currency: {currency_text}")
+        self._metadata_currency.setText(f"Display currency: {currency_text}")
 
         executed_text = "—"
 

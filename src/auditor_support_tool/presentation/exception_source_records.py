@@ -3,7 +3,7 @@
 from dataclasses import dataclass, replace
 
 from auditor_support_tool.core.audit_procedure_models import ProcedureResult
-from auditor_support_tool.core.currency import is_monetary_field, normalise_currency_code
+from auditor_support_tool.core.currency import is_monetary_field
 from auditor_support_tool.core.data_models import SOURCE_ROW_FIELD
 from auditor_support_tool.core.prepared_audit_dataset import build_source_record_id
 from auditor_support_tool.core.workbook_package import WorksheetDataset
@@ -77,7 +77,7 @@ def add_source_columns(
     *,
     currency_code: str = "",
 ) -> DashboardTable:
-    """Extend existing presenter rows by identity, preserving filters and explanations."""
+    """Extend presenter rows with raw source evidence without inferring source currency."""
     columns = {column.key: column for column in table.columns}
     columns.setdefault("reason", DashboardTableColumn("reason", "Reason"))
     columns.setdefault("record_id", DashboardTableColumn("record_id", "Record ID"))
@@ -92,12 +92,10 @@ def add_source_columns(
         while key in columns:
             key = "source:" + key
         monetary = header in sources.monetary_headers
-        currency = normalise_currency_code(currency_code, allow_blank=True)
-        label = f"{header} ({currency})" if monetary and currency else header
         source_columns.append(
             DashboardTableColumn(
                 key,
-                label,
+                header,
                 index < 12,
                 "monetary" if monetary else "text",
             )

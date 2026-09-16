@@ -8,6 +8,13 @@ from auditor_support_tool.core.numeric import NumericParseError, parse_finite_de
 
 DEFAULT_CURRENCY_CODE = "LSL"
 
+# The configured audit currency is presentation context only. It does not
+# establish the denomination of source amount fields and no FX conversion is
+# performed by the current application.
+AUDIT_CURRENCY_ROLE = "presentation_only"
+SOURCE_AMOUNT_CURRENCY_STATUS = "not_verified"
+FX_CONVERSION_APPLIED = False
+
 # Presentation symbols are deliberately explicit. Unknown valid currency codes
 # fall back to the code itself rather than guessing a symbol.
 _CURRENCY_SYMBOLS: dict[str, str] = {
@@ -67,7 +74,7 @@ def normalise_currency_code(
         cleaned = str(default or DEFAULT_CURRENCY_CODE).strip().upper()
 
     if len(cleaned) != 3 or not cleaned.isascii() or not cleaned.isalpha():
-        raise ValueError("Audit currency must be a three-letter code such as LSL or USD.")
+        raise ValueError("Display currency must be a three-letter code such as LSL or USD.")
 
     return cleaned
 

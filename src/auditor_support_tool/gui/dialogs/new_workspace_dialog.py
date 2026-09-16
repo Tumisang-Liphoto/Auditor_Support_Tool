@@ -94,8 +94,9 @@ class NewWorkspaceDialog(QDialog):
         self._audit_currency_input.setMaxLength(3)
         self._audit_currency_input.setText(self._default_currency)
         self._audit_currency_input.setToolTip(
-            "Three-letter audit currency code used to label monetary values, "
-            "for example LSL or USD. The application does not convert currencies."
+            "Three-letter display currency used to present monetary values, for example LSL "
+            "or USD. This does not verify the currency of source amounts and the "
+            "application does not perform FX conversion."
         )
 
         today = QDate.currentDate()
@@ -194,7 +195,7 @@ class NewWorkspaceDialog(QDialog):
             self._auditee_name_input,
         )
         form_layout.addRow(
-            "Audit currency:",
+            "Display currency:",
             self._audit_currency_input,
         )
         form_layout.addRow(

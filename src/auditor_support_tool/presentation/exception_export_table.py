@@ -10,6 +10,11 @@ from decimal import Decimal
 
 from auditor_support_tool.core.audit_procedure_models import ProcedureResult
 from auditor_support_tool.core.audit_procedure_report_models import normalise_report_value
+from auditor_support_tool.core.currency import (
+    AUDIT_CURRENCY_ROLE,
+    FX_CONVERSION_APPLIED,
+    SOURCE_AMOUNT_CURRENCY_STATUS,
+)
 from auditor_support_tool.presentation.exception_source_records import ExceptionSourceRecords
 
 Cell = str | int | float | bool | Decimal | None
@@ -95,6 +100,9 @@ def build_exception_export_table(
         ("audit_period_start", ctx.audit_period_start),
         ("audit_period_end", ctx.audit_period_end),
         ("audit_currency", ctx.audit_currency),
+        ("audit_currency_role", AUDIT_CURRENCY_ROLE),
+        ("source_amount_currency_status", SOURCE_AMOUNT_CURRENCY_STATUS),
+        ("fx_conversion_applied", FX_CONVERSION_APPLIED),
         ("scope_note", "Search, filters, pagination and hidden columns do not affect this export."),
         (
             "fidelity_note",

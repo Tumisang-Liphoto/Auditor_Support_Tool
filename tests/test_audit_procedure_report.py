@@ -138,6 +138,9 @@ def test_report_builder_captures_complete_procedure_result() -> None:
     assert report.scope.audit_period_start == "2023-04-01"
     assert report.scope.audit_period_end == "2024-03-31"
     assert report.scope.audit_currency == "LSL"
+    assert report.scope.audit_currency_role == "presentation_only"
+    assert report.scope.source_amount_currency_status == "not_verified"
+    assert report.scope.fx_conversion_applied is False
     assert report.scope.parameters == {
         "case_sensitive": False,
     }
@@ -207,9 +210,12 @@ def test_report_json_is_complete_and_json_safe() -> None:
 
     payload = json.loads(report.to_json())
 
-    assert payload["schema_version"] == 3
+    assert payload["schema_version"] == 4
     assert payload["identity"]["procedure_id"] == "GL006"
     assert payload["scope"]["audit_currency"] == "LSL"
+    assert payload["scope"]["audit_currency_role"] == "presentation_only"
+    assert payload["scope"]["source_amount_currency_status"] == "not_verified"
+    assert payload["scope"]["fx_conversion_applied"] is False
     assert payload["summary"]["exception_count"] == 2
     assert payload["summary"]["non_exception_count"] == 6
     assert payload["data_quality_observation_counts"] == {

@@ -185,12 +185,21 @@ def test_human_report_formats_monetary_values_and_preserves_raw_source_cells(
     execution = next(
         section for section in document.sections if section.title == "Execution details"
     )
-    assert dict(execution.rows)["Audit currency"] == "LSL"
-    assert "Value (LSL)" in document.exception_headers
+    assert dict(execution.rows)["Display currency"] == "LSL"
+    assert dict(execution.rows)["FX conversion"] == "Not performed"
+    assert "Value" in document.exception_headers
+    assert "Value (LSL)" not in document.exception_headers
     assert document.exception_rows[0][3] == Decimal("12.340")
     assert "Transaction Amount=M125,000.50" in str(document.exception_rows[0][-2])
     assert document.exception_rows[0][-1] == "M125,000.50"
-    assert dict(document.evidence.rows)["Audit currency"] == "LSL"
+    assert document.exception_headers[-1] == "Related value (display: LSL)"
+    assert dict(document.evidence.rows)["Display currency"] == "LSL"
+    assert dict(document.evidence.rows)["Currency role"] == "Presentation only"
+    assert dict(document.evidence.rows)["Source amount currency"] == "Not verified by application"
+    assert dict(document.evidence.rows)["FX conversion"] == "Not performed"
+    disclosure = " ".join(document.evidence.paragraphs)
+    assert "does not verify that source amount fields use that currency" in disclosure
+    assert "does not perform FX conversion" in disclosure
 
 
 def test_legacy_report_without_currency_does_not_invent_a_unit(
@@ -217,7 +226,7 @@ def test_legacy_report_without_currency_does_not_invent_a_unit(
     execution = next(
         section for section in document.sections if section.title == "Execution details"
     )
-    assert dict(execution.rows)["Audit currency"] == "Not recorded"
+    assert dict(execution.rows)["Display currency"] == "Not recorded"
     assert "Value" in document.exception_headers
     assert "Value (LSL)" not in document.exception_headers
     assert "Transaction Amount=125000.50" in str(document.exception_rows[0][-2])

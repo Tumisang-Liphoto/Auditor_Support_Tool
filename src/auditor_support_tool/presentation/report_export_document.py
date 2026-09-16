@@ -182,7 +182,10 @@ def build_report_document(request: ReportExportRequest) -> ReportDocument:
                 ("Audit / workspace", request.workspace_name or "Not recorded"),
                 ("Auditee", request.auditee_name or "Not recorded"),
                 ("Audit period", period or "Not specified"),
-                ("Audit currency", report.scope.audit_currency or "Not recorded"),
+                ("Display currency", report.scope.audit_currency or "Not recorded"),
+                ("Currency role", "Presentation only"),
+                ("Source amount currency", "Not verified by application"),
+                ("FX conversion", "Not performed"),
                 ("Dataset", request.dataset_name or report.scope.dataset_id),
                 ("Worksheet", request.worksheet_name or "Not recorded"),
                 ("Procedure version", report.identity.procedure_version),
@@ -195,7 +198,8 @@ def build_report_document(request: ReportExportRequest) -> ReportDocument:
                 ("Job title", executor.job_title or "Not recorded"),
                 ("Directorate", executor.directorate or "Not recorded"),
                 ("Organisation", executor.organization or "Not recorded"),
-                ("Audit currency", report.scope.audit_currency or "Not recorded"),
+                ("Display currency", report.scope.audit_currency or "Not recorded"),
+                ("FX conversion", "Not performed"),
                 ("Execution date/time", execution_time),
             ),
         ),
@@ -291,7 +295,10 @@ def build_report_document(request: ReportExportRequest) -> ReportDocument:
             ("Mapping fingerprint", report.mapping_fingerprint),
             ("Audit period start", report.scope.audit_period_start),
             ("Audit period end", report.scope.audit_period_end),
-            ("Audit currency", report.scope.audit_currency or "Not recorded"),
+            ("Display currency", report.scope.audit_currency or "Not recorded"),
+            ("Currency role", "Presentation only"),
+            ("Source amount currency", "Not verified by application"),
+            ("FX conversion", "Not performed"),
             ("Executed by", executor.full_name or "Not recorded"),
             ("Executor job title", executor.job_title or "Not recorded"),
             ("Executor directorate", executor.directorate or "Not recorded"),
@@ -305,24 +312,19 @@ def build_report_document(request: ReportExportRequest) -> ReportDocument:
             "generated from the execution result. Executor identity, procedure methodology "
             "metadata, workspace labels, local-time display values and resolved source cells are "
             "supplementary provenance or presentation context and are not covered by this "
-            "fingerprint. The recorded audit currency is execution scope and is covered by the "
-            "structured report fingerprint. When recorded, executor identity is captured from "
+            "fingerprint. The recorded display currency is execution scope and is covered by the "
+            "structured report fingerprint. Display currency is presentation context only: "
+            "the application does not verify that source amount fields use that currency and "
+            "does not perform FX conversion. Monetary formatting must therefore not be read as "
+            "evidence of source-currency denomination or cross-currency comparability. When "
+            "recorded, executor identity is captured from "
             "the local User Profile when the run is initiated; it is not a digital signature or "
             "authenticated proof of "
             "authorship. "
             "Source cells are linked by dataset, source hash, record ID and source row.",
         ),
     )
-    source_headers = tuple(
-        (
-            f"{header} ({report.scope.audit_currency})"
-            if sources is not None
-            and header in sources.monetary_headers
-            and report.scope.audit_currency
-            else header
-        )
-        for header in headers
-    )
+    source_headers = headers
     document = ReportDocument(
         report,
         tuple(sections),
@@ -333,7 +335,11 @@ def build_report_document(request: ReportExportRequest) -> ReportDocument:
             "Reason",
             "Reason code",
             "Details",
-            "Related value",
+            (
+                f"Related value (display: {report.scope.audit_currency})"
+                if report.scope.audit_currency
+                else "Related value"
+            ),
         ),
         tuple(rows),
         evidence,

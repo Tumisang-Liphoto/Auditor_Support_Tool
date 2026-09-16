@@ -16,6 +16,11 @@ from auditor_support_tool.core.audit_procedure_report_models import (
     AuditProcedureReportSummary,
     normalise_report_mapping,
 )
+from auditor_support_tool.core.currency import (
+    AUDIT_CURRENCY_ROLE,
+    FX_CONVERSION_APPLIED,
+    SOURCE_AMOUNT_CURRENCY_STATUS,
+)
 from auditor_support_tool.core.procedure_definition import (
     ProcedureDefinition,
 )
@@ -71,6 +76,9 @@ class AuditProcedureReportBuilder:
                 audit_period_start=context.audit_period_start,
                 audit_period_end=context.audit_period_end,
                 audit_currency=context.audit_currency,
+                audit_currency_role=AUDIT_CURRENCY_ROLE,
+                source_amount_currency_status=SOURCE_AMOUNT_CURRENCY_STATUS,
+                fx_conversion_applied=FX_CONVERSION_APPLIED,
                 parameters=normalise_report_mapping(context.parameters),
             ),
             summary=AuditProcedureReportSummary(

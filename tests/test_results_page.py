@@ -97,7 +97,7 @@ def test_rows_and_pagination(page):
     assert_visible_rows(page, rows[:50])
     assert page._exceptions_table.item(0, 0).text() == "2"
     assert page._exceptions_table.item(0, 4).text() == "M1,234.50"
-    assert page._metadata_currency.text() == "Currency: LSL"
+    assert page._metadata_currency.text() == "Display currency: LSL"
     assert page._exceptions_table.item(0, 0).textAlignment() & Qt.AlignmentFlag.AlignRight
     assert page._page_label.text() == "Page 1 of 3"
     assert not page._previous_page_button.isEnabled()
@@ -554,11 +554,11 @@ def test_source_values_columns_search_and_horizontal_scroll(source_page, qapp):
     result = deepcopy(page.outcome.result)
     columns = page._presentation.table.columns
     assert [c.label for c in columns[:5]] == [
-        "Source Row",
-        "Original Ref",
-        "Original Amount (LSL)",
-        "Reason",
-        "Reason",
+    "Source Row",
+    "Original Ref",
+    "Original Amount",
+    "Reason",
+    "Reason",
     ]
     rows = page._presentation.table.rows
     assert [r.values["source:0"] for r in rows[:2]] == [" 00123 ", "00456"]
