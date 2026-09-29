@@ -44,6 +44,7 @@ class WorkspaceState(QObject):
 
     workspace_identity_changed = Signal()
     workspace_dirty_changed = Signal(bool)
+    workspace_content_changed = Signal()
     workspace_file_changed = Signal()
 
     transformation_history_changed = Signal()
@@ -507,10 +508,7 @@ class WorkspaceState(QObject):
         self._procedure_rerun_requirements.intersection_update(new_keys)
 
         changed_keys = (
-            previous_keys
-            | new_keys
-            | previous_rerun_keys
-            | self._procedure_rerun_requirements
+            previous_keys | new_keys | previous_rerun_keys | self._procedure_rerun_requirements
         )
 
         for procedure_id, dataset_id in sorted(changed_keys):
@@ -689,6 +687,7 @@ class WorkspaceState(QObject):
 
         self._workspace_identity.touch()
         self._set_dirty(True)
+        self.workspace_content_changed.emit()
 
     def mark_saved(self) -> None:
         """Mark the active workspace as fully saved."""

@@ -137,6 +137,52 @@ class WorkspaceService:
             data_quality_issues=[asdict(issue) for issue in state.data_quality_issues],
         )
 
+    def loaded_source_reference(
+        self,
+        state: WorkspaceState,
+    ) -> WorkspaceSourceReference | None:
+        """Build a source reference from already-loaded, fingerprinted source data."""
+
+        source_path = state.source_path
+        if source_path is None:
+            return None
+
+        package = state.workbook_package
+        if package is None:
+            raise WorkspaceServiceError(
+                "The source fingerprint is unavailable. Reload the source data before autosaving."
+            )
+
+        resolved_source = source_path.expanduser().resolve()
+        if package.source_path.expanduser().resolve() != resolved_source:
+            raise WorkspaceServiceError(
+                "The loaded source does not match the active workspace source."
+            )
+
+        loaded_hashes = {
+            dataset.loaded_table.source_sha256.strip().lower() for dataset in package.datasets
+        }
+        if len(loaded_hashes) != 1 or not all(loaded_hashes):
+            raise WorkspaceServiceError(
+                "The loaded source fingerprint is unavailable or inconsistent."
+            )
+
+        source_hash = next(iter(loaded_hashes))
+        if len(source_hash) != 64 or any(
+            character not in "0123456789abcdef" for character in source_hash
+        ):
+            raise WorkspaceServiceError("The loaded source fingerprint is invalid.")
+
+        try:
+            return WorkspaceSourceReference.from_path(
+                resolved_source,
+                sha256=source_hash,
+            )
+        except OSError as error:
+            raise WorkspaceServiceError(
+                f"The loaded source is unavailable for autosave: {error}"
+            ) from error
+
     def save_state(
         self,
         state: WorkspaceState,
@@ -183,6 +229,8 @@ class WorkspaceService:
         self,
         document: WorkspaceDocument,
         file_path: Path,
+        *,
+        create_backup: bool = True,
     ) -> Path:
         """Write a workspace document using an atomic replacement."""
 
@@ -197,7 +245,7 @@ class WorkspaceService:
         temporary_path = target_path.with_suffix(f"{target_path.suffix}.tmp")
 
         try:
-            if target_path.exists():
+            if create_backup and target_path.exists():
                 self._create_backup(target_path)
 
             payload = asdict(document)
