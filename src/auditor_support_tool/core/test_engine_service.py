@@ -336,9 +336,9 @@ class TestEngineService:
         if result.context.dataset_id != context.dataset_id:
             raise ValueError("Procedure result dataset does not match the active run context.")
 
-        if result.population_count != source.record_count:
+        if result.population_count > source.record_count:
             raise ValueError(
-                "Procedure result population count does not match the audit record source."
+                "Procedure result population count cannot exceed the audit record source."
             )
 
         expected_excluded = result.population_count - result.records_evaluated_count

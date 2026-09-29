@@ -17,6 +17,9 @@ from auditor_support_tool.presentation.gl003_result_presenter import (
 from auditor_support_tool.presentation.gl006_result_presenter import (
     present_gl006_result,
 )
+from auditor_support_tool.presentation.pay001_result_presenter import (
+    present_pay001_result,
+)
 from auditor_support_tool.presentation.result_dashboard_models import (
     DashboardMetric,
     DashboardTable,
@@ -35,6 +38,7 @@ _PRESENTERS: dict[str, ResultPresenter] = {
     "GL001": present_gl001_result,
     "GL003": present_gl003_result,
     "GL006": present_gl006_result,
+    "PAY001": present_pay001_result,
 }
 
 

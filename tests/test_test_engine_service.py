@@ -137,6 +137,13 @@ class StubProcedure:
                 records_evaluated_count=(source.record_count + 1),
             )
 
+        if self.behavior == "selected_population":
+            return ProcedureResult.create(
+                context=context,
+                population_count=2,
+                records_evaluated_count=2,
+            )
+
         return ProcedureResult.create(
             context=context,
             population_count=source.record_count,
@@ -377,6 +384,23 @@ def test_invalid_result_population_becomes_failed_execution(
     assert not outcome.has_result
 
     assert "population count" in (outcome.error_message)
+
+
+def test_selected_procedure_population_may_be_smaller_than_source(
+    tmp_path: Path,
+) -> None:
+    """A procedure may deterministically select its population from the source."""
+
+    procedure = StubProcedure(behavior="selected_population")
+    outcome = create_engine(procedure).run(
+        procedure_id="PROC001",
+        source=StubRecordSource(record_count=3),
+        source_path=create_source_file(tmp_path),
+    )
+
+    assert outcome.status == EngineStatus.COMPLETED
+    assert outcome.result is not None
+    assert outcome.result.population_count == 2
 
 
 def test_invalid_audit_period_returns_failed_without_procedure_execution(
