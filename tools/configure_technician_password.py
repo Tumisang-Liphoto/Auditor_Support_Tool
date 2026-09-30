@@ -10,7 +10,7 @@ from auditor_support_tool.services.administrator_settings_service import (
     derive_password_verifier,
 )
 
-_MINIMUM_PASSWORD_LENGTH = 16
+_MINIMUM_PASSWORD_LENGTH = 5
 _TARGET = (
     Path(__file__).resolve().parents[1]
     / "src"
