@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from dataclasses import dataclass, field
 
+from auditor_support_tool.core.audit_procedure_models import (
+    ProcedureExecutorIdentity,
+    ProcedureRunContext,
+)
+from auditor_support_tool.core.currency import normalise_currency_code
 from auditor_support_tool.core.procedure_identity import (
     canonical_procedure_id,
 )
-
-if TYPE_CHECKING:
-    from auditor_support_tool.core.audit_procedure_models import (
-        ProcedureRunContext,
-    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,15 +30,19 @@ class ProcedureExecutionStamp:
 
     audit_period_start: str = ""
     audit_period_end: str = ""
+    audit_currency: str = ""
 
+    executor: ProcedureExecutorIdentity = field(default_factory=ProcedureExecutorIdentity)
     parameters: dict[str, object] | None = None
 
     @classmethod
     def from_context(
         cls,
         context: ProcedureRunContext,
+        *,
+        completed_at: str,
     ) -> ProcedureExecutionStamp:
-        """Create a persistent stamp from a successful run context."""
+        """Create a persistent stamp from a successful run and its completion time."""
 
         return cls.create(
             execution_id=context.execution_id,
@@ -50,8 +53,10 @@ class ProcedureExecutionStamp:
             mapping_fingerprint=context.mapping_fingerprint,
             audit_period_start=context.audit_period_start,
             audit_period_end=context.audit_period_end,
+            audit_currency=context.audit_currency,
+            executor=context.executor,
             parameters=context.parameters,
-            completed_at=context.created_at,
+            completed_at=completed_at,
         )
 
     @classmethod
@@ -66,6 +71,8 @@ class ProcedureExecutionStamp:
         mapping_fingerprint: str,
         audit_period_start: str = "",
         audit_period_end: str = "",
+        audit_currency: str = "",
+        executor: ProcedureExecutorIdentity | None = None,
         parameters: Mapping[str, object] | None = None,
         completed_at: str,
     ) -> ProcedureExecutionStamp:
@@ -88,6 +95,18 @@ class ProcedureExecutionStamp:
         if not cleaned_completed_at:
             raise ValueError("Procedure completion time is required.")
 
+        if executor is None:
+            cleaned_executor = ProcedureExecutorIdentity()
+        elif not isinstance(executor, ProcedureExecutorIdentity):
+            raise TypeError("Procedure executor identity must be a ProcedureExecutorIdentity.")
+        else:
+            cleaned_executor = ProcedureExecutorIdentity.create(
+                full_name=executor.full_name,
+                job_title=executor.job_title,
+                directorate=executor.directorate,
+                organization=executor.organization,
+            )
+
         return cls(
             execution_id=cleaned_execution_id,
             procedure_id=canonical_procedure_id(procedure_id),
@@ -103,6 +122,8 @@ class ProcedureExecutionStamp:
             ),
             audit_period_start=audit_period_start.strip(),
             audit_period_end=audit_period_end.strip(),
+            audit_currency=normalise_currency_code(audit_currency, allow_blank=True),
+            executor=cleaned_executor,
             parameters=normalise_execution_parameters(parameters or {}),
             completed_at=cleaned_completed_at,
         )
@@ -115,9 +136,19 @@ class ProcedureExecutionStamp:
         """Restore one execution stamp from saved workspace data."""
 
         parameters = raw.get("parameters", {})
+        raw_executor = raw.get("executor", {})
 
         if not isinstance(parameters, Mapping):
             raise TypeError("Procedure execution parameters must be an object.")
+        if not isinstance(raw_executor, Mapping):
+            raise TypeError("Procedure executor identity must be an object.")
+
+        executor = ProcedureExecutorIdentity.create(
+            full_name=_optional_text(raw_executor.get("full_name")),
+            job_title=_optional_text(raw_executor.get("job_title")),
+            directorate=_optional_text(raw_executor.get("directorate")),
+            organization=_optional_text(raw_executor.get("organization")),
+        )
 
         return cls.create(
             execution_id=str(raw["execution_id"]),
@@ -128,7 +159,11 @@ class ProcedureExecutionStamp:
             mapping_fingerprint=str(raw["mapping_fingerprint"]),
             audit_period_start=str(raw.get("audit_period_start", "")),
             audit_period_end=str(raw.get("audit_period_end", "")),
+            audit_currency=str(raw.get("audit_currency", "")),
+            executor=executor,
             parameters=parameters,
+            # Older workspaces may contain the pre-hardening context-creation time here.
+            # Preserve the recorded value rather than inventing a historical completion time.
             completed_at=str(raw["completed_at"]),
         )
 
@@ -144,9 +179,26 @@ class ProcedureExecutionStamp:
             "mapping_fingerprint": self.mapping_fingerprint,
             "audit_period_start": self.audit_period_start,
             "audit_period_end": self.audit_period_end,
+            "audit_currency": self.audit_currency,
+            "executor": {
+                "full_name": self.executor.full_name,
+                "job_title": self.executor.job_title,
+                "directorate": self.executor.directorate,
+                "organization": self.executor.organization,
+            },
             "parameters": normalise_execution_parameters(self.parameters or {}),
             "completed_at": self.completed_at,
         }
+
+
+def _optional_text(value: object) -> str:
+    """Return optional persisted executor text while rejecting malformed values."""
+
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise TypeError("Procedure executor identity values must be text or null.")
+    return value
 
 
 def normalise_execution_parameters(

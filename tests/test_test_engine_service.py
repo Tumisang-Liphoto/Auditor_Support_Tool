@@ -13,6 +13,7 @@ from auditor_support_tool.core.audit_execution_models import (
     ExecutionCancellationToken,
 )
 from auditor_support_tool.core.audit_procedure_models import (
+    ProcedureExecutorIdentity,
     ProcedureResult,
     ProcedureRunContext,
 )
@@ -134,6 +135,13 @@ class StubProcedure:
                 context=context,
                 population_count=(source.record_count + 1),
                 records_evaluated_count=(source.record_count + 1),
+            )
+
+        if self.behavior == "selected_population":
+            return ProcedureResult.create(
+                context=context,
+                population_count=2,
+                records_evaluated_count=2,
             )
 
         return ProcedureResult.create(
@@ -276,12 +284,21 @@ def test_engine_carries_audit_period_and_parameters(
     engine = create_engine(procedure)
     source = StubRecordSource()
 
+    executor = ProcedureExecutorIdentity.create(
+        full_name="Example Auditor",
+        job_title="Senior Auditor",
+        directorate="Financial Audit",
+        organization="Example Audit Office",
+    )
+
     outcome = engine.run(
         procedure_id="PROC001",
         source=source,
         source_path=create_source_file(tmp_path),
         audit_period_start="2026-04-01",
         audit_period_end="2027-03-31",
+        audit_currency="LSL",
+        executor_identity=executor,
         parameters={
             "threshold": 1000,
         },
@@ -293,10 +310,12 @@ def test_engine_carries_audit_period_and_parameters(
 
     assert context.audit_period_start == "2026-04-01"
     assert context.audit_period_end == "2027-03-31"
+    assert context.audit_currency == "LSL"
     assert context.parameters == {
         "threshold": 1000,
     }
     assert context.procedure_version == "2.0"
+    assert context.executor == executor
 
 
 def test_pre_cancelled_request_returns_cancelled(
@@ -367,6 +386,23 @@ def test_invalid_result_population_becomes_failed_execution(
     assert "population count" in (outcome.error_message)
 
 
+def test_selected_procedure_population_may_be_smaller_than_source(
+    tmp_path: Path,
+) -> None:
+    """A procedure may deterministically select its population from the source."""
+
+    procedure = StubProcedure(behavior="selected_population")
+    outcome = create_engine(procedure).run(
+        procedure_id="PROC001",
+        source=StubRecordSource(record_count=3),
+        source_path=create_source_file(tmp_path),
+    )
+
+    assert outcome.status == EngineStatus.COMPLETED
+    assert outcome.result is not None
+    assert outcome.result.population_count == 2
+
+
 def test_invalid_audit_period_returns_failed_without_procedure_execution(
     tmp_path: Path,
 ) -> None:
@@ -406,3 +442,69 @@ def test_malformed_procedure_identifier_is_rejected() -> None:
             source=source,
             source_path=Path("unused.csv"),
         )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("source_sha256", "c" * 64),
+        ("mapping_fingerprint", "c" * 64),
+        ("procedure_version", "999"),
+        ("parameters", {"limit": 99}),
+        ("audit_period_start", "2026-02-01"),
+        ("audit_period_end", "2026-11-30"),
+        ("execution_id", "other-run"),
+        ("procedure_id", "PROC002"),
+        ("dataset_id", "other-dataset"),
+        (
+            "executor",
+            ProcedureExecutorIdentity.create(
+                full_name="Different Auditor",
+                job_title="Audit Manager",
+                directorate="Quality",
+                organization="Example Audit Office",
+            ),
+        ),
+    ),
+)
+def test_engine_rejects_altered_authoritative_context(tmp_path, field, value):
+    from dataclasses import replace
+
+    class AlteredContextProcedure(StubProcedure):
+        def run(self, **kwargs):
+            result = super().run(**kwargs)
+            return replace(result, context=replace(result.context, **{field: value}))
+
+    outcome = create_engine(AlteredContextProcedure()).run(
+        procedure_id="PROC001",
+        source=StubRecordSource(),
+        source_path=create_source_file(tmp_path),
+        parameters={"limit": 10},
+        audit_period_start="2026-01-01",
+        audit_period_end="2026-12-31",
+    )
+    assert outcome.status == EngineStatus.FAILED
+    assert outcome.result is None
+    assert "authoritative execution evidence" in outcome.error_message
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_in_place_parameter_mutation_cannot_change_expected_evidence(tmp_path, nested):
+    class MutatingProcedure(StubProcedure):
+        def run(self, **kwargs):
+            context = kwargs["context"]
+            if nested:
+                context.parameters["options"]["days"].append("Sunday")
+            else:
+                context.parameters["limit"] = 99
+            return super().run(**kwargs)
+
+    outcome = create_engine(MutatingProcedure()).run(
+        procedure_id="PROC001",
+        source=StubRecordSource(),
+        source_path=create_source_file(tmp_path),
+        parameters={"limit": 10, "options": {"days": ["Saturday"]}},
+    )
+    assert outcome.status == EngineStatus.FAILED
+    assert outcome.result is None
+    assert "authoritative execution evidence" in outcome.error_message

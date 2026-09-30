@@ -9,6 +9,7 @@ from auditor_support_tool.core.audit_procedure_models import (
     ProcedureExceptionRecord,
     ProcedureResult,
 )
+from auditor_support_tool.core.currency import format_monetary_value, is_monetary_field
 from auditor_support_tool.presentation.result_dashboard_models import (
     DashboardIndicator,
     DashboardMetric,
@@ -132,7 +133,10 @@ def present_gl001_result(
         ),
         description=("All source-linked records belonging to repeated invoice-number groups."),
         columns=_table_columns(result.exception_records),
-        rows=tuple(_table_row(exception) for exception in result.exception_records),
+        rows=tuple(
+            _table_row(exception, currency_code=result.context.audit_currency)
+            for exception in result.exception_records
+        ),
         filters=(
             DashboardTableFilter(
                 key="all",
@@ -431,6 +435,7 @@ def _table_columns(
                 DashboardTableColumn(
                     key=key,
                     label=label,
+                    value_kind="monetary" if is_monetary_field(key) else "text",
                 )
             )
 
@@ -439,6 +444,8 @@ def _table_columns(
 
 def _table_row(
     exception: ProcedureExceptionRecord,
+    *,
+    currency_code: str = "",
 ) -> DashboardTableRow:
     """Convert one GL-001 exception to a dashboard row."""
 
@@ -449,7 +456,11 @@ def _table_row(
     }
 
     for key, raw_value in exception.values.items():
-        values[key] = _display_value(raw_value)
+        values[key] = _display_value(
+            key,
+            raw_value,
+            currency_code=currency_code,
+        )
 
     relationship = values.get(
         "vendor_relationship",
@@ -477,7 +488,10 @@ def _table_row(
 
 
 def _display_value(
+    key: str,
     value: object,
+    *,
+    currency_code: str = "",
 ) -> str:
     """Return a compact display value for a dashboard table cell."""
 
@@ -486,6 +500,9 @@ def _display_value(
 
     if isinstance(value, date):
         return value.isoformat()
+
+    if is_monetary_field(key):
+        return format_monetary_value(value, currency_code)
 
     if isinstance(value, Decimal):
         return f"{value:,.2f}"

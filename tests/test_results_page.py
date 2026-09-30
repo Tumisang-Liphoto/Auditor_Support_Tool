@@ -37,6 +37,7 @@ def page(qtbot):
         procedure_version=registry.require("GL001").definition.procedure_version,
         source_sha256="a" * 64,
         mapping_fingerprint="b" * 64,
+        audit_currency="LSL",
     )
     records = tuple(
         ProcedureExceptionRecord.create(
@@ -95,7 +96,8 @@ def test_rows_and_pagination(page):
     rows = page._presentation.table.rows
     assert_visible_rows(page, rows[:50])
     assert page._exceptions_table.item(0, 0).text() == "2"
-    assert page._exceptions_table.item(0, 4).text() == "1,234.50"
+    assert page._exceptions_table.item(0, 4).text() == "M1,234.50"
+    assert page._metadata_currency.text() == "Display currency: LSL"
     assert page._exceptions_table.item(0, 0).textAlignment() & Qt.AlignmentFlag.AlignRight
     assert page._page_label.text() == "Page 1 of 3"
     assert not page._previous_page_button.isEnabled()
@@ -136,7 +138,7 @@ def test_search_and_filter_intersection_and_empty_state(page):
 def test_column_visibility_and_sizing_survive_page_changes(page):
     table = page._exceptions_table
     header = table.horizontalHeader()
-    assert header.sectionResizeMode(5) == QHeaderView.ResizeMode.Stretch
+    assert header.sectionResizeMode(5) == QHeaderView.ResizeMode.Interactive
     assert header.sectionResizeMode(1) == QHeaderView.ResizeMode.Interactive
     assert table.columnWidth(1) >= table.sizeHintForColumn(1)
     action = page._columns_button.menu().actions()[1]
@@ -187,8 +189,13 @@ def test_exploration_preserves_result_and_full_report(page, monkeypatch):
     captured = []
 
     class ReportDialog:
-        def __init__(self, *, report, parent):
-            captured.append(report.to_json())
+        def __init__(self, *, request, parent):
+            captured.append(
+                page._report_builder.build(
+                    definition=request.definition,
+                    result=request.result,
+                ).to_json()
+            )
 
         def exec(self):
             return 0
@@ -487,3 +494,331 @@ def test_csv_selection_changes_default_suffix_without_unapproved_overwrite(
     assert questions
     assert page._export_worker is None
     assert existing.read_bytes() == b"existing"
+
+
+@pytest.fixture
+def source_page(page, tmp_path):
+    """Loaded rows deliberately have gaps and differ from presenter-normalised values."""
+    from auditor_support_tool.core.data_models import SOURCE_ROW_FIELD
+    from auditor_support_tool.core.workbook_package_service import WorkbookPackageService
+
+    path = tmp_path / "source.csv"
+    path.write_text(
+        "Original Ref,Original Amount,Reason\n00123,12.340,first\n00456,0,second\n",
+        encoding="utf-8",
+    )
+    package = WorkbookPackageService().build_package(path)
+    dataset = package.datasets[0]
+    dataset.dataset_id = "dataset-1"
+    amount_column = next(
+        column for column in dataset.columns if column.source_column == "Original Amount"
+    )
+    dataset.field_mappings = {amount_column.column_id: "transaction_amount"}
+    dataset.loaded_table = replace(
+        dataset.loaded_table,
+        rows=(
+            {
+                SOURCE_ROW_FIELD: 59,
+                "Original Ref": " 00123 ",
+                "Original Amount": Decimal("12.340"),
+                "Reason": "first",
+            },
+            {
+                SOURCE_ROW_FIELD: 2,
+                "Original Ref": "00456",
+                "Original Amount": 0,
+                "Reason": "second",
+            },
+        ),
+    )
+    original = page.outcome
+    exceptions = (
+        original.result.exception_records[57],
+        original.result.exception_records[0],
+        original.result.exception_records[1],
+    )
+    result = replace(
+        original.result,
+        context=replace(original.result.context, source_sha256=dataset.loaded_table.source_sha256),
+        exception_records=exceptions,
+        exception_count=3,
+    )
+    page._workspace_state.set_workbook_package(package)
+    page.set_outcome(replace(original, result=result))
+    return page, dataset
+
+
+def test_source_values_columns_search_and_horizontal_scroll(source_page, qapp):
+    page, dataset = source_page
+    snapshot = deepcopy(dataset.loaded_table)
+    result = deepcopy(page.outcome.result)
+    columns = page._presentation.table.columns
+    assert [c.label for c in columns[:5]] == [
+    "Source Row",
+    "Original Ref",
+    "Original Amount",
+    "Reason",
+    "Reason",
+    ]
+    rows = page._presentation.table.rows
+    assert [r.values["source:0"] for r in rows[:2]] == [" 00123 ", "00456"]
+    assert rows[0].values["source:1"] == "12.340"
+    assert rows[1].values["source:1"] == "0"
+    assert [r.values["source_row"] for r in rows] == ["59", "2", "3"]
+    assert all(r.values["reason"] == "Repeated invoice number." for r in rows)
+    assert "source:0" not in rows[2].values
+    assert "Source values unavailable for 1" in page._presentation.table.source_note
+    actions = page._columns_button.menu().actions()
+    record_index = next(i for i, c in enumerate(columns) if c.key == "record_id")
+    assert page._exceptions_table.isColumnHidden(record_index)
+    assert rows[0].values["record_id"] == "dataset-1:row-59"
+    actions[record_index].setChecked(True)
+    assert not page._exceptions_table.isColumnHidden(record_index)
+    actions[1].setChecked(False)
+    assert page._exceptions_table.isColumnHidden(1)
+    actions[1].setChecked(True)
+    page._search_input.setText("00123")
+    assert page._exceptions_table.rowCount() == 1
+    assert page._exceptions_table.item(0, 0).text() == "59"
+    page._search_input.clear()
+    for action in actions:
+        action.setChecked(True)
+    qapp.processEvents()
+    table = page._exceptions_table
+    assert table.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAsNeeded
+    assert table.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAsNeeded
+    assert table.horizontalScrollBar().maximum() > 0
+    assert all(
+        table.horizontalHeader().sectionResizeMode(i) == QHeaderView.ResizeMode.Interactive
+        for i in range(table.columnCount())
+    )
+    assert dataset.loaded_table == snapshot
+    assert page.outcome.result == result
+
+
+@pytest.mark.parametrize("fault", ("hash", "dataset", "record", "row", "duplicate", "missing"))
+def test_source_resolution_fails_closed(source_page, fault):
+    from auditor_support_tool.presentation.exception_source_records import resolve_exception_sources
+
+    page, dataset = source_page
+    result = page.outcome.result
+    if fault == "hash":
+        result = replace(result, context=replace(result.context, source_sha256="f" * 64))
+    elif fault == "dataset":
+        dataset.dataset_id = "other"
+    elif fault in {"record", "row"}:
+        exception = result.exception_records[0]
+        exception = replace(
+            exception,
+            **(
+                {"source_record_id": "other:row-59"}
+                if fault == "record"
+                else {"source_row_number": 2}
+            ),
+        )
+        result = replace(result, exception_records=(exception,))
+    elif fault == "duplicate":
+        dataset.loaded_table = replace(dataset.loaded_table, rows=dataset.loaded_table.rows * 2)
+    else:
+        dataset.loaded_table = replace(dataset.loaded_table, rows=())
+    assert resolve_exception_sources(result, (dataset,)).records == {}
+
+
+@pytest.mark.parametrize("format", ("csv", "xlsx"))
+def test_source_export_preserves_all_rows_and_values(
+    source_page, monkeypatch, tmp_path, qtbot, format
+):
+    page, dataset = source_page
+    path = tmp_path / ("exceptions." + format)
+    selected = "CSV (*.csv)" if format == "csv" else "Excel Workbook (*.xlsx)"
+    monkeypatch.setattr(
+        results_page.QFileDialog, "getSaveFileName", lambda *args: (str(path), selected)
+    )
+    monkeypatch.setattr(results_page.QMessageBox, "information", lambda *args: None)
+    page._search_input.setText("00123")
+    page._columns_button.menu().actions()[1].setChecked(False)
+    page._export_exceptions()
+    page.clear_result()
+    qtbot.waitUntil(lambda: page._export_worker is None)
+    if format == "csv":
+        import csv
+
+        with path.open(encoding="utf-8-sig", newline="") as stream:
+            values = list(csv.reader(stream))
+    else:
+        from openpyxl import load_workbook
+
+        book = load_workbook(path)
+        values = list(book["Exceptions"].values)
+        book.close()
+    index = values[0].index("source.Original Ref")
+    assert len(values) == 4
+    assert values[1][index] == " 00123 "
+    assert values[2][index] == "00456"
+    assert values[3][index] in ("", None)
+    assert values[1][values[0].index("source.Original Amount")] == "12.340"
+
+
+@pytest.mark.parametrize(
+    "signal",
+    ("source_changed", "workbook_package_changed", "active_dataset_changed", "workspace_cleared"),
+)
+def test_source_projection_cleared_with_result(source_page, signal):
+    page, dataset = source_page
+    assert page._source_records.records
+    getattr(page._workspace_state, signal).emit()
+    assert page._source_records is None
+    assert page._presentation is None
+    assert page.outcome is None
+
+
+def test_wide_source_defaults_and_refresh_reset_hidden_columns(source_page):
+    page, dataset = source_page
+    outcome = page.outcome
+    headers = tuple(f"Original column {i}" for i in range(15))
+    dataset.loaded_table = replace(dataset.loaded_table, headers=headers)
+    page.set_outcome(outcome)
+    columns = page._presentation.table.columns
+    source_indices = [i for i, c in enumerate(columns) if c.key.startswith("source:")]
+    assert len(source_indices) == 15
+    assert sum(not page._exceptions_table.isColumnHidden(i) for i in source_indices) == 12
+    for index in source_indices[12:]:
+        page._columns_button.menu().actions()[index].setChecked(True)
+        assert not page._exceptions_table.isColumnHidden(index)
+    page._columns_button.menu().actions()[1].setChecked(False)
+    page.set_outcome(outcome)
+    assert not page._exceptions_table.isColumnHidden(1)
+
+
+@pytest.fixture
+def report_page(page, tmp_path):
+    from auditor_support_tool.core.workbook_package_service import WorkbookPackageService
+
+    path = tmp_path / "report-source.csv"
+    path.write_text(
+        "Original Reference,Raw Amount\n" + "\n".join(f"RAW-{i:03},12.340" for i in range(120)),
+        encoding="utf-8",
+    )
+    package = WorkbookPackageService().build_package(path)
+    dataset = package.datasets[0]
+    dataset.dataset_id = "dataset-1"
+    outcome = page.outcome
+    outcome = replace(
+        outcome,
+        result=replace(
+            outcome.result,
+            context=replace(
+                outcome.result.context, source_sha256=dataset.loaded_table.source_sha256
+            ),
+        ),
+    )
+    page._workspace_state.set_workbook_package(package)
+    page.set_outcome(outcome)
+    return page
+
+
+def choose_report_format(monkeypatch, format="pdf", accepted=True):
+    class Selector:
+        def __init__(self, parent):
+            self.format = format
+
+        def exec(self):
+            return (
+                results_page.QDialog.DialogCode.Accepted
+                if accepted
+                else results_page.QDialog.DialogCode.Rejected
+            )
+
+    monkeypatch.setattr(results_page, "ReportExportDialog", Selector)
+
+
+@pytest.mark.parametrize("format", ("pdf", "docx", "xlsx"))
+def test_report_export_uses_complete_run_not_explorer_state(
+    report_page, monkeypatch, tmp_path, qtbot, format
+):
+    from openpyxl import load_workbook
+
+    from tests.test_auditor_report_export import docx_text, pdf_text
+
+    page = report_page
+    before = deepcopy(page.outcome.result)
+    page._next_page_button.click()
+    page._search_input.setText("RAW-059")
+    page._columns_button.menu().actions()[1].setChecked(False)
+    choose_report_format(monkeypatch, format)
+    path = tmp_path / ("full." + format)
+    monkeypatch.setattr(results_page.QFileDialog, "getSaveFileName", lambda *args: (str(path), ""))
+    messages = []
+    monkeypatch.setattr(
+        results_page.QMessageBox, "information", lambda *args: messages.append(args[2])
+    )
+    page._export_report()
+    assert not page._export_report_button.isEnabled()
+    assert page._export_exceptions_button.isEnabled()
+    qtbot.waitUntil(lambda: page._report_export_worker is None, timeout=30000)
+    assert page._export_report_button.isEnabled()
+    if format == "pdf":
+        text = pdf_text(path)
+    elif format == "docx":
+        text = docx_text(path)
+    else:
+        book = load_workbook(path)
+        assert book["Exceptions"].max_row == 121
+        text = "\n".join(str(c.value) for row in book["Exceptions"] for c in row)
+        book.close()
+    assert all(f"RAW-{i:03}" in text for i in range(120))
+    assert page.outcome.result == before
+    assert page._search_input.text() == "RAW-059"
+    assert messages
+
+
+@pytest.mark.parametrize("cancel", ("format", "save", "stale", "extension", "overwrite"))
+def test_report_export_cancel_or_invalid_choice_creates_no_file(
+    report_page, monkeypatch, tmp_path, cancel
+):
+    page = report_page
+    choose_report_format(monkeypatch, accepted=cancel != "format")
+    path = tmp_path / ("report.doc" if cancel == "extension" else "report.pdf")
+    if cancel == "overwrite":
+        path.write_bytes(b"original")
+
+    def save(*args):
+        if cancel == "stale":
+            page.clear_result()
+        return (
+            ""
+            if cancel == "save"
+            else str(path.with_suffix("") if cancel == "overwrite" else path),
+            "",
+        )
+
+    monkeypatch.setattr(results_page.QFileDialog, "getSaveFileName", save)
+    monkeypatch.setattr(
+        results_page.QMessageBox,
+        "question",
+        lambda *args: results_page.QMessageBox.StandardButton.No,
+    )
+    messages = []
+    monkeypatch.setattr(results_page.QMessageBox, "warning", lambda *args: messages.append(args[2]))
+    page._export_report()
+    assert page._report_export_worker is None
+    if cancel == "overwrite":
+        assert path.read_bytes() == b"original"
+    else:
+        assert not path.exists()
+    if cancel in {"extension", "stale"}:
+        assert messages
+
+
+def test_report_export_missing_source_error_and_invalidation(page, monkeypatch, tmp_path, qtbot):
+    choose_report_format(monkeypatch)
+    path = tmp_path / "report.pdf"
+    monkeypatch.setattr(results_page.QFileDialog, "getSaveFileName", lambda *args: (str(path), ""))
+    messages = []
+    monkeypatch.setattr(results_page.QMessageBox, "warning", lambda *args: messages.append(args[2]))
+    page._export_report()
+    page.clear_result()
+    qtbot.waitUntil(lambda: page._report_export_worker is None)
+    assert messages and "evidence" in messages[0]
+    assert not path.exists()
+    assert not page._export_report_button.isEnabled()

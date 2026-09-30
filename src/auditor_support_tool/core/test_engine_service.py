@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Mapping
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from auditor_support_tool.core.audit_execution_models import (
@@ -15,6 +17,7 @@ from auditor_support_tool.core.audit_execution_service import (
     AuditExecutionService,
 )
 from auditor_support_tool.core.audit_procedure_models import (
+    ProcedureExecutorIdentity,
     ProcedureResult,
     ProcedureRunContext,
 )
@@ -25,6 +28,7 @@ from auditor_support_tool.core.audit_run_context_service import (
     AuditRunContextError,
     AuditRunContextService,
 )
+from auditor_support_tool.core.currency import normalise_currency_code
 from auditor_support_tool.core.procedure_dataset_resolution import (
     ProcedureDatasetBundle,
     ProcedureDatasetResolver,
@@ -75,6 +79,8 @@ class TestEngineService:
         source_path: str | Path,
         audit_period_start: str = "",
         audit_period_end: str = "",
+        audit_currency: str = "",
+        executor_identity: ProcedureExecutorIdentity | None = None,
         parameters: Mapping[str, object] | None = None,
         dataset_sources: Iterable[ProcedureDatasetSource] = (),
         cancellation_token: ExecutionCancellationToken | None = None,
@@ -177,10 +183,22 @@ class TestEngineService:
                 procedure_version=(definition.procedure_version),
                 audit_period_start=audit_period_start,
                 audit_period_end=audit_period_end,
+                executor_identity=executor_identity,
                 parameters=resolved_parameters,
             )
+            context = replace(
+                context,
+                audit_currency=normalise_currency_code(
+                    audit_currency,
+                    allow_blank=True,
+                ),
+            )
+            # Keep immutable expected evidence that is never exposed to the procedure.
+            # In particular, frozen dataclasses do not freeze nested parameters.
+            expected_context = json.dumps(asdict(context), sort_keys=True, allow_nan=False)
         except (
             AuditRunContextError,
+            TypeError,
             ValueError,
         ) as error:
             return TestEngineOutcome(
@@ -205,6 +223,7 @@ class TestEngineService:
                 result=result,
                 context=context,
                 source=supplied_source,
+                expected_context=expected_context,
             )
 
             return result
@@ -287,6 +306,7 @@ class TestEngineService:
         result: object,
         context: ProcedureRunContext,
         source: AuditRecordSource,
+        expected_context: str,
     ) -> None:
         """Validate cross-component invariants for a procedure result."""
 
@@ -295,6 +315,15 @@ class TestEngineService:
             ProcedureResult,
         ):
             raise TypeError("Audit procedures must return a ProcedureResult.")
+
+        if (
+            not isinstance(result.context, ProcedureRunContext)
+            or json.dumps(asdict(result.context), sort_keys=True, allow_nan=False)
+            != expected_context
+        ):
+            raise ValueError(
+                "Procedure result context differs from authoritative execution evidence."
+            )
 
         if result.context.execution_id != context.execution_id:
             raise ValueError(
@@ -307,9 +336,9 @@ class TestEngineService:
         if result.context.dataset_id != context.dataset_id:
             raise ValueError("Procedure result dataset does not match the active run context.")
 
-        if result.population_count != source.record_count:
+        if result.population_count > source.record_count:
             raise ValueError(
-                "Procedure result population count does not match the audit record source."
+                "Procedure result population count cannot exceed the audit record source."
             )
 
         expected_excluded = result.population_count - result.records_evaluated_count

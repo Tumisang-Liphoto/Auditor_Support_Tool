@@ -17,6 +17,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from auditor_support_tool.core.currency import (
+    DEFAULT_CURRENCY_CODE,
+    normalise_currency_code,
+)
 from auditor_support_tool.core.workspace_models import WorkspaceIdentity
 
 
@@ -29,11 +33,13 @@ class NewWorkspaceDialog(QDialog):
         *,
         existing_identity: WorkspaceIdentity | None = None,
         lock_audit_domain: bool = False,
+        default_currency: str = DEFAULT_CURRENCY_CODE,
     ) -> None:
         super().__init__(parent)
 
         self._existing_identity = existing_identity
         self._lock_audit_domain = bool(lock_audit_domain and existing_identity is not None)
+        self._default_currency = normalise_currency_code(default_currency)
         self._workspace_identity: WorkspaceIdentity | None = None
 
         self.setWindowTitle("Edit Audit Details" if existing_identity is not None else "New Audit")
@@ -61,12 +67,10 @@ class NewWorkspaceDialog(QDialog):
         title.setObjectName("dialogTitle")
 
         description = QLabel(
-
-                "Update the audit information below. Changes are recorded with the audit."
-                if editing
-                else "Enter the basic information for this audit. "
-                "You can save the audit after it has been created."
-
+            "Update the audit information below. Changes are recorded with the audit."
+            if editing
+            else "Enter the basic information for this audit. "
+            "You can save the audit after it has been created."
         )
         description.setObjectName("dialogDescription")
         description.setWordWrap(True)
@@ -84,6 +88,16 @@ class NewWorkspaceDialog(QDialog):
         self._auditee_name_input = QLineEdit()
         self._auditee_name_input.setPlaceholderText("Example: Ministry of Example")
         self._auditee_name_input.setClearButtonEnabled(True)
+
+        self._audit_currency_input = QLineEdit()
+        self._audit_currency_input.setPlaceholderText("Example: LSL")
+        self._audit_currency_input.setMaxLength(3)
+        self._audit_currency_input.setText(self._default_currency)
+        self._audit_currency_input.setToolTip(
+            "Three-letter display currency used to present monetary values, for example LSL "
+            "or USD. This does not verify the currency of source amounts and the "
+            "application does not perform FX conversion."
+        )
 
         today = QDate.currentDate()
 
@@ -181,6 +195,10 @@ class NewWorkspaceDialog(QDialog):
             self._auditee_name_input,
         )
         form_layout.addRow(
+            "Display currency:",
+            self._audit_currency_input,
+        )
+        form_layout.addRow(
             "Audit year:",
             self._audit_year_input,
         )
@@ -259,6 +277,7 @@ class NewWorkspaceDialog(QDialog):
 
         self._workspace_name_input.setText(identity.name)
         self._auditee_name_input.setText(identity.auditee_name)
+        self._audit_currency_input.setText(identity.audit_currency)
 
         year_index = (
             self._audit_year_input.findText(identity.audit_year)
@@ -388,6 +407,7 @@ class NewWorkspaceDialog(QDialog):
             "auditee_name": self._auditee_name_input.text().strip(),
             "audit_year": str(self._audit_year_input.currentData()).strip(),
             "audit_period_start": audit_period_start,
+            "audit_currency": self._audit_currency_input.text().strip().upper(),
             "audit_period_end": audit_period_end,
             "audit_domain": str(self._audit_domain_combo.currentData() or "").strip(),
             "audit_area": self._audit_area_input.text().strip(),
@@ -404,6 +424,7 @@ class NewWorkspaceDialog(QDialog):
                     **details,
                 )
                 updated_identity.validate_audit_period()
+                updated_identity.validate_audit_currency()
                 self._workspace_identity = updated_identity
         except ValueError as error:
             QMessageBox.warning(

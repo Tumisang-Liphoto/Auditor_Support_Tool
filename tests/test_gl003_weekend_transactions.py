@@ -172,6 +172,15 @@ def test_gl003_uses_authoritative_catalogue_definition() -> None:
     assert procedure.definition.procedure_id == "GL003"
     assert procedure.definition.display_id == "GL-003"
     assert procedure.definition.required_fields == ("transaction_date",)
+    assert procedure.definition.has_methodology_metadata is True
+    assert procedure.definition.isa_basis_type == "ISA-supported methodology"
+    assert procedure.definition.isa_references == (
+        "ISA 240, paragraph 33(a)",
+        "ISA 240, A42-A45",
+        "ISA 315 (Revised 2019), A27-A31",
+    )
+    assert "configured weekend days" in procedure.definition.audit_objective
+    assert "ISAs do not prescribe weekend testing" in procedure.definition.audit_rationale
 
 
 def test_gl003_flags_saturday_and_sunday(
@@ -199,6 +208,7 @@ def test_gl003_flags_saturday_and_sunday(
     assert result.excluded_record_count == 3
 
     assert result.exception_count == 2
+    assert result.non_exception_count == 2
     assert result.exception_rate == 50.0
 
     assert result.metrics["saturday_transactions"] == 1
@@ -227,6 +237,10 @@ def test_gl003_exclusions_reconcile(
         "blank_transaction_date": 1,
         "invalid_transaction_date": 1,
         "outside_audit_period": 1,
+    }
+    assert result.data_quality_observation_counts == {
+        "blank_transaction_date": 1,
+        "invalid_transaction_date": 1,
     }
 
     assert result.records_evaluated_count + result.excluded_record_count == result.population_count
@@ -275,6 +289,7 @@ def test_gl003_without_period_evaluates_all_usable_dates(
 
     assert result.records_evaluated_count == 5
     assert result.exception_count == 3
+    assert result.non_exception_count == 2
     assert result.excluded_record_count == 2
     assert any("No audit period was supplied." in limitation for limitation in result.limitations)
 

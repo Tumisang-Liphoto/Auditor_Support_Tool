@@ -31,6 +31,7 @@ def create_context(
         mapping_fingerprint="b" * 64,
         audit_period_start="2026-01-01",
         audit_period_end="2026-12-31",
+        audit_currency="LSL",
         parameters=parameters or {},
     )
 
@@ -47,7 +48,11 @@ def test_execution_stamp_preserves_reproducibility_context() -> None:
         }
     )
 
-    stamp = ProcedureExecutionStamp.from_context(context)
+    completed_at = "2026-09-15T08:35:17.842193+00:00"
+    stamp = ProcedureExecutionStamp.from_context(
+        context,
+        completed_at=completed_at,
+    )
 
     assert stamp.procedure_id == "GL003"
     assert stamp.dataset_id == "dataset-1"
@@ -56,13 +61,14 @@ def test_execution_stamp_preserves_reproducibility_context() -> None:
     assert stamp.mapping_fingerprint == "b" * 64
     assert stamp.audit_period_start == "2026-01-01"
     assert stamp.audit_period_end == "2026-12-31"
+    assert stamp.audit_currency == "LSL"
     assert stamp.parameters == {
         "weekend_days": [
             "Saturday",
             "Sunday",
         ]
     }
-    assert stamp.completed_at == context.created_at
+    assert stamp.completed_at == completed_at
 
 
 def test_execution_stamp_round_trips_through_workspace_data() -> None:
@@ -75,7 +81,8 @@ def test_execution_stamp_round_trips_through_workspace_data() -> None:
                     "Saturday",
                 ],
             }
-        )
+        ),
+        completed_at="2026-09-15T08:36:00+00:00",
     )
 
     restored = ProcedureExecutionStamp.from_dict(original.to_dict())

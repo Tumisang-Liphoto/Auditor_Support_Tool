@@ -17,7 +17,7 @@ from decimal import Decimal
 from enum import Enum
 from pathlib import Path
 
-REPORT_SCHEMA_VERSION = 1
+REPORT_SCHEMA_VERSION = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +39,10 @@ class AuditProcedureReportScope:
     dataset_id: str
     audit_period_start: str
     audit_period_end: str
+    audit_currency: str
+    audit_currency_role: str
+    source_amount_currency_status: str
+    fx_conversion_applied: bool
     parameters: dict[str, object]
 
 
@@ -50,6 +54,7 @@ class AuditProcedureReportSummary:
     records_evaluated_count: int
     excluded_record_count: int
     exception_count: int
+    non_exception_count: int
     exception_rate: float
     related_value_total: str | None
 
@@ -110,6 +115,7 @@ class AuditProcedureReport:
     summary: AuditProcedureReportSummary
 
     exclusion_counts: dict[str, int]
+    data_quality_observation_counts: dict[str, int]
     metrics: dict[str, object]
     limitations: tuple[str, ...]
     audit_use_statement: str
@@ -171,6 +177,10 @@ class AuditProcedureReport:
                 "dataset_id": self.scope.dataset_id,
                 "audit_period_start": self.scope.audit_period_start,
                 "audit_period_end": self.scope.audit_period_end,
+                "audit_currency": self.scope.audit_currency,
+                "audit_currency_role": self.scope.audit_currency_role,
+                "source_amount_currency_status": self.scope.source_amount_currency_status,
+                "fx_conversion_applied": self.scope.fx_conversion_applied,
                 "parameters": normalise_report_mapping(self.scope.parameters),
             },
             "summary": {
@@ -178,10 +188,12 @@ class AuditProcedureReport:
                 "records_evaluated_count": (self.summary.records_evaluated_count),
                 "excluded_record_count": (self.summary.excluded_record_count),
                 "exception_count": self.summary.exception_count,
+                "non_exception_count": self.summary.non_exception_count,
                 "exception_rate": self.summary.exception_rate,
                 "related_value_total": (self.summary.related_value_total),
             },
             "exclusion_counts": dict(self.exclusion_counts),
+            "data_quality_observation_counts": dict(self.data_quality_observation_counts),
             "metrics": normalise_report_mapping(self.metrics),
             "limitations": list(self.limitations),
             "audit_use_statement": self.audit_use_statement,

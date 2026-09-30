@@ -14,6 +14,7 @@ from auditor_support_tool.core.constants import (
     ORGANIZATION_NAME,
 )
 from auditor_support_tool.core.paths import ensure_application_paths
+from auditor_support_tool.core.workspace_recovery_service import WorkspaceRecoveryService
 from auditor_support_tool.core.workspace_service import WorkspaceService
 from auditor_support_tool.gui.main_window import MainWindow
 from auditor_support_tool.services.administrator_settings_service import (
@@ -81,6 +82,7 @@ def main() -> int:
         paths=paths,
     )
     workspace_service = WorkspaceService(paths)
+    workspace_recovery_service = WorkspaceRecoveryService(paths, workspace_service)
 
     window = MainWindow(
         settings_service=settings_service,
@@ -88,6 +90,7 @@ def main() -> int:
         theme_service=theme_service,
         update_service=update_service,
         workspace_service=workspace_service,
+        workspace_recovery_service=workspace_recovery_service,
     )
     window.show()
 

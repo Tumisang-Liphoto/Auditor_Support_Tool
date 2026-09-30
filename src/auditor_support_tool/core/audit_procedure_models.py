@@ -10,12 +10,47 @@ from decimal import Decimal
 from auditor_support_tool.core.audit_execution_models import (
     AuditExecutionRequest,
 )
+from auditor_support_tool.core.currency import normalise_currency_code
 from auditor_support_tool.core.workspace_models import utc_now_iso
 
 DEFAULT_AUDIT_USE_STATEMENT = (
     "This procedure identifies records meeting the configured criteria "
     "for auditor review. It does not by itself establish an audit finding."
 )
+
+
+@dataclass(frozen=True, slots=True)
+class ProcedureExecutorIdentity:
+    """User-profile snapshot identifying who initiated one procedure run."""
+
+    full_name: str = ""
+    job_title: str = ""
+    directorate: str = ""
+    organization: str = ""
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        full_name: str = "",
+        job_title: str = "",
+        directorate: str = "",
+        organization: str = "",
+    ) -> ProcedureExecutorIdentity:
+        """Create a normalised immutable execution-user snapshot."""
+
+        return cls(
+            full_name=full_name.strip(),
+            job_title=job_title.strip(),
+            directorate=directorate.strip(),
+            organization=organization.strip(),
+        )
+
+    @property
+    def is_recorded(self) -> bool:
+        """Return whether an executor name was captured for this run."""
+
+        return bool(self.full_name)
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,7 +67,9 @@ class ProcedureRunContext:
 
     audit_period_start: str = ""
     audit_period_end: str = ""
+    audit_currency: str = ""
 
+    executor: ProcedureExecutorIdentity = field(default_factory=ProcedureExecutorIdentity)
     parameters: dict[str, object] = field(default_factory=dict)
     created_at: str = field(default_factory=utc_now_iso)
 
@@ -46,6 +83,8 @@ class ProcedureRunContext:
         mapping_fingerprint: str,
         audit_period_start: str = "",
         audit_period_end: str = "",
+        audit_currency: str = "",
+        executor: ProcedureExecutorIdentity | None = None,
         parameters: Mapping[str, object] | None = None,
     ) -> ProcedureRunContext:
         """Create and validate the reproducibility context for a run."""
@@ -69,6 +108,18 @@ class ProcedureRunContext:
             audit_period_end,
         )
 
+        if executor is None:
+            cleaned_executor = ProcedureExecutorIdentity()
+        elif not isinstance(executor, ProcedureExecutorIdentity):
+            raise TypeError("Procedure executor identity must be a ProcedureExecutorIdentity.")
+        else:
+            cleaned_executor = ProcedureExecutorIdentity.create(
+                full_name=executor.full_name,
+                job_title=executor.job_title,
+                directorate=executor.directorate,
+                organization=executor.organization,
+            )
+
         return cls(
             execution_id=request.execution_id,
             procedure_id=request.procedure_id,
@@ -78,6 +129,8 @@ class ProcedureRunContext:
             mapping_fingerprint=cleaned_mapping_hash,
             audit_period_start=cleaned_period_start,
             audit_period_end=cleaned_period_end,
+            audit_currency=normalise_currency_code(audit_currency, allow_blank=True),
+            executor=cleaned_executor,
             parameters=dict(parameters or {}),
         )
 
@@ -157,6 +210,7 @@ class ProcedureResult:
         ...,
     ] = ()
     exclusion_counts: dict[str, int] = field(default_factory=dict)
+    data_quality_observation_counts: dict[str, int] = field(default_factory=dict)
 
     related_value_total: Decimal | None = None
 
@@ -177,6 +231,7 @@ class ProcedureResult:
             ...,
         ] = (),
         exclusion_counts: Mapping[str, int] | None = None,
+        data_quality_observation_counts: Mapping[str, int] | None = None,
         related_value_total: Decimal | None = None,
         limitations: tuple[str, ...] = (),
         metrics: Mapping[str, object] | None = None,
@@ -229,6 +284,22 @@ class ProcedureResult:
             (exception_count / records_evaluated_count) * 100.0 if records_evaluated_count else 0.0
         )
 
+        cleaned_data_quality_observation_counts: dict[str, int] = {}
+
+        for raw_observation, raw_count in (data_quality_observation_counts or {}).items():
+            observation = str(raw_observation).strip()
+
+            if not observation:
+                raise ValueError("Data-quality observation cannot be blank.")
+
+            count = int(raw_count)
+
+            if count < 0:
+                raise ValueError("Data-quality observation counts cannot be negative.")
+
+            if count:
+                cleaned_data_quality_observation_counts[observation] = count
+
         cleaned_limitations = tuple(
             limitation.strip() for limitation in limitations if limitation.strip()
         )
@@ -247,11 +318,18 @@ class ProcedureResult:
             exception_rate=exception_rate,
             exception_records=(exception_records_tuple),
             exclusion_counts=(cleaned_exclusion_counts),
+            data_quality_observation_counts=(cleaned_data_quality_observation_counts),
             related_value_total=(related_value_total),
             limitations=cleaned_limitations,
             metrics=dict(metrics or {}),
             audit_use_statement=(cleaned_audit_use_statement),
         )
+
+    @property
+    def non_exception_count(self) -> int:
+        """Return evaluated records that were not identified as exceptions."""
+
+        return self.records_evaluated_count - self.exception_count
 
 
 def _validate_audit_period(

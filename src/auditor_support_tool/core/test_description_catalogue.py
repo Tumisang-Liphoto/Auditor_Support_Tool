@@ -52,6 +52,16 @@ TEST_DESCRIPTIONS: tuple[TestDescriptionDefinition, ...] = (
         ),
         file_name="GL-006-Segregation-of-Duties.pdf",
     ),
+    TestDescriptionDefinition(
+        test_code="GL-011",
+        title="Unmapped Accounts",
+        category="General Ledger",
+        description=(
+            "Identifies General Ledger transactions whose account codes are absent "
+            "from the supplied Chart of Accounts."
+        ),
+        file_name="GL-011-Unmapped-Accounts.pdf",
+    ),
 )
 
 

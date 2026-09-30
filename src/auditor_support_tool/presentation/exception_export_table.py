@@ -10,6 +10,12 @@ from decimal import Decimal
 
 from auditor_support_tool.core.audit_procedure_models import ProcedureResult
 from auditor_support_tool.core.audit_procedure_report_models import normalise_report_value
+from auditor_support_tool.core.currency import (
+    AUDIT_CURRENCY_ROLE,
+    FX_CONVERSION_APPLIED,
+    SOURCE_AMOUNT_CURRENCY_STATUS,
+)
+from auditor_support_tool.presentation.exception_source_records import ExceptionSourceRecords
 
 Cell = str | int | float | bool | Decimal | None
 
@@ -41,7 +47,9 @@ def _cell(value: object) -> Cell:
     )
 
 
-def build_exception_export_table(result: ProcedureResult) -> ExceptionExportTable:
+def build_exception_export_table(
+    result: ProcedureResult, sources: ExceptionSourceRecords | None = None
+) -> ExceptionExportTable:
     """Retain all rows and all values; no presenter or UI state is consulted."""
     keys = tuple(dict.fromkeys(key for row in result.exception_records for key in row.values))
     if any(not isinstance(key, str) for key in keys):
@@ -91,6 +99,10 @@ def build_exception_export_table(result: ProcedureResult) -> ExceptionExportTabl
         ("mapping_fingerprint", ctx.mapping_fingerprint),
         ("audit_period_start", ctx.audit_period_start),
         ("audit_period_end", ctx.audit_period_end),
+        ("audit_currency", ctx.audit_currency),
+        ("audit_currency_role", AUDIT_CURRENCY_ROLE),
+        ("source_amount_currency_status", SOURCE_AMOUNT_CURRENCY_STATUS),
+        ("fx_conversion_applied", FX_CONVERSION_APPLIED),
         ("scope_note", "Search, filters, pagination and hidden columns do not affect this export."),
         (
             "fidelity_note",
@@ -100,4 +112,17 @@ def build_exception_export_table(result: ProcedureResult) -> ExceptionExportTabl
             "CSV is not a byte-perfect copy of source cells.",
         ),
     )
+    if sources is not None and sources.headers:
+        headers += tuple("source." + header for header in sources.headers)
+        rows = tuple(
+            values
+            + tuple(
+                _cell(cell)
+                for cell in sources.records.get(
+                    (exception.source_record_id, exception.source_row_number),
+                    (None,) * len(sources.headers),
+                )
+            )
+            for values, exception in zip(rows, result.exception_records, strict=True)
+        )
     return ExceptionExportTable(headers, rows, metadata)

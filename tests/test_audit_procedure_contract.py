@@ -14,6 +14,7 @@ from auditor_support_tool.core.audit_execution_models import (
 from auditor_support_tool.core.audit_procedure_models import (
     DEFAULT_AUDIT_USE_STATEMENT,
     ProcedureExceptionRecord,
+    ProcedureExecutorIdentity,
     ProcedureResult,
     ProcedureRunContext,
 )
@@ -135,6 +136,35 @@ def test_run_context_copies_execution_identity() -> None:
     ]
 
 
+def test_run_context_captures_executor_snapshot() -> None:
+    """Run context should retain a normalised immutable executor identity."""
+
+    request = AuditExecutionRequest.create(
+        procedure_id="GL003",
+        dataset_id="dataset-123",
+    )
+    executor = ProcedureExecutorIdentity.create(
+        full_name="  Example Auditor  ",
+        job_title=" Senior Auditor ",
+        directorate=" Financial Audit ",
+        organization=" Example Audit Office ",
+    )
+
+    context = ProcedureRunContext.create(
+        request=request,
+        procedure_version="1.0.0",
+        source_sha256="a" * 64,
+        mapping_fingerprint="b" * 64,
+        executor=executor,
+    )
+
+    assert context.executor.full_name == "Example Auditor"
+    assert context.executor.job_title == "Senior Auditor"
+    assert context.executor.directorate == "Financial Audit"
+    assert context.executor.organization == "Example Audit Office"
+    assert context.executor.is_recorded is True
+
+
 def test_run_context_requires_valid_hashes() -> None:
     """Source and mapping fingerprints must be proper SHA-256 digests."""
 
@@ -167,16 +197,25 @@ def test_run_context_service_uses_actual_source_hash_and_mapping(
         dataset_id=prepared_dataset.dataset_id,
     )
 
+    executor = ProcedureExecutorIdentity.create(
+        full_name="Example Auditor",
+        job_title="Senior Auditor",
+        directorate="Financial Audit",
+        organization="Example Audit Office",
+    )
+
     context = AuditRunContextService().build(
         request=request,
         record_source=prepared_dataset,
         source_path=source_path,
         procedure_version="1.0.0",
+        executor_identity=executor,
         parameters={"weekend_days": [5, 6]},
     )
 
     assert context.source_sha256 == (SourceIntegrityService().sha256_file(source_path))
     assert context.mapping_fingerprint == (prepared_dataset.mapping_fingerprint)
+    assert context.executor == executor
 
 
 def test_run_context_rejects_wrong_dataset() -> None:
@@ -258,7 +297,64 @@ def test_result_calculates_counts_and_exception_rate() -> None:
     assert result.records_evaluated_count == 8
     assert result.excluded_record_count == 2
     assert result.exception_count == 2
+    assert result.non_exception_count == 6
     assert result.exception_rate == 25.0
+
+
+def test_data_quality_observations_are_separate_from_population_reconciliation() -> None:
+    """Overlapping quality observations must not alter population reconciliation."""
+
+    exception = ProcedureExceptionRecord.create(
+        source_record_id="dataset-123:row-2",
+        source_row_number=2,
+        reason_code="TEST",
+        reason="Test exception.",
+    )
+
+    result = ProcedureResult.create(
+        context=create_context(),
+        population_count=3,
+        records_evaluated_count=2,
+        exception_records=(exception,),
+        exclusion_counts={"invalid_required_field": 1},
+        data_quality_observation_counts={
+            "missing_reference": 2,
+            "invalid_amount": 2,
+            "unused_zero_count": 0,
+        },
+    )
+
+    assert result.excluded_record_count == 1
+    assert result.exception_count == 1
+    assert result.non_exception_count == 1
+    assert result.data_quality_observation_counts == {
+        "missing_reference": 2,
+        "invalid_amount": 2,
+    }
+    assert sum(result.data_quality_observation_counts.values()) > result.population_count
+
+
+@pytest.mark.parametrize(
+    ("observations", "message"),
+    (
+        ({"": 1}, "Data-quality observation cannot be blank"),
+        ({"invalid_amount": -1}, "Data-quality observation counts cannot be negative"),
+    ),
+)
+def test_data_quality_observation_counts_are_validated(
+    observations: dict[str, int],
+    message: str,
+) -> None:
+    """Observation labels and counts should remain explicit and non-negative."""
+
+    with pytest.raises(ValueError, match=message):
+        ProcedureResult.create(
+            context=create_context(),
+            population_count=1,
+            records_evaluated_count=1,
+            exclusion_counts={},
+            data_quality_observation_counts=observations,
+        )
 
 
 def test_result_requires_exclusion_summary_to_reconcile() -> None:
@@ -318,6 +414,7 @@ def test_zero_evaluated_records_produces_zero_rate() -> None:
 
     assert result.exception_count == 0
     assert result.exception_rate == 0.0
+    assert result.non_exception_count == 0
 
 
 def test_result_preserves_related_value_and_limitations() -> None:

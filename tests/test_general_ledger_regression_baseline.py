@@ -118,6 +118,7 @@ def _run_baseline_procedure(
     assert outcome.error_message == ""
     assert outcome.result is not None
 
+    _assert_source_visibility(outcome.result, source)
     return outcome.result
 
 
@@ -164,6 +165,28 @@ def _assert_metric_subset(
             continue
 
         assert actual_value == expected_value
+
+
+def test_registered_gl_procedures_have_complete_methodology_metadata() -> None:
+    """Every executable GL procedure must carry the approved methodology block."""
+
+    definitions = create_general_ledger_procedure_registry().definitions
+
+    assert {definition.procedure_id for definition in definitions} == {
+        "GL001",
+        "GL003",
+        "GL006",
+        "GL011",
+    }
+
+    for definition in definitions:
+        assert definition.has_methodology_metadata is True
+        assert definition.audit_objective
+        assert definition.isa_references
+        assert definition.isa_basis_type
+        assert definition.audit_rationale
+        assert definition.result_meaning
+        assert definition.limitations
 
 
 def test_general_ledger_regression_fixture_integrity(
@@ -318,3 +341,161 @@ def test_gl006_regression_baseline(
         assert (
             actual_row["transaction_amount_records"] == expected_row["transaction_amount_records"]
         )
+
+
+def test_gl011_regression_baseline(qtbot, tmp_path):
+    """Frozen GL rows 1956-1958 use 9999, absent from the existing 29-account COA."""
+    from auditor_support_tool.core.procedure_dataset_resolution import ProcedureDatasetSource
+    from auditor_support_tool.core.workbook_package import DatasetType
+
+    mapping = _load_json(_MAPPING_PATH)
+    manifest = _load_json(_EXPECTED_PATH)
+    path = _FIXTURE_DIRECTORY / manifest["workbook_file"]
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == manifest["workbook_sha256"]
+    package = WorkbookPackageService().build_package(path)
+    descriptors = []
+    for item in mapping["gl011_dataset_mappings"]:
+        dataset = package.get_dataset_by_worksheet(item["dataset_sheet"])
+        dataset_type = getattr(DatasetType, item["dataset_type"])
+        dataset.confirmed_dataset_type = dataset_type
+        column = next(c for c in dataset.columns if c.source_column == item["source_column"])
+        column.confirmed_type = getattr(DetectedDataType, item["confirmed_type"])
+        dataset.field_mappings = {column.column_id: item["standard_field"]}
+        descriptors.append(
+            ProcedureDatasetSource.create(
+                dataset_type=dataset_type,
+                source=PreparedAuditDataset(dataset),
+            )
+        )
+    outcome = EngineService(registry=create_general_ledger_procedure_registry()).run(
+        procedure_id="GL011",
+        source=descriptors[0].source,
+        source_path=path,
+        dataset_sources=descriptors,
+        audit_period_start=manifest["audit_period"]["start"],
+        audit_period_end=manifest["audit_period"]["end"],
+        parameters=manifest["procedure_parameters"]["GL011"],
+    )
+    assert outcome.status == EngineStatus.COMPLETED
+    result = outcome.result
+    expected = manifest["expected"]["GL011"]
+    _assert_common_result(result=result, expected=expected, manifest=manifest)
+    _assert_metric_subset(actual=result.metrics, expected=expected["metrics"])
+    assert [str(e.values["account_code"]) for e in result.exception_records] == expected[
+        "exception_account_codes"
+    ]
+    assert result.exception_rate == pytest.approx(0.15)
+    assert result.context.mapping_fingerprint != descriptors[0].source.mapping_fingerprint
+    _assert_source_visibility(result, descriptors[0].source)
+    _assert_report_exports(result, descriptors[0].source, tmp_path)
+
+    from auditor_support_tool.core.workspace_state import WorkspaceState
+    from auditor_support_tool.gui.pages.results_page import ResultsPage
+
+    state = WorkspaceState()
+    state.set_workbook_package(package)
+    # Resolution follows execution identity, even when another sheet is active.
+    state.set_active_dataset(descriptors[1].source.dataset_id)
+    page = ResultsPage(
+        workspace_state=state, procedure_registry=create_general_ledger_procedure_registry()
+    )
+    qtbot.addWidget(page)
+    page.set_outcome(outcome)
+    assert page._exceptions_table.rowCount() == 3
+    assert [page._exceptions_table.item(i, 0).text() for i in range(3)] == ["1956", "1957", "1958"]
+    assert page._source_records.headers == descriptors[0].source.dataset.loaded_table.headers
+    assert all(
+        page._source_records.records[(e.source_record_id, e.source_row_number)]
+        for e in result.exception_records
+    )
+
+
+def _assert_source_visibility(result, source):
+    """Every baseline exception displays its own raw cells through generic enrichment."""
+    from copy import deepcopy
+
+    from auditor_support_tool.presentation.exception_source_records import (
+        add_source_columns,
+        resolve_exception_sources,
+    )
+    from auditor_support_tool.presentation.result_presenter_registry import present_result
+
+    before = deepcopy(result)
+    sources = resolve_exception_sources(result, (source.dataset,))
+    table = add_source_columns(
+        present_result(procedure_id=result.context.procedure_id, result=result).table, sources
+    )
+    expected = {record.source_record_id: record for record in source.iter_records()}
+    assert len(table.rows) == result.exception_count
+    for row in table.rows:
+        record = expected[row.values["record_id"]]
+        assert row.values["source_row"] == str(record.source_row_number)
+        for index, header in enumerate(source.dataset.loaded_table.headers):
+            value = record.raw_row[header]
+            assert row.values[f"source:{index}"] == ("" if value is None else str(value))
+            assert table.columns[index + 1].label == header
+    assert result == before
+
+
+def _assert_report_exports(result, source, tmp_path):
+    from openpyxl import load_workbook
+
+    from auditor_support_tool.presentation.exception_source_records import resolve_exception_sources
+    from auditor_support_tool.presentation.report_export_document import ReportExportRequest
+    from auditor_support_tool.services.audit_export_service import AuditExportService
+    from tests.test_auditor_report_export import docx_text, pdf_text
+
+    definition = (
+        create_general_ledger_procedure_registry().require(result.context.procedure_id).definition
+    )
+    request = ReportExportRequest(
+        definition, result, resolve_exception_sources(result, (source.dataset,))
+    )
+    for format in ("pdf", "docx", "xlsx"):
+        path = tmp_path / (result.context.procedure_id + "." + format)
+        AuditExportService().export_report(request, path, format)
+        if format == "pdf":
+            text = pdf_text(path)
+        elif format == "docx":
+            text = docx_text(path)
+        else:
+            book = load_workbook(path)
+            rows = list(book["Exceptions"].values)
+            assert len(rows) == result.exception_count + 1
+            assert [row[0] for row in rows[1:]] == [
+                str(e.source_row_number) for e in result.exception_records
+            ]
+            text = "\n".join(
+                str(cell.value)
+                for sheet in book
+                for row in sheet.iter_rows()
+                for cell in row
+                if cell.value is not None
+            )
+            book.close()
+        assert all(e.source_record_id in text for e in result.exception_records)
+
+        # PDF text extraction may insert line breaks where ReportLab wraps long
+        # methodology values in table cells. Compare whitespace-normalised text so
+        # the regression checks report content rather than a renderer's line layout.
+        searchable_text = " ".join(text.split())
+
+        assert " ".join(definition.audit_objective.split()) in searchable_text
+        assert " ".join(definition.isa_basis_type.split()) in searchable_text
+        assert all(
+            " ".join(reference.split()) in searchable_text
+            for reference in definition.isa_references
+        )
+        assert " ".join(definition.result_meaning.split()) in searchable_text
+        assert all(
+            " ".join(limitation.split()) in searchable_text for limitation in definition.limitations
+        )
+
+
+@pytest.mark.parametrize("procedure_id", ("GL001", "GL003", "GL006"))
+def test_baseline_auditor_report_formats(baseline, procedure_id, tmp_path, qapp):
+    path, source, manifest = baseline
+    result = _run_baseline_procedure(
+        procedure_id=procedure_id, workbook_path=path, source=source, manifest=manifest
+    )
+    _assert_report_exports(result, source, tmp_path)

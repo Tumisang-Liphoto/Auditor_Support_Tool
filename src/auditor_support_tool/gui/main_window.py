@@ -36,6 +36,10 @@ from auditor_support_tool.core.workspace_readiness_service import (
     WorkspaceReadinessService,
     WorkspaceStage,
 )
+from auditor_support_tool.core.workspace_recovery_service import (
+    WorkspaceRecoveryError,
+    WorkspaceRecoveryService,
+)
 from auditor_support_tool.core.workspace_service import (
     WorkspaceService,
     WorkspaceServiceError,
@@ -98,6 +102,7 @@ class MainWindow(QMainWindow):
         update_service: UpdateService,
         workspace_service: WorkspaceService,
         administrator_settings_service: AdministratorSettingsService | None = None,
+        workspace_recovery_service: WorkspaceRecoveryService | None = None,
     ) -> None:
         super().__init__()
 
@@ -108,7 +113,9 @@ class MainWindow(QMainWindow):
         self._theme_service = theme_service
         self._update_service = update_service
         self._workspace_service = workspace_service
+        self._workspace_recovery_service = workspace_recovery_service
         self._workspace_state = WorkspaceState(self)
+        self._suppress_workspace_autosave = False
         self._procedure_registry = create_application_procedure_registry()
         self._workspace_readiness_service = WorkspaceReadinessService()
 
@@ -139,6 +146,7 @@ class MainWindow(QMainWindow):
         self._readiness_warning_timer.timeout.connect(self._clear_readiness_warning)
 
         self._build_interface()
+        self._setup_workspace_autosave()
         self._update_workspace_actions()
 
         if self._profile_required:
@@ -146,6 +154,9 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Complete the local user profile to continue.")
         else:
             self.show_route("dashboard")
+
+        if self._workspace_recovery_service is not None:
+            QTimer.singleShot(0, self._offer_workspace_recovery)
 
     def _update_window_title(self) -> None:
         """Update the title with the active workspace and save state."""
@@ -226,8 +237,158 @@ class MainWindow(QMainWindow):
             1,
         )
 
+        self._autosave_status_label = QLabel()
+        self._autosave_status_label.setObjectName("fieldHint")
+        self._autosave_status_label.setMinimumWidth(130)
+        self._autosave_status_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.statusBar().addPermanentWidget(self._autosave_status_label)
+
         self._register_pages()
         self._build_menu_bar()
+
+    def _setup_workspace_autosave(self, interval_ms: int = 5000) -> None:
+        """Connect central workspace changes to one debounced recovery write."""
+
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.setSingleShot(True)
+        self._autosave_timer.setInterval(interval_ms)
+        self._autosave_timer.timeout.connect(self._perform_workspace_autosave)
+        self._workspace_state.workspace_dirty_changed.connect(self._handle_workspace_dirty_changed)
+        self._workspace_state.workspace_content_changed.connect(self._schedule_workspace_autosave)
+
+    def _set_autosave_status(self, text: str) -> None:
+        """Update the non-intrusive recovery status indicator."""
+
+        label = getattr(self, "_autosave_status_label", None)
+        if label is not None:
+            label.setText(text)
+
+    def _handle_workspace_dirty_changed(self, dirty: bool) -> None:
+        """Reflect Save state and start or cancel recovery work."""
+
+        if self._suppress_workspace_autosave:
+            return
+
+        if dirty and self._workspace_state.has_workspace:
+            self._set_autosave_status("Unsaved changes")
+            self._autosave_timer.start()
+            return
+
+        self._autosave_timer.stop()
+        self._set_autosave_status("Saved" if self._workspace_state.has_workspace else "")
+
+    def _schedule_workspace_autosave(self) -> None:
+        """Restart the debounce period after each persisted workspace change."""
+
+        if (
+            self._suppress_workspace_autosave
+            or self._workspace_recovery_service is None
+            or not self._workspace_state.has_workspace
+            or not self._workspace_state.is_dirty
+        ):
+            return
+
+        self._set_autosave_status("Unsaved changes")
+        self._autosave_timer.start()
+
+    def _perform_workspace_autosave(self) -> None:
+        """Write one recovery snapshot without changing official Save state."""
+
+        if (
+            self._workspace_recovery_service is None
+            or not self._workspace_state.has_workspace
+            or not self._workspace_state.is_dirty
+        ):
+            return
+
+        self._set_autosave_status("Autosaving...")
+        try:
+            snapshot = self._workspace_recovery_service.save(self._workspace_state)
+        except WorkspaceRecoveryError:
+            self._set_autosave_status("Autosave failed")
+            return
+
+        local_time = snapshot.modified_at.astimezone().strftime("%H:%M")
+        self._set_autosave_status(f"Autosaved {local_time}")
+
+    def _clear_workspace_recovery(self) -> bool:
+        """Cancel pending recovery and remove an obsolete snapshot."""
+
+        timer = getattr(self, "_autosave_timer", None)
+        if timer is not None:
+            timer.stop()
+        service = getattr(self, "_workspace_recovery_service", None)
+        if service is None:
+            return True
+        try:
+            service.discard()
+        except WorkspaceRecoveryError:
+            self._set_autosave_status("Autosave failed")
+            return False
+        return True
+
+    def _offer_workspace_recovery(self) -> None:
+        """Validate and offer a previous-session recovery snapshot."""
+
+        service = self._workspace_recovery_service
+        if service is None:
+            return
+
+        try:
+            snapshot = service.discover()
+        except WorkspaceRecoveryError:
+            QMessageBox.warning(
+                self,
+                "Autosaved Workspace Unavailable",
+                "An autosaved workspace was found but could not be validated. "
+                "Normal startup will continue and the corrupt recovery will be discarded.",
+            )
+            self._clear_workspace_recovery()
+            return
+
+        if snapshot is None:
+            return
+
+        timestamp = snapshot.modified_at.astimezone().strftime("%d %b %Y, %H:%M")
+        prompt = QMessageBox(self)
+        prompt.setIcon(QMessageBox.Icon.Question)
+        prompt.setWindowTitle("Restore Autosaved Workspace")
+        prompt.setText("An autosaved workspace was found from a previous session.")
+        prompt.setInformativeText(f"Autosaved: {timestamp}")
+        prompt.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Discard
+        )
+        prompt.setDefaultButton(QMessageBox.StandardButton.Yes)
+        restore_button = prompt.button(QMessageBox.StandardButton.Yes)
+        if restore_button is not None:
+            restore_button.setText("Restore")
+
+        prompt_result = prompt.exec()
+        if prompt_result == QMessageBox.StandardButton.Discard:
+            self._clear_workspace_recovery()
+            return
+        if prompt_result != QMessageBox.StandardButton.Yes:
+            return
+
+        self._suppress_workspace_autosave = True
+        try:
+            document = service.restore(self._workspace_state)
+        except WorkspaceRecoveryError:
+            QMessageBox.warning(
+                self,
+                "Workspace Recovery Failed",
+                "The autosaved workspace could not be restored. Normal startup will continue.",
+            )
+            return
+        finally:
+            self._suppress_workspace_autosave = False
+
+        self.show_route("workspace.data_sources")
+        self._set_autosave_status("Unsaved changes")
+        self._autosave_timer.start()
+        self.statusBar().showMessage(
+            f"Recovered audit: {document.identity.name}. Save it explicitly to keep this work."
+        )
 
     def _handle_sidebar_selection(
         self,
@@ -280,6 +441,8 @@ class MainWindow(QMainWindow):
             )
             return False
 
+        if self._clear_workspace_recovery():
+            self._set_autosave_status("Saved")
         self.statusBar().showMessage(f"Audit saved: {saved_path.name}")
 
         return True
@@ -326,6 +489,8 @@ class MainWindow(QMainWindow):
             )
             return False
 
+        if self._clear_workspace_recovery():
+            self._set_autosave_status("Saved")
         self.statusBar().showMessage(
             f"Audit saved: {saved_path.name}. This is now the active audit file."
         )
@@ -334,6 +499,16 @@ class MainWindow(QMainWindow):
 
     def _confirm_workspace_transition(self) -> bool:
         """Confirm that the current workspace may be replaced or closed."""
+
+        page = getattr(self, "_pages", {}).get("workspace.audit_procedures")
+        if page is not None and page.is_executing:
+            page.cancel_execution()
+            QMessageBox.information(
+                self,
+                "Audit Procedure Running",
+                "Cancellation requested. Wait for the procedure to finish, then try again.",
+            )
+            return False
 
         if not self._workspace_state.has_workspace or not self._workspace_state.is_dirty:
             return True
@@ -384,7 +559,11 @@ class MainWindow(QMainWindow):
         if not self._confirm_workspace_transition():
             return
 
-        dialog = NewWorkspaceDialog(self)
+        profile = self._settings_service.get_user_profile()
+        dialog = NewWorkspaceDialog(
+            self,
+            default_currency=profile.default_currency,
+        )
 
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
@@ -394,6 +573,7 @@ class MainWindow(QMainWindow):
         if identity is None:
             return
 
+        self._clear_workspace_recovery()
         self._workspace_state.start_workspace(identity)
 
         self.show_route("workspace.data_sources")
@@ -443,13 +623,15 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("No audit details were changed.")
             return
 
-        period_changed = bool({"audit_period_start", "audit_period_end"} & set(changed_fields))
+        execution_context_changed = bool(
+            {"audit_period_start", "audit_period_end", "audit_currency"} & set(changed_fields)
+        )
 
-        if period_changed:
-            # Do not leave a result from the previous audit period on screen.
+        if execution_context_changed:
+            # Do not leave a result from prior execution scope on screen.
             self._results_page.clear_result()
             self.statusBar().showMessage(
-                "Audit details updated. The audit period changed; "
+                "Audit details updated. Execution scope changed; "
                 "previous procedure runs may require re-run."
             )
             return
@@ -895,6 +1077,7 @@ class MainWindow(QMainWindow):
         audit_procedures_page = AuditProceduresPage(
             workspace_state=self._workspace_state,
             procedure_registry=self._procedure_registry,
+            settings_service=self._settings_service,
         )
         audit_procedures_page.back_requested.connect(self.show_route)
         audit_procedures_page.result_ready.connect(self._handle_procedure_outcome)
@@ -1335,6 +1518,28 @@ class MainWindow(QMainWindow):
 
         self.statusBar().showMessage(f"Profile updated for {profile_name}.")
 
+    def _load_workspace_state(
+        self,
+        workspace_path: Path,
+        *,
+        allow_source_integrity_mismatch: bool = False,
+    ):
+        """Load persisted state without creating artificial autosave activity."""
+
+        self._autosave_timer.stop()
+        self._suppress_workspace_autosave = True
+        try:
+            return self._workspace_service.load_into_state(
+                self._workspace_state,
+                workspace_path,
+                allow_source_integrity_mismatch=allow_source_integrity_mismatch,
+            )
+        finally:
+            self._suppress_workspace_autosave = False
+            if self._workspace_state.has_workspace and self._workspace_state.is_dirty:
+                self._set_autosave_status("Unsaved changes")
+                self._autosave_timer.start()
+
     def _open_workspace(self) -> None:
         """Open a previously saved audit."""
 
@@ -1355,10 +1560,7 @@ class MainWindow(QMainWindow):
         integrity_mismatch_accepted = False
 
         try:
-            document = self._workspace_service.load_into_state(
-                self._workspace_state,
-                workspace_path,
-            )
+            document = self._load_workspace_state(workspace_path)
         except WorkspaceSourceIntegrityError as error:
             warning = QMessageBox(self)
             warning.setIcon(QMessageBox.Icon.Warning)
@@ -1386,8 +1588,7 @@ class MainWindow(QMainWindow):
                 return
 
             try:
-                document = self._workspace_service.load_into_state(
-                    self._workspace_state,
+                document = self._load_workspace_state(
                     workspace_path,
                     allow_source_integrity_mismatch=True,
                 )
@@ -1410,6 +1611,8 @@ class MainWindow(QMainWindow):
             return
 
         self.show_route("workspace.data_sources")
+        if self._clear_workspace_recovery():
+            self._set_autosave_status("Saved")
 
         if integrity_mismatch_accepted:
             self._show_readiness_warning("Audit opened with a source integrity warning.")
@@ -1431,6 +1634,7 @@ class MainWindow(QMainWindow):
             return
 
         self._workspace_state.clear()
+        self._clear_workspace_recovery()
         self.show_route("dashboard")
 
         self.statusBar().showMessage("Audit closed.")
@@ -1465,6 +1669,7 @@ class MainWindow(QMainWindow):
             getattr(self, "_update_shutdown_approved", False)
             or self._confirm_workspace_transition()
         ):
+            self._clear_workspace_recovery()
             event.accept()
             return
 

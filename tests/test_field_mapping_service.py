@@ -333,3 +333,243 @@ def test_dataset_without_catalogue_is_not_applicable(
     status = service.confirm_dataset(dataset)
 
     assert status == FieldMappingStatus.NOT_APPLICABLE
+
+def test_suggest_mappings_applies_unique_exact_matches(
+    tmp_path: Path,
+) -> None:
+    """Strong source-name matches should be proposed once per audit field."""
+    dataset = create_general_ledger_dataset(tmp_path)
+    service = FieldMappingService()
+
+    transaction_column = column_by_source(dataset, "Transaction Date")
+    account_column = column_by_source(dataset, "Account Code")
+    invoice_column = column_by_source(dataset, "Invoice Number")
+
+    suggestions = service.suggest_mappings(
+        dataset,
+        minimum_score=0.99,
+    )
+
+    assert suggestions[transaction_column.column_id] == "transaction_date"
+    assert suggestions[account_column.column_id] == "account_code"
+    assert suggestions[invoice_column.column_id] == "invoice_number"
+
+    assert dataset.field_mappings[transaction_column.column_id] == "transaction_date"
+    assert dataset.field_mappings[account_column.column_id] == "account_code"
+    assert dataset.field_mappings[invoice_column.column_id] == "invoice_number"
+
+    assert len(dataset.field_mappings.values()) == len(
+        set(dataset.field_mappings.values())
+    )
+    assert dataset.mapping_status == FieldMappingStatus.IN_PROGRESS
+
+
+def test_suggest_mappings_preserves_existing_mapping_and_does_not_reuse_field(
+    tmp_path: Path,
+) -> None:
+    """Suggestions must preserve manual mappings and not reuse their audit fields."""
+    dataset = create_general_ledger_dataset(tmp_path)
+    service = FieldMappingService()
+
+    transaction_column = column_by_source(dataset, "Transaction Date")
+    account_column = column_by_source(dataset, "Account Code")
+
+    service.assign_mapping(
+        dataset,
+        transaction_column.column_id,
+        "transaction_date",
+    )
+
+    account_column.confirmed_name = "Transaction Date"
+
+    suggestions = service.suggest_mappings(
+        dataset,
+        minimum_score=0.99,
+    )
+
+    assert dataset.field_mappings[transaction_column.column_id] == "transaction_date"
+    assert suggestions.get(account_column.column_id) != "transaction_date"
+    assert list(dataset.field_mappings.values()).count("transaction_date") == 1
+
+
+def test_suggest_mappings_respects_minimum_score(
+    tmp_path: Path,
+) -> None:
+    """Suggestions below the configured confidence threshold should be ignored."""
+    dataset = create_general_ledger_dataset(tmp_path)
+    service = FieldMappingService()
+
+    suggestions = service.suggest_mappings(
+        dataset,
+        minimum_score=1.01,
+    )
+
+    assert suggestions == {}
+    assert dataset.field_mappings == {}
+    assert dataset.mapping_status == FieldMappingStatus.NOT_STARTED
+
+
+def test_match_score_normalises_case_punctuation_and_aliases(
+    tmp_path: Path,
+) -> None:
+    """Matching should tolerate formatting differences and registered aliases."""
+    dataset = create_general_ledger_dataset(tmp_path)
+    service = FieldMappingService()
+
+    transaction_field = next(
+        field
+        for field in service.available_fields(dataset)
+        if field.key == "transaction_date"
+    )
+    account_field = next(
+        field
+        for field in service.available_fields(dataset)
+        if field.key == "account_code"
+    )
+
+    assert service.match_score(
+        "TRANSACTION-DATE",
+        transaction_field,
+    ) == 1.0
+
+    assert service.match_score(
+        "GL CODE",
+        account_field,
+    ) == 1.0
+
+
+def test_blank_assignment_removes_existing_mapping(
+    tmp_path: Path,
+) -> None:
+    """Assigning a blank audit-field key should clear the mapping."""
+    dataset = create_general_ledger_dataset(tmp_path)
+    service = FieldMappingService()
+
+    transaction_column = column_by_source(dataset, "Transaction Date")
+
+    service.assign_mapping(
+        dataset,
+        transaction_column.column_id,
+        "transaction_date",
+    )
+
+    service.assign_mapping(
+        dataset,
+        transaction_column.column_id,
+        "   ",
+    )
+
+    assert transaction_column.column_id not in dataset.field_mappings
+    assert dataset.mapping_status == FieldMappingStatus.NOT_STARTED
+
+
+def test_removing_one_mapping_keeps_remaining_mapping_in_progress(
+    tmp_path: Path,
+) -> None:
+    """Removing one mapping should not reset a dataset that still has mappings."""
+    dataset = create_general_ledger_dataset(tmp_path)
+    service = FieldMappingService()
+
+    transaction_column = column_by_source(dataset, "Transaction Date")
+    account_column = column_by_source(dataset, "Account Code")
+
+    service.assign_mapping(
+        dataset,
+        transaction_column.column_id,
+        "transaction_date",
+    )
+    service.assign_mapping(
+        dataset,
+        account_column.column_id,
+        "account_code",
+    )
+
+    service.remove_mapping(
+        dataset,
+        transaction_column.column_id,
+    )
+
+    assert transaction_column.column_id not in dataset.field_mappings
+    assert dataset.field_mappings[account_column.column_id] == "account_code"
+    assert dataset.mapping_status == FieldMappingStatus.IN_PROGRESS
+
+
+def test_confirmation_removes_mapping_for_column_no_longer_included(
+    tmp_path: Path,
+) -> None:
+    """Confirmation should discard stale mappings to excluded prepared columns."""
+    dataset = create_general_ledger_dataset(tmp_path)
+    service = FieldMappingService()
+
+    transaction_column = column_by_source(dataset, "Transaction Date")
+    account_column = column_by_source(dataset, "Account Code")
+
+    service.assign_mapping(
+        dataset,
+        transaction_column.column_id,
+        "transaction_date",
+    )
+    service.assign_mapping(
+        dataset,
+        account_column.column_id,
+        "account_code",
+    )
+
+    transaction_column.included = False
+
+    status = service.confirm_dataset(dataset)
+
+    assert status == FieldMappingStatus.CONFIRMED
+    assert transaction_column.column_id not in dataset.field_mappings
+    assert dataset.field_mappings[account_column.column_id] == "account_code"
+
+
+def test_mapped_field_resolves_catalogue_field_and_unmapped_returns_none(
+    tmp_path: Path,
+) -> None:
+    """Mapped columns should resolve to their catalogue definition."""
+    dataset = create_general_ledger_dataset(tmp_path)
+    service = FieldMappingService()
+
+    transaction_column = column_by_source(dataset, "Transaction Date")
+    account_column = column_by_source(dataset, "Account Code")
+
+    service.assign_mapping(
+        dataset,
+        transaction_column.column_id,
+        "transaction_date",
+    )
+
+    mapped = service.mapped_field(
+        dataset,
+        transaction_column.column_id,
+    )
+
+    assert mapped is not None
+    assert mapped.key == "transaction_date"
+
+    assert (
+        service.mapped_field(
+            dataset,
+            account_column.column_id,
+        )
+        is None
+    )
+
+
+def test_unknown_column_id_cannot_be_mapped(
+    tmp_path: Path,
+) -> None:
+    """A stale or nonexistent prepared-column identifier must be rejected."""
+    dataset = create_general_ledger_dataset(tmp_path)
+    service = FieldMappingService()
+
+    with pytest.raises(
+        FieldMappingError,
+        match="not available",
+    ):
+        service.assign_mapping(
+            dataset,
+            "missing-column-id",
+            "transaction_date",
+        )

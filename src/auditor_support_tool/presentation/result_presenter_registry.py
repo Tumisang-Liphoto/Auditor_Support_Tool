@@ -7,6 +7,7 @@ from collections.abc import Callable
 from auditor_support_tool.core.audit_procedure_models import (
     ProcedureResult,
 )
+from auditor_support_tool.core.currency import format_monetary_value, is_monetary_field
 from auditor_support_tool.presentation.gl001_result_presenter import (
     present_gl001_result,
 )
@@ -15,6 +16,9 @@ from auditor_support_tool.presentation.gl003_result_presenter import (
 )
 from auditor_support_tool.presentation.gl006_result_presenter import (
     present_gl006_result,
+)
+from auditor_support_tool.presentation.pay001_result_presenter import (
+    present_pay001_result,
 )
 from auditor_support_tool.presentation.result_dashboard_models import (
     DashboardMetric,
@@ -34,6 +38,7 @@ _PRESENTERS: dict[str, ResultPresenter] = {
     "GL001": present_gl001_result,
     "GL003": present_gl003_result,
     "GL006": present_gl006_result,
+    "PAY001": present_pay001_result,
 }
 
 
@@ -75,7 +80,10 @@ def _present_generic_result(
                 "source_row": str(exception.source_row_number),
                 "reason": exception.reason,
                 "record_id": (exception.source_record_id),
-                "details": ", ".join(f"{key}={value}" for key, value in exception.values.items())
+                "details": ", ".join(
+                    f"{key}={_detail_value(key, value, result.context.audit_currency)}"
+                    for key, value in exception.values.items()
+                )
                 or "—",
             },
         )
@@ -156,3 +164,12 @@ def _present_generic_result(
         ),
         audit_use_statement=result.audit_use_statement,
     )
+
+
+def _detail_value(key: str, value: object, currency_code: str) -> str:
+    """Format generic exception details without guessing monetary semantics."""
+
+    if is_monetary_field(key) and currency_code.strip():
+        return format_monetary_value(value, currency_code)
+
+    return str(value)

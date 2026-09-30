@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-import math
 import re
 from collections.abc import Iterable, Mapping
-from decimal import Decimal, InvalidOperation
 
+from auditor_support_tool.core.numeric import (
+    NonFiniteNumericError,
+    NumericParseError,
+    parse_finite_decimal,
+    parse_whole_number,
+)
 from auditor_support_tool.core.procedure_definition import ProcedureDefinition
 from auditor_support_tool.core.procedure_parameter_models import (
     ProcedureParameterDefinition,
@@ -142,15 +146,16 @@ def _normalise_decimal(
     if isinstance(value, bool):
         raise ProcedureParameterValidationError(f"{definition.label} must be a number.")
 
-    cleaned = str(value).strip().replace(",", "")
-
     try:
-        decimal_value = Decimal(cleaned)
-    except InvalidOperation as error:
-        raise ProcedureParameterValidationError(f"{definition.label} must be a number.") from error
-
-    if not decimal_value.is_finite():
-        raise ProcedureParameterValidationError(f"{definition.label} must be a finite number.")
+        decimal_value = parse_finite_decimal(value)
+    except NonFiniteNumericError as error:
+        raise ProcedureParameterValidationError(
+            f"{definition.label} must be a finite number."
+        ) from error
+    except NumericParseError as error:
+        raise ProcedureParameterValidationError(
+            f"{definition.label} must be a number."
+        ) from error
 
     canonical = format(decimal_value, "f")
 
@@ -170,20 +175,9 @@ def _normalise_integer(
     if isinstance(value, bool):
         raise ProcedureParameterValidationError(f"{definition.label} must be a whole number.")
 
-    if isinstance(value, int):
-        return value
-
-    if isinstance(value, float):
-        if not math.isfinite(value) or not value.is_integer():
-            raise ProcedureParameterValidationError(f"{definition.label} must be a whole number.")
-
-        return int(value)
-
-    cleaned = str(value).strip().replace(",", "")
-
     try:
-        return int(cleaned)
-    except ValueError as error:
+        return parse_whole_number(value)
+    except NumericParseError as error:
         raise ProcedureParameterValidationError(
             f"{definition.label} must be a whole number."
         ) from error

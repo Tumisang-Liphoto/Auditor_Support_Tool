@@ -16,6 +16,11 @@ from auditor_support_tool.core.audit_procedure_report_models import (
     AuditProcedureReportSummary,
     normalise_report_mapping,
 )
+from auditor_support_tool.core.currency import (
+    AUDIT_CURRENCY_ROLE,
+    FX_CONVERSION_APPLIED,
+    SOURCE_AMOUNT_CURRENCY_STATUS,
+)
 from auditor_support_tool.core.procedure_definition import (
     ProcedureDefinition,
 )
@@ -70,6 +75,10 @@ class AuditProcedureReportBuilder:
                 dataset_id=context.dataset_id,
                 audit_period_start=context.audit_period_start,
                 audit_period_end=context.audit_period_end,
+                audit_currency=context.audit_currency,
+                audit_currency_role=AUDIT_CURRENCY_ROLE,
+                source_amount_currency_status=SOURCE_AMOUNT_CURRENCY_STATUS,
+                fx_conversion_applied=FX_CONVERSION_APPLIED,
                 parameters=normalise_report_mapping(context.parameters),
             ),
             summary=AuditProcedureReportSummary(
@@ -77,6 +86,7 @@ class AuditProcedureReportBuilder:
                 records_evaluated_count=(result.records_evaluated_count),
                 excluded_record_count=result.excluded_record_count,
                 exception_count=result.exception_count,
+                non_exception_count=result.non_exception_count,
                 exception_rate=result.exception_rate,
                 related_value_total=(
                     str(result.related_value_total)
@@ -85,6 +95,7 @@ class AuditProcedureReportBuilder:
                 ),
             ),
             exclusion_counts=dict(result.exclusion_counts),
+            data_quality_observation_counts=dict(result.data_quality_observation_counts),
             metrics=normalise_report_mapping(result.metrics),
             limitations=tuple(result.limitations),
             audit_use_statement=result.audit_use_statement,

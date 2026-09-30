@@ -57,6 +57,7 @@ def test_registration_can_populate_shared_application_registry() -> None:
     assert registry.is_registered("GL001")
     assert registry.is_registered("GL003")
     assert registry.is_registered("GL006")
+    assert registry.is_registered("GL011")
 
 
 def test_bootstrap_registers_only_current_executable_procedures() -> None:
@@ -68,4 +69,5 @@ def test_bootstrap_registers_only_current_executable_procedures() -> None:
         "GL001",
         "GL003",
         "GL006",
+        "GL011",
     )

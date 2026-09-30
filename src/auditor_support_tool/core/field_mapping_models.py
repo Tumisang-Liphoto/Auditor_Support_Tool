@@ -1,8 +1,76 @@
 """Standard audit-field definitions used during field mapping."""
 
 from dataclasses import dataclass
+from enum import StrEnum
 
 from auditor_support_tool.core.workbook_package import DatasetType
+
+
+class AuditFieldSemantic(StrEnum):
+    """Semantic meaning of a standard audit field."""
+
+    IDENTIFIER = "identifier"
+    OTHER = "other"
+
+
+FIELD_INTERPRETATION_POLICY_VERSION = 2
+
+
+_IDENTIFIER_FIELD_KEYS = frozenset(
+    {
+        "account_code",
+        "approval_user",
+        "bank_account_number",
+        "bank_branch_code",
+        "batch_number",
+        "branch_code",
+        "consolidation_account_code",
+        "cost_centre_code",
+        "created_by",
+        "customer_code",
+        "department_code",
+        "document_number",
+        "email_address",
+        "employee_id",
+        "employee_number",
+        "entry_user",
+        "identification_number",
+        "invoice_number",
+        "journal_number",
+        "line_number",
+        "location_code",
+        "manager_employee_id",
+        "modified_by",
+        "parent_account_code",
+        "payroll_number",
+        "pension_number",
+        "phone_number",
+        "position_code",
+        "posting_user",
+        "purchase_order_number",
+        "reference_number",
+        "reporting_code",
+        "reversal_reference",
+        "tax_number",
+        "transaction_id",
+        "user_account_id",
+        "user_id",
+        "vendor_code",
+    }
+)
+
+
+def semantic_for_field_key(
+    field_key: str,
+) -> AuditFieldSemantic:
+    """Return the declared semantic meaning of a standard audit field."""
+
+    cleaned_key = field_key.strip()
+
+    if cleaned_key in _IDENTIFIER_FIELD_KEYS:
+        return AuditFieldSemantic.IDENTIFIER
+
+    return AuditFieldSemantic.OTHER
 
 
 @dataclass(frozen=True, slots=True)
@@ -14,6 +82,12 @@ class StandardAuditField:
     description: str
     required: bool = False
     aliases: tuple[str, ...] = ()
+
+    @property
+    def semantic(self) -> AuditFieldSemantic:
+        """Return the declared semantic meaning of this field."""
+
+        return semantic_for_field_key(self.key)
 
 
 GENERAL_LEDGER_FIELDS: tuple[StandardAuditField, ...] = (

@@ -44,6 +44,7 @@ dependencies = [
     "duckdb",
     "openpyxl",
     "python-docx",
+    "reportlab",
     "packaging",
     "certifi"
 ]

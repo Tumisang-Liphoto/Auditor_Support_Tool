@@ -19,7 +19,8 @@
       "high_value_threshold": null,
       "manual_journal_values": []
     },
-    "GL006": {}
+    "GL006": {},
+    "GL011": {}
   },
   "expected": {
     "GL001": {
@@ -842,6 +843,29 @@
         1929,
         1930
       ]
+    },
+    "GL011": {
+      "population_count": 2000,
+      "records_evaluated_count": 2000,
+      "exception_count": 3,
+      "exception_source_rows": [
+        1956,
+        1957,
+        1958
+      ],
+      "exclusion_counts": {},
+      "exception_account_codes": [
+        "9999",
+        "9999",
+        "9999"
+      ],
+      "metrics": {
+        "unique_unmapped_account_count": 1,
+        "unique_reference_account_count": 29,
+        "reference_record_count": 29,
+        "blank_reference_account_count": 0,
+        "duplicate_reference_account_count": 0
+      }
     }
   },
   "notes": [

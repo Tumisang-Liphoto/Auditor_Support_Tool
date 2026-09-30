@@ -223,6 +223,14 @@ def test_gl001_uses_authoritative_catalogue_definition() -> None:
     assert procedure.definition.display_id == "GL-001"
     assert procedure.definition.required_fields == ("invoice_number",)
     assert procedure.definition.parameter_definitions == ()
+    assert procedure.definition.has_methodology_metadata is True
+    assert procedure.definition.isa_basis_type == "ISA-supported methodology"
+    assert procedure.definition.isa_references == (
+        "ISA 240, A5",
+        "ISA 315 (Revised 2019), A27-A31",
+    )
+    assert "repeated nonblank invoice numbers" in procedure.definition.audit_objective
+    assert "does not by itself establish duplicate payment" in procedure.definition.limitations[0]
 
 
 def test_gl001_flags_all_records_in_repeated_invoice_groups(
@@ -243,10 +251,14 @@ def test_gl001_flags_all_records_in_repeated_invoice_groups(
     assert result.excluded_record_count == 2
 
     assert result.exception_count == 5
+    assert result.non_exception_count == 1
     assert result.metrics["duplicate_groups"] == 2
     assert result.metrics["additional_duplicate_records"] == 3
 
     assert result.exclusion_counts == {
+        "blank_invoice_number": 2,
+    }
+    assert result.data_quality_observation_counts == {
         "blank_invoice_number": 2,
     }
 
@@ -375,7 +387,7 @@ def test_gl001_runs_through_generic_test_engine(
 
 
 def test_gl001_and_gl003_are_registered_as_executable_procedures() -> None:
-    """The GL bootstrap should expose both implemented procedures."""
+    """The GL bootstrap should expose all implemented procedures."""
 
     registry = create_general_ledger_procedure_registry()
 
@@ -383,4 +395,5 @@ def test_gl001_and_gl003_are_registered_as_executable_procedures() -> None:
         "GL001",
         "GL003",
         "GL006",
+        "GL011",
     )

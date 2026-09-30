@@ -240,6 +240,14 @@ class DuplicateInvoiceDetectionProcedure:
             records_evaluated_count=records_evaluated,
             exception_records=tuple(exceptions),
             exclusion_counts=exclusion_counts,
+            data_quality_observation_counts={
+                key: count
+                for key, count in (
+                    ("blank_invoice_number", blank_invoice_numbers),
+                    ("invalid_invoice_number", invalid_invoice_numbers),
+                )
+                if count
+            },
             limitations=limitations,
             metrics={
                 "duplicate_groups": duplicate_group_count,

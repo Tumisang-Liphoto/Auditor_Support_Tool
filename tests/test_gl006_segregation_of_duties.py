@@ -147,6 +147,14 @@ def test_gl006_uses_authoritative_catalogue_definition() -> None:
         "approval_user",
     )
     assert procedure.definition.parameter_definitions == ()
+    assert procedure.definition.has_methodology_metadata is True
+    assert procedure.definition.isa_basis_type == "ISA-supported methodology"
+    assert procedure.definition.isa_references == (
+        "ISA 315 (Revised 2019), A153",
+        "ISA 240, A33",
+    )
+    assert "entry and approval roles" in procedure.definition.audit_objective
+    assert "does not by itself establish a control failure" in procedure.definition.limitations[0]
 
 
 def test_gl006_normalises_case_and_surrounding_spaces(tmp_path: Path) -> None:

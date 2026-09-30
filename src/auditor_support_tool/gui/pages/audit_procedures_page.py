@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from pathlib import Path
+
 import qtawesome as qta
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -16,15 +19,20 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from auditor_support_tool.core.audit_procedure_models import (
+    ProcedureExecutorIdentity,
+)
+from auditor_support_tool.core.currency import (
+    format_monetary_value,
+    is_monetary_field,
+)
 from auditor_support_tool.core.prepared_audit_dataset import (
     PreparedAuditDataset,
-)
-from auditor_support_tool.core.procedure_availability import (
-    ProcedureAvailabilityService,
 )
 from auditor_support_tool.core.procedure_dataset_resolution import (
     ProcedureDatasetBundle,
     ProcedureDatasetResolution,
+    ProcedureDatasetResolver,
     ProcedureDatasetSource,
 )
 from auditor_support_tool.core.procedure_definition import (
@@ -69,6 +77,9 @@ from auditor_support_tool.core.workspace_state import (
 from auditor_support_tool.gui.dialogs.procedure_parameters_dialog import (
     ProcedureParametersDialog,
 )
+from auditor_support_tool.gui.workers.audit_execution_worker import AuditExecutionWorker
+from auditor_support_tool.gui.workers.source_hash_worker import SourceHashWorker
+from auditor_support_tool.services.settings_service import SettingsService
 
 
 class AuditProceduresPage(QWidget):
@@ -89,20 +100,27 @@ class AuditProceduresPage(QWidget):
         *,
         workspace_state: WorkspaceState,
         procedure_registry: ProcedureRegistry,
+        settings_service: SettingsService | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
 
         self._workspace_state = workspace_state
         self._procedure_registry = procedure_registry
+        self._settings_service = settings_service
 
         self._readiness_service = ProcedureReadinessService()
-        self._availability_service = ProcedureAvailabilityService(
-            readiness_service=self._readiness_service
+        self._test_engine = TestEngineService(
+            registry=procedure_registry,
+            readiness_service=self._readiness_service,
         )
-        self._test_engine = TestEngineService(registry=procedure_registry)
+        self._dataset_resolver = ProcedureDatasetResolver()
         self._execution_status_service = ProcedureExecutionStatusService()
 
+        self._worker: AuditExecutionWorker | None = None
+        self._run_workspace_id: str | None = None
+        self._source_hash_worker: SourceHashWorker | None = None
+        self._source_hash_failure_signature: tuple[str, int, int] | None = None
         self._updating_dataset_selector = False
 
         self._build_interface()
@@ -138,6 +156,10 @@ class AuditProceduresPage(QWidget):
 
         navigation_layout.addWidget(self._back_button)
         navigation_layout.addStretch(1)
+        self._cancel_button = QPushButton("Cancel Run")
+        self._cancel_button.setVisible(False)
+        self._cancel_button.clicked.connect(self.cancel_execution)
+        navigation_layout.addWidget(self._cancel_button)
 
         title = QLabel("Audit Procedures")
         title.setObjectName("pageTitle")
@@ -180,7 +202,7 @@ class AuditProceduresPage(QWidget):
         layout.setContentsMargins(30, 24, 30, 24)
         layout.setSpacing(12)
 
-        heading = QLabel("Dataset")
+        heading = QLabel("Analysis dataset")
         heading.setObjectName("profileSectionTitle")
 
         self._dataset_description = QLabel(
@@ -222,8 +244,9 @@ class AuditProceduresPage(QWidget):
         heading.setObjectName("profileSectionTitle")
 
         description = QLabel(
-            "Only implemented procedures that are ready for the selected dataset "
-            "are shown. Optional fields may enrich results but do not block a run."
+            "Implemented procedures that apply to the selected analysis dataset are shown. "
+            "Missing supporting data or mappings are shown as setup requirements; "
+            "optional fields may enrich results but do not block a run."
         )
         description.setObjectName("profileSectionDescription")
         description.setWordWrap(True)
@@ -247,6 +270,11 @@ class AuditProceduresPage(QWidget):
         )
         self._dataset_selector.currentIndexChanged.connect(self._dataset_selection_changed)
 
+        self._workspace_state.source_changed.connect(self.cancel_execution)
+        self._workspace_state.source_changed.connect(self._source_changed_for_status)
+        self._workspace_state.workbook_package_changed.connect(self.cancel_execution)
+        self._workspace_state.workspace_cleared.connect(self._invalidate_execution)
+        self._workspace_state.workspace_cleared.connect(self._clear_source_hash_failure)
         self._workspace_state.workbook_package_changed.connect(self._refresh_page)
         self._workspace_state.active_dataset_changed.connect(self._refresh_page)
         self._workspace_state.workspace_identity_changed.connect(self._refresh_page)
@@ -261,6 +289,8 @@ class AuditProceduresPage(QWidget):
     def _refresh_page(self) -> None:
         """Refresh datasets, readiness and procedure actions."""
 
+        if self.is_executing:
+            return
         self._refresh_dataset_selector()
         self._clear_page_status()
 
@@ -282,7 +312,7 @@ class AuditProceduresPage(QWidget):
     def _refresh_dataset_selector(self) -> None:
         """Refresh mapped datasets and retain the active dataset."""
 
-        datasets = self._mapped_datasets()
+        datasets = self._analysis_datasets()
         active_dataset_id = self._workspace_state.active_dataset_id
 
         self._updating_dataset_selector = True
@@ -328,15 +358,44 @@ class AuditProceduresPage(QWidget):
         )
         mapped_sources = self._procedure_dataset_sources()
 
-        available = self._availability_service.available_for_workspace(
-            procedures=procedures,
-            active_source=active_source,
-            mapped_sources=mapped_sources,
-        )
+        applicable = []
 
-        if not available:
+        for procedure in procedures:
+            definition = procedure.definition
+
+            if not definition.uses_dataset_requirements:
+                readiness = self._readiness_service.check(
+                    definition=definition,
+                    source=source,
+                )
+
+                if readiness.can_run:
+                    applicable.append((procedure, readiness, None))
+
+                continue
+
+            primary_requirement = definition.primary_dataset_requirement
+
+            if (
+                primary_requirement is None
+                or primary_requirement.dataset_type != active_source.dataset_type
+            ):
+                continue
+
+            resolution = self._dataset_resolver.resolve(
+                definition=definition,
+                active_source=active_source,
+                available_sources=mapped_sources,
+            )
+            readiness = self._readiness_service.check_datasets(
+                definition=definition,
+                resolution=resolution,
+            )
+            applicable.append((procedure, readiness, resolution))
+
+        if not applicable:
             empty_label = QLabel(
-                "No procedures are ready for this dataset. "
+                "No procedures apply to this analysis dataset. "
                 "Review Field Mapping if you expected a procedure to appear."
             )
             empty_label.setObjectName("fieldHint")
@@ -344,17 +403,20 @@ class AuditProceduresPage(QWidget):
             self._procedure_rows_layout.addWidget(empty_label)
             return
 
-        for item in available:
-            execution_status = self._procedure_execution_status(
-                definition=item.procedure.definition,
-                source=source,
-                dataset_resolution=item.dataset_resolution,
-            )
+        for procedure, readiness, dataset_resolution in applicable:
+            execution_status = ProcedureExecutionStatus.NOT_RUN
+
+            if readiness.can_run:
+                execution_status = self._procedure_execution_status(
+                    definition=procedure.definition,
+                    source=source,
+                    dataset_resolution=dataset_resolution,
+                )
 
             self._procedure_rows_layout.addWidget(
                 self._build_procedure_row(
-                    item.procedure.definition,
-                    item.readiness,
+                    procedure.definition,
+                    readiness,
                     execution_status,
                 )
             )
@@ -383,11 +445,13 @@ class AuditProceduresPage(QWidget):
         name_label = QLabel(f"{definition.display_id}  {definition.name}")
         name_label.setObjectName("fieldLabel")
 
-        status_label = QLabel(self._execution_status_text(execution_status))
+        status_label = QLabel(
+            self._execution_status_text(execution_status) if readiness.can_run else "Needs Setup"
+        )
         status_label.setObjectName("procedureExecutionStatus")
         status_label.setProperty(
             "status",
-            execution_status.value,
+            execution_status.value if readiness.can_run else "needs_setup",
         )
 
         header_layout.addWidget(name_label)
@@ -400,6 +464,14 @@ class AuditProceduresPage(QWidget):
 
         text_layout.addLayout(header_layout)
         text_layout.addWidget(requirements_label)
+
+        methodology_summary = self._methodology_summary(definition)
+
+        if methodology_summary:
+            methodology_label = QLabel(methodology_summary)
+            methodology_label.setObjectName("fieldHint")
+            methodology_label.setWordWrap(True)
+            text_layout.addWidget(methodology_label)
 
         if definition.parameter_definitions:
             settings_label = QLabel(self._parameter_summary(definition))
@@ -439,6 +511,10 @@ class AuditProceduresPage(QWidget):
             actions_layout.addWidget(configure_button)
 
         action_button = QPushButton(self._run_button_text(execution_status))
+        action_button.setEnabled(readiness.can_run)
+
+        if not readiness.can_run:
+            action_button.setToolTip(self._readiness_message(readiness))
         action_button.setObjectName("primaryActionButton")
         action_button.setIcon(qta.icon("fa5s.play"))
         action_button.clicked.connect(
@@ -501,6 +577,9 @@ class AuditProceduresPage(QWidget):
     def _run_procedure(self, procedure_id: str) -> None:
         """Run a ready procedure and send its outcome to the Results page."""
 
+        if self.is_executing:
+            return
+
         dataset = self._active_mapped_dataset()
         source_path = self._workspace_state.source_path
         identity = self._workspace_state.workspace_identity
@@ -526,7 +605,7 @@ class AuditProceduresPage(QWidget):
             )
             return
 
-        source = PreparedAuditDataset(dataset)
+        source = self._execution_source(dataset)
 
         procedure = self._procedure_registry.get(procedure_id)
 
@@ -555,32 +634,124 @@ class AuditProceduresPage(QWidget):
 
         audit_period_start = str(getattr(identity, "audit_period_start", "") or "")
         audit_period_end = str(getattr(identity, "audit_period_end", "") or "")
+        audit_currency = str(getattr(identity, "audit_currency", "") or "")
+
+        executor_identity = self._execution_user_identity()
 
         self._set_page_status(
             "Running audit procedure...",
             "neutral",
         )
 
-        outcome = self._test_engine.run(
-            procedure_id=procedure_id,
+        worker = AuditExecutionWorker(
+            engine=self._test_engine,
+            procedure_id=procedure.definition.procedure_id,
             source=source,
             source_path=source_path,
             audit_period_start=audit_period_start,
             audit_period_end=audit_period_end,
+            audit_currency=audit_currency,
+            executor_identity=executor_identity,
             parameters=effective_parameters,
-            dataset_sources=self._procedure_dataset_sources(),
+            dataset_sources=tuple(
+                ProcedureDatasetSource.create(
+                    dataset_type=item.confirmed_dataset_type,
+                    source=self._execution_source(item),
+                )
+                for item in self._mapped_datasets()
+                if item.confirmed_dataset_type != DatasetType.UNCLASSIFIED
+            ),
+            status_service=self._execution_status_service,
+        )
+        self._worker = worker
+        self._run_workspace_id = identity.workspace_id
+        self.destroyed.connect(worker.cancel)
+        worker.finished.connect(self._execution_finished)
+        self._procedures_container.setEnabled(False)
+        self._dataset_selector.setEnabled(False)
+        self._back_button.setEnabled(False)
+        self._cancel_button.setEnabled(True)
+        self._cancel_button.setVisible(True)
+        worker.start()
+
+    def _execution_user_identity(self) -> ProcedureExecutorIdentity:
+        """Snapshot the current local profile for one procedure execution."""
+
+        if self._settings_service is None:
+            return ProcedureExecutorIdentity()
+
+        profile = self._settings_service.get_user_profile()
+
+        return ProcedureExecutorIdentity.create(
+            full_name=profile.full_name,
+            job_title=profile.job_title,
+            directorate=profile.directorate,
+            organization=profile.organization,
         )
 
-        if outcome.status == TestEngineStatus.COMPLETED and outcome.result is not None:
-            self._execution_status_service.remember_source_hash(
-                source_path,
-                outcome.result.context.source_sha256,
+    @staticmethod
+    def _execution_source(dataset: WorksheetDataset) -> PreparedAuditDataset:
+        # Preparation changes metadata, never the loaded population. Retain the frozen
+        # LoadedTable and its read-only rows without copying the entire audit population.
+        return PreparedAuditDataset(
+            replace(
+                dataset,
+                columns=[replace(column) for column in dataset.columns],
+                field_mappings=dict(dataset.field_mappings),
             )
-            self._workspace_state.record_procedure_execution(
-                ProcedureExecutionStamp.from_context(outcome.result.context)
+        )
+
+    @property
+    def is_executing(self) -> bool:
+        return self._worker is not None
+
+    @Slot()
+    def cancel_execution(self) -> None:
+        if self._worker is not None:
+            self._worker.cancel()
+            self._cancel_button.setEnabled(False)
+            self._set_page_status("Cancelling audit procedure…", "neutral")
+
+    @Slot()
+    def _invalidate_execution(self) -> None:
+        # A cleared/reopened workspace must never receive an old run's outcome.
+        self._run_workspace_id = None
+        self.cancel_execution()
+
+    @Slot()
+    def _execution_finished(self) -> None:
+        worker = self._worker
+        if worker is None:
+            return
+        outcome = worker.outcome
+        self._worker = None
+        self._procedures_container.setEnabled(True)
+        self._back_button.setEnabled(True)
+        self._cancel_button.setVisible(False)
+        identity = self._workspace_state.workspace_identity
+        if identity is None or identity.workspace_id != self._run_workspace_id or outcome is None:
+            self._refresh_page()
+            return
+
+        if outcome.status == TestEngineStatus.COMPLETED and outcome.result is not None:
+            if outcome.execution is not None:
+                self._workspace_state.record_procedure_execution(
+                    ProcedureExecutionStamp.from_context(
+                        outcome.result.context,
+                        completed_at=outcome.execution.finished_at,
+                    )
+                )
+        elif outcome.status in {
+            TestEngineStatus.BLOCKED,
+            TestEngineStatus.CANCELLED,
+            TestEngineStatus.FAILED,
+        }:
+            self._workspace_state.mark_procedure_rerun_required(
+                outcome.procedure_id,
+                outcome.dataset_id,
             )
 
-        self._clear_page_status()
+        self._refresh_page()
         self.result_ready.emit(outcome)
 
     def _procedure_execution_status(
@@ -634,6 +805,14 @@ class AuditProceduresPage(QWidget):
             )
             or ""
         )
+        audit_currency = str(
+            getattr(
+                identity,
+                "audit_currency",
+                "",
+            )
+            or ""
+        )
 
         status_source = source
 
@@ -646,14 +825,91 @@ class AuditProceduresPage(QWidget):
             except ValueError:
                 return ProcedureExecutionStatus.NEEDS_RERUN
 
-        return self._execution_status_service.evaluate(
+        execution_status = self._execution_status_service.evaluate(
             definition=definition,
             source=status_source,
             source_path=source_path,
             parameters=effective_parameters,
             audit_period_start=audit_period_start,
             audit_period_end=audit_period_end,
+            audit_currency=audit_currency,
             stamp=stamp,
+            rerun_required=self._workspace_state.procedure_requires_rerun(
+                definition.procedure_id, source.dataset_id
+            ),
+            hash_if_uncached=False,
+        )
+
+        if execution_status == ProcedureExecutionStatus.CHECKING:
+            signature = self._source_hash_signature(source_path)
+            if signature == self._source_hash_failure_signature:
+                return ProcedureExecutionStatus.NEEDS_RERUN
+            self._ensure_source_hash_refresh(source_path)
+
+        return execution_status
+
+    def _ensure_source_hash_refresh(self, source_path: str | Path) -> None:
+        """Start one background source hash when the status cache is cold."""
+
+        if self._source_hash_worker is not None:
+            return
+
+        source_signature = self._source_hash_signature(source_path)
+        if source_signature is None:
+            return
+
+        worker = SourceHashWorker(
+            status_service=self._execution_status_service,
+            source_path=source_path,
+            source_signature=source_signature,
+        )
+        self._source_hash_worker = worker
+        worker.finished.connect(self._source_hash_finished)
+        worker.start()
+
+    @Slot()
+    def _source_hash_finished(self) -> None:
+        """Refresh status presentation after an asynchronous source hash."""
+
+        worker = self._source_hash_worker
+        if worker is None:
+            return
+
+        self._source_hash_worker = None
+
+        if worker.error is not None:
+            self._source_hash_failure_signature = worker.source_signature
+        else:
+            self._source_hash_failure_signature = None
+
+        self._refresh_page()
+
+    @Slot()
+    def _source_changed_for_status(self) -> None:
+        """Allow verification of a newly loaded or replaced source."""
+
+        self._source_hash_failure_signature = None
+
+    @Slot()
+    def _clear_source_hash_failure(self) -> None:
+        """Discard source-verification failure state with the workspace."""
+
+        self._source_hash_failure_signature = None
+
+    @staticmethod
+    def _source_hash_signature(source_path: str | Path) -> tuple[str, int, int] | None:
+        """Return the cheap file signature used to scope a hash failure."""
+
+        try:
+            path = Path(source_path).expanduser().resolve()
+            status = path.stat()
+        except (FileNotFoundError, OSError):
+            return None
+
+        return (
+            str(path),
+            status.st_size,
+            status.st_mtime_ns,
         )
 
     def _update_dataset_selector_presentation(self) -> None:
@@ -667,15 +923,17 @@ class AuditProceduresPage(QWidget):
 
         if count == 0:
             self._dataset_description.setText(
-                "Complete Field Mapping to make a dataset available for audit procedures."
+                "Complete Field Mapping to make an analysis dataset available for audit procedures."
             )
         elif has_choice:
             self._dataset_description.setText(
-                "Choose the mapped dataset whose audit procedures you want to review."
+                "Choose the primary analysis dataset whose audit procedures you want to review. "
+                "Supporting datasets are resolved automatically."
             )
         else:
             self._dataset_description.setText(
-                "Audit procedures will run against this mapped dataset."
+                "Audit procedures will run against this analysis dataset. "
+                "Supporting datasets are resolved automatically."
             )
 
     def _dataset_selection_changed(self, index: int) -> None:
@@ -698,18 +956,63 @@ class AuditProceduresPage(QWidget):
         self._clear_page_status()
 
     def _active_mapped_dataset(self) -> WorksheetDataset | None:
-        """Return the active dataset when mapping is complete."""
+        """Return the analysis dataset selected on this page."""
 
-        dataset = self._workspace_state.active_dataset
+        selected_dataset_id = self._dataset_selector.currentData()
 
-        if (
-            dataset is None
-            or not dataset.selected
-            or dataset.mapping_status not in self._MAPPING_COMPLETE
-        ):
+        if not isinstance(selected_dataset_id, str):
             return None
 
-        return dataset
+        for dataset in self._analysis_datasets():
+            if dataset.dataset_id == selected_dataset_id:
+                return dataset
+
+        return None
+
+    def _analysis_datasets(self) -> tuple[WorksheetDataset, ...]:
+        """Return mapped datasets that can act as procedure populations."""
+
+        mapped_datasets = self._mapped_datasets()
+        support_only_types = self._supporting_only_dataset_types()
+
+        if not support_only_types:
+            return mapped_datasets
+
+        analysis_datasets: list[WorksheetDataset] = []
+
+        for dataset in mapped_datasets:
+            if dataset.confirmed_dataset_type not in support_only_types:
+                analysis_datasets.append(dataset)
+                continue
+
+            source = PreparedAuditDataset(dataset)
+
+            if any(
+                not procedure.definition.uses_dataset_requirements
+                and self._readiness_service.check(
+                    definition=procedure.definition,
+                    source=source,
+                ).can_run
+                for procedure in self._procedure_registry.procedures
+            ):
+                analysis_datasets.append(dataset)
+
+        return tuple(analysis_datasets)
+
+    def _supporting_only_dataset_types(self) -> set[DatasetType]:
+        """Return dataset types used only as supporting procedure inputs."""
+
+        primary_types: set[DatasetType] = set()
+        supporting_types: set[DatasetType] = set()
+
+        for procedure in self._procedure_registry.procedures:
+            for requirement in procedure.definition.dataset_requirements:
+                if requirement.primary:
+                    primary_types.add(requirement.dataset_type)
+                else:
+                    supporting_types.add(requirement.dataset_type)
+
+        return supporting_types - primary_types
 
     def _mapped_datasets(self) -> tuple[WorksheetDataset, ...]:
         """Return selected datasets whose mapping stage is complete."""
@@ -734,6 +1037,19 @@ class AuditProceduresPage(QWidget):
             if dataset.confirmed_dataset_type != DatasetType.UNCLASSIFIED
         )
 
+    @staticmethod
+    def _methodology_summary(definition: ProcedureDefinition) -> str:
+        """Return concise auditor-facing objective and ISA basis text."""
+
+        if not definition.has_methodology_metadata:
+            return ""
+
+        references = "; ".join(definition.isa_references)
+        return (
+            f"Objective: {definition.audit_objective}\n"
+            f"ISA basis: {references} | {definition.isa_basis_type}"
+        )
+
     def _parameter_summary(
         self,
         definition: ProcedureDefinition,
@@ -751,6 +1067,10 @@ class AuditProceduresPage(QWidget):
             return f"Settings need review: {error}"
 
         parts: list[str] = []
+        identity = self._workspace_state.workspace_identity
+        audit_currency = (
+            str(getattr(identity, "audit_currency", "") or "") if identity is not None else ""
+        )
 
         for parameter in definition.parameter_definitions:
             if parameter.key not in effective_values:
@@ -761,6 +1081,12 @@ class AuditProceduresPage(QWidget):
                 parameter,
                 effective_values[parameter.key],
             )
+
+            if audit_currency and is_monetary_field(parameter.key):
+                value_text = format_monetary_value(
+                    effective_values[parameter.key],
+                    audit_currency,
+                )
             default_suffix = (
                 " (default)"
                 if parameter.key not in saved_values and parameter.default_value is not None
@@ -889,6 +1215,7 @@ class AuditProceduresPage(QWidget):
             ProcedureExecutionStatus.NOT_RUN: "Ready to Run",
             ProcedureExecutionStatus.COMPLETED: "✓ Completed",
             ProcedureExecutionStatus.NEEDS_RERUN: "↻ Needs Re-run",
+            ProcedureExecutionStatus.CHECKING: "Checking source…",
         }
 
         return labels[status]

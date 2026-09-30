@@ -57,10 +57,10 @@ Key ownership under `src/auditor_support_tool/`:
 
 ## Important implementation facts
 
-- GL001, GL003 and GL006 are executable and regression tested. Catalogue entries
+- GL001, GL003, GL006 and GL011 are executable and regression tested. Catalogue entries
   alone do not imply executable implementations.
-- GL011 has multi-dataset definition/readiness infrastructure but no executable
-  audit procedure implementation. Generic multi-dataset execution exists.
+- GL011 tests GL account existence against a Chart of Accounts using generic
+  multi-dataset execution; exception membership remains GL transaction-level.
 - Results are presentation-driven and based on deterministic ProcedureResult.
 - Structured AuditProcedureReport generation exists.
 - Workspaces retain configuration and execution stamps, not full execution results.
@@ -69,7 +69,8 @@ Key ownership under `src/auditor_support_tool/`:
 - The General Ledger baseline in `tests/fixtures/regression/general_ledger/`
   protects deterministic behaviour; change expectations only for reviewed rule changes.
 - Currently GL003 applies audit-period filtering; GL001 and GL006 record the period
-  without filtering by it. Do not assume identical scope semantics.
+  without filtering by it. GL011 also evaluates the full prepared GL population.
+  Do not assume identical scope semantics.
 
 ## AI boundary and security
 

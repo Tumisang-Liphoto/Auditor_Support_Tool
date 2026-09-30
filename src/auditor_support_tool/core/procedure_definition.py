@@ -29,6 +29,13 @@ class ProcedureDefinition:
     category: str
     description: str = ""
 
+    audit_objective: str = ""
+    isa_references: tuple[str, ...] = ()
+    isa_basis_type: str = ""
+    audit_rationale: str = ""
+    result_meaning: str = ""
+    limitations: tuple[str, ...] = ()
+
     required_fields: tuple[str, ...] = ()
     helpful_fields: tuple[str, ...] = ()
     dataset_requirements: tuple[ProcedureDatasetRequirement, ...] = ()
@@ -44,6 +51,12 @@ class ProcedureDefinition:
         name: str,
         category: str,
         description: str = "",
+        audit_objective: str = "",
+        isa_references: tuple[str, ...] = (),
+        isa_basis_type: str = "",
+        audit_rationale: str = "",
+        result_meaning: str = "",
+        limitations: tuple[str, ...] = (),
         required_fields: tuple[str, ...] = (),
         helpful_fields: tuple[str, ...] = (),
         dataset_requirements: tuple[ProcedureDatasetRequirement, ...] = (),
@@ -57,6 +70,18 @@ class ProcedureDefinition:
         cleaned_name = name.strip()
         cleaned_category = category.strip()
         cleaned_description = description.strip()
+        cleaned_audit_objective = audit_objective.strip()
+        cleaned_isa_references = _normalise_text_items(
+            isa_references,
+            label="ISA reference",
+        )
+        cleaned_isa_basis_type = isa_basis_type.strip()
+        cleaned_audit_rationale = audit_rationale.strip()
+        cleaned_result_meaning = result_meaning.strip()
+        cleaned_limitations = _normalise_text_items(
+            limitations,
+            label="Procedure limitation",
+        )
         cleaned_version = procedure_version.strip()
 
         if not cleaned_name:
@@ -67,6 +92,21 @@ class ProcedureDefinition:
 
         if not cleaned_version:
             raise ValueError("Procedure version is required.")
+
+        methodology_values = (
+            bool(cleaned_audit_objective),
+            bool(cleaned_isa_references),
+            bool(cleaned_isa_basis_type),
+            bool(cleaned_audit_rationale),
+            bool(cleaned_result_meaning),
+            bool(cleaned_limitations),
+        )
+
+        if any(methodology_values) and not all(methodology_values):
+            raise ValueError(
+                "Procedure methodology metadata must be complete when any "
+                "methodology field is provided."
+            )
 
         cleaned_required_fields = _normalise_fields(
             required_fields,
@@ -101,12 +141,24 @@ class ProcedureDefinition:
             name=cleaned_name,
             category=cleaned_category,
             description=cleaned_description,
+            audit_objective=cleaned_audit_objective,
+            isa_references=cleaned_isa_references,
+            isa_basis_type=cleaned_isa_basis_type,
+            audit_rationale=cleaned_audit_rationale,
+            result_meaning=cleaned_result_meaning,
+            limitations=cleaned_limitations,
             required_fields=cleaned_required_fields,
             helpful_fields=cleaned_helpful_fields,
             dataset_requirements=cleaned_dataset_requirements,
             parameter_definitions=cleaned_parameter_definitions,
             procedure_version=cleaned_version,
         )
+
+    @property
+    def has_methodology_metadata(self) -> bool:
+        """Return whether the complete methodology block is populated."""
+
+        return bool(self.audit_objective)
 
     @property
     def display_id(self) -> str:
@@ -241,3 +293,28 @@ def _normalise_parameter_definitions(
         cleaned.append(definition)
 
     return tuple(cleaned)
+
+
+def _normalise_text_items(
+    values: tuple[str, ...],
+    *,
+    label: str,
+) -> tuple[str, ...]:
+    """Validate and normalise ordered methodology text values."""
+
+    cleaned_values: list[str] = []
+    seen_values: set[str] = set()
+
+    for raw_value in values:
+        cleaned_value = str(raw_value).strip()
+
+        if not cleaned_value:
+            raise ValueError(f"{label} cannot be blank.")
+
+        if cleaned_value in seen_values:
+            raise ValueError(f"{label} is duplicated: {cleaned_value}.")
+
+        seen_values.add(cleaned_value)
+        cleaned_values.append(cleaned_value)
+
+    return tuple(cleaned_values)

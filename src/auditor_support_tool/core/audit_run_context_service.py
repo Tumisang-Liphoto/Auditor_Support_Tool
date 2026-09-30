@@ -9,6 +9,7 @@ from auditor_support_tool.core.audit_execution_models import (
     AuditExecutionRequest,
 )
 from auditor_support_tool.core.audit_procedure_models import (
+    ProcedureExecutorIdentity,
     ProcedureRunContext,
 )
 from auditor_support_tool.core.audit_record_source import (
@@ -28,7 +29,7 @@ class AuditRunContextService:
 
     def __init__(
         self,
-        source_integrity_service: (SourceIntegrityService | None) = None,
+        source_integrity_service: SourceIntegrityService | None = None,
     ) -> None:
         self._source_integrity_service = source_integrity_service or SourceIntegrityService()
 
@@ -41,6 +42,7 @@ class AuditRunContextService:
         procedure_version: str,
         audit_period_start: str = "",
         audit_period_end: str = "",
+        executor_identity: ProcedureExecutorIdentity | None = None,
         parameters: Mapping[str, object] | None = None,
     ) -> ProcedureRunContext:
         """Return the reproducibility context for one procedure run."""
@@ -73,6 +75,11 @@ class AuditRunContextService:
                 "before running audit procedures."
             )
 
+        if executor_identity is not None and not isinstance(
+            executor_identity, ProcedureExecutorIdentity
+        ):
+            raise TypeError("Executor identity must be a ProcedureExecutorIdentity.")
+
         return ProcedureRunContext.create(
             request=request,
             procedure_version=procedure_version,
@@ -80,5 +87,6 @@ class AuditRunContextService:
             mapping_fingerprint=(record_source.mapping_fingerprint),
             audit_period_start=audit_period_start,
             audit_period_end=audit_period_end,
+            executor=executor_identity,
             parameters=parameters,
         )

@@ -9,6 +9,7 @@ from auditor_support_tool.core.audit_procedure_models import (
     ProcedureExceptionRecord,
     ProcedureResult,
 )
+from auditor_support_tool.core.currency import format_monetary_value, is_monetary_field
 from auditor_support_tool.presentation.result_dashboard_models import (
     DashboardIndicator,
     DashboardMetric,
@@ -101,6 +102,7 @@ def present_gl006_result(
         user_analysis=user_analysis,
         journal_available=journal_available,
         amount_available=amount_available,
+        currency_code=result.context.audit_currency,
     )
 
     observations = _observations(
@@ -124,7 +126,10 @@ def present_gl006_result(
             "Source-linked records where the normalised entry user and approval user are the same."
         ),
         columns=_table_columns(result.exception_records),
-        rows=tuple(_table_row(exception) for exception in result.exception_records),
+        rows=tuple(
+            _table_row(exception, currency_code=result.context.audit_currency)
+            for exception in result.exception_records
+        ),
         filters=(
             DashboardTableFilter(
                 key="all",
@@ -162,6 +167,7 @@ def _user_summary(
     user_analysis: tuple[dict[str, object], ...],
     journal_available: bool,
     amount_available: bool,
+    currency_code: str = "",
 ) -> DashboardSummary:
     """Build the ranked self-approval-by-user summary."""
 
@@ -188,7 +194,11 @@ def _user_summary(
                 f"{_as_int(row.get('self_approvals')):,}",
                 f"{_as_float(row.get('exception_share_pct')):.1f}%",
                 (f"{_as_int(row.get('affected_journals')):,}" if journal_available else "N/A"),
-                _amount_summary_value(row) if amount_available else "N/A",
+                (
+                    _amount_summary_value(row, currency_code=currency_code)
+                    if amount_available
+                    else "N/A"
+                ),
             ),
         )
         for row in visible_rows
@@ -344,6 +354,7 @@ def _table_columns(
                 DashboardTableColumn(
                     key=key,
                     label=label,
+                    value_kind="monetary" if is_monetary_field(key) else "text",
                 )
             )
 
@@ -352,6 +363,8 @@ def _table_columns(
 
 def _table_row(
     exception: ProcedureExceptionRecord,
+    *,
+    currency_code: str = "",
 ) -> DashboardTableRow:
     """Convert one GL-006 exception to a dashboard row."""
 
@@ -365,12 +378,20 @@ def _table_row(
         if key == "normalised_user":
             continue
 
-        values[key] = _display_value(raw_value)
+        values[key] = _display_value(
+            key,
+            raw_value,
+            currency_code=currency_code,
+        )
 
     return DashboardTableRow(values=values)
 
 
-def _amount_summary_value(row: dict[str, object]) -> str:
+def _amount_summary_value(
+    row: dict[str, object],
+    *,
+    currency_code: str = "",
+) -> str:
     """Return the available transaction-amount total for one user row."""
 
     if _as_int(row.get("transaction_amount_records")) == 0:
@@ -379,10 +400,10 @@ def _amount_summary_value(row: dict[str, object]) -> str:
     value = row.get("transaction_amount_total")
 
     if isinstance(value, Decimal):
-        return f"{value:,.2f}"
+        return format_monetary_value(value, currency_code)
 
     try:
-        return f"{Decimal(str(value)):,.2f}"
+        return format_monetary_value(Decimal(str(value)), currency_code)
     except (InvalidOperation, ValueError):
         return "N/A"
 
@@ -398,7 +419,12 @@ def _user_analysis_rows(
     return tuple(row for row in value if isinstance(row, dict))
 
 
-def _display_value(value: object) -> str:
+def _display_value(
+    key: str,
+    value: object,
+    *,
+    currency_code: str = "",
+) -> str:
     """Return a compact display value for a dashboard table cell."""
 
     if isinstance(value, datetime):
@@ -406,6 +432,9 @@ def _display_value(value: object) -> str:
 
     if isinstance(value, date):
         return value.isoformat()
+
+    if is_monetary_field(key):
+        return format_monetary_value(value, currency_code)
 
     if isinstance(value, Decimal):
         return f"{value:,.2f}"

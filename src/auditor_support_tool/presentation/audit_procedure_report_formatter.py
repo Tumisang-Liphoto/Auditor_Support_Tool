@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 
+from auditor_support_tool.core.currency import format_monetary_value, is_monetary_field
+
 
 @dataclass(frozen=True, slots=True)
 class ReportExceptionColumn:
@@ -57,7 +59,12 @@ def report_display_label(key: str) -> str:
     )
 
 
-def report_display_value(value: object) -> str:
+def report_display_value(
+    value: object,
+    *,
+    currency_code: str = "",
+    field_key: str = "",
+) -> str:
     """Return a concise human-readable representation of a report value."""
 
     if value is None:
@@ -65,6 +72,9 @@ def report_display_value(value: object) -> str:
 
     if isinstance(value, bool):
         return "Yes" if value else "No"
+
+    if is_monetary_field(field_key) and currency_code.strip():
+        return format_monetary_value(value, currency_code)
 
     if isinstance(value, Decimal):
         return format(value, "f")
@@ -96,7 +106,7 @@ def report_display_value(value: object) -> str:
         value,
         (str, bytes, bytearray),
     ):
-        return ", ".join(report_display_value(item) for item in value)
+        return ", ".join(report_display_value(item, currency_code=currency_code) for item in value)
 
     return str(value)
 
@@ -160,6 +170,8 @@ def build_exception_columns(
 def exception_cell_value(
     exception: object,
     key: str,
+    *,
+    currency_code: str = "",
 ) -> str:
     """Return one display value from a report exception."""
 
@@ -199,7 +211,11 @@ def exception_cell_value(
     if not isinstance(values, Mapping):
         return "—"
 
-    return report_display_value(values.get(key))
+    return report_display_value(
+        values.get(key),
+        currency_code=currency_code,
+        field_key=key,
+    )
 
 
 def report_exception_rate(rate: float, evaluated_count: int) -> str:

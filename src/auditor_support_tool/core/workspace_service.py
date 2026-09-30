@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from auditor_support_tool.core.constants import APP_VERSION
+from auditor_support_tool.core.currency import DEFAULT_CURRENCY_CODE
 from auditor_support_tool.core.data_quality_models import (
     DataQualityIssue,
     DataQualityScope,
@@ -19,6 +20,7 @@ from auditor_support_tool.core.paths import ApplicationPaths
 from auditor_support_tool.core.procedure_execution_models import (
     ProcedureExecutionStamp,
 )
+from auditor_support_tool.core.procedure_identity import canonical_procedure_id
 from auditor_support_tool.core.source_integrity_service import (
     SourceIntegrityService,
     SourceIntegrityStatus,
@@ -124,9 +126,62 @@ class WorkspaceService:
             procedure_execution_stamps=[
                 stamp.to_dict() for stamp in state.procedure_execution_stamps
             ],
+            procedure_rerun_requirements=[
+                {
+                    "procedure_id": procedure_id,
+                    "dataset_id": dataset_id,
+                }
+                for procedure_id, dataset_id in state.procedure_rerun_requirements
+            ],
             transformation_history=[asdict(record) for record in state.transformation_history],
             data_quality_issues=[asdict(issue) for issue in state.data_quality_issues],
         )
+
+    def loaded_source_reference(
+        self,
+        state: WorkspaceState,
+    ) -> WorkspaceSourceReference | None:
+        """Build a source reference from already-loaded, fingerprinted source data."""
+
+        source_path = state.source_path
+        if source_path is None:
+            return None
+
+        package = state.workbook_package
+        if package is None:
+            raise WorkspaceServiceError(
+                "The source fingerprint is unavailable. Reload the source data before autosaving."
+            )
+
+        resolved_source = source_path.expanduser().resolve()
+        if package.source_path.expanduser().resolve() != resolved_source:
+            raise WorkspaceServiceError(
+                "The loaded source does not match the active workspace source."
+            )
+
+        loaded_hashes = {
+            dataset.loaded_table.source_sha256.strip().lower() for dataset in package.datasets
+        }
+        if len(loaded_hashes) != 1 or not all(loaded_hashes):
+            raise WorkspaceServiceError(
+                "The loaded source fingerprint is unavailable or inconsistent."
+            )
+
+        source_hash = next(iter(loaded_hashes))
+        if len(source_hash) != 64 or any(
+            character not in "0123456789abcdef" for character in source_hash
+        ):
+            raise WorkspaceServiceError("The loaded source fingerprint is invalid.")
+
+        try:
+            return WorkspaceSourceReference.from_path(
+                resolved_source,
+                sha256=source_hash,
+            )
+        except OSError as error:
+            raise WorkspaceServiceError(
+                f"The loaded source is unavailable for autosave: {error}"
+            ) from error
 
     def save_state(
         self,
@@ -174,6 +229,8 @@ class WorkspaceService:
         self,
         document: WorkspaceDocument,
         file_path: Path,
+        *,
+        create_backup: bool = True,
     ) -> Path:
         """Write a workspace document using an atomic replacement."""
 
@@ -188,7 +245,7 @@ class WorkspaceService:
         temporary_path = target_path.with_suffix(f"{target_path.suffix}.tmp")
 
         try:
-            if target_path.exists():
+            if create_backup and target_path.exists():
                 self._create_backup(target_path)
 
             payload = asdict(document)
@@ -333,6 +390,13 @@ class WorkspaceService:
             ProcedureExecutionStamp.from_dict(raw_stamp)
             for raw_stamp in document.procedure_execution_stamps
         ]
+        procedure_rerun_requirements = [
+            (
+                requirement["procedure_id"],
+                requirement["dataset_id"],
+            )
+            for requirement in document.procedure_rerun_requirements
+        ]
 
         state.start_workspace(
             document.identity,
@@ -359,6 +423,10 @@ class WorkspaceService:
         )
         state.set_all_procedure_execution_stamps(
             procedure_execution_stamps,
+            mark_dirty=False,
+        )
+        state.set_all_procedure_rerun_requirements(
+            procedure_rerun_requirements,
             mark_dirty=False,
         )
 
@@ -406,6 +474,12 @@ class WorkspaceService:
                     raw_identity.get(
                         "audit_period_end",
                         "",
+                    )
+                ).strip(),
+                audit_currency=str(
+                    raw_identity.get(
+                        "audit_currency",
+                        DEFAULT_CURRENCY_CODE,
                     )
                 ).strip(),
                 audit_domain=str(
@@ -480,6 +554,12 @@ class WorkspaceService:
                     [],
                 )
             )
+            procedure_rerun_requirements = self._procedure_rerun_requirements_from_raw(
+                raw_document.get(
+                    "procedure_rerun_requirements",
+                    [],
+                )
+            )
 
             transformation_history = raw_document.get(
                 "transformation_history",
@@ -535,6 +615,7 @@ class WorkspaceService:
             field_mappings=field_mappings,
             procedure_parameters=procedure_parameters,
             procedure_execution_stamps=procedure_execution_stamps,
+            procedure_rerun_requirements=procedure_rerun_requirements,
             transformation_history=transformation_history,
             data_quality_issues=data_quality_issues,
         )
@@ -564,6 +645,53 @@ class WorkspaceService:
                 raise TypeError(f"Invalid procedure execution stamp: {error}") from error
 
             cleaned.append(stamp.to_dict())
+
+        return cleaned
+
+    @staticmethod
+    def _procedure_rerun_requirements_from_raw(
+        raw_requirements: object,
+    ) -> list[dict[str, str]]:
+        """Validate persisted procedure rerun requirements."""
+
+        if not isinstance(raw_requirements, list):
+            raise TypeError("Procedure rerun requirements must be an array.")
+
+        cleaned: list[dict[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+
+        for raw_requirement in raw_requirements:
+            if not isinstance(raw_requirement, dict):
+                raise TypeError("Procedure rerun requirement entries must be objects.")
+
+            try:
+                procedure_id = canonical_procedure_id(str(raw_requirement["procedure_id"]))
+                dataset_id = str(raw_requirement["dataset_id"]).strip()
+            except (
+                KeyError,
+                TypeError,
+                ValueError,
+            ) as error:
+                raise TypeError(f"Invalid procedure rerun requirement: {error}") from error
+
+            if not dataset_id:
+                raise TypeError("Procedure rerun requirement dataset identifiers cannot be blank.")
+
+            key = (
+                procedure_id,
+                dataset_id,
+            )
+
+            if key in seen:
+                continue
+
+            seen.add(key)
+            cleaned.append(
+                {
+                    "procedure_id": procedure_id,
+                    "dataset_id": dataset_id,
+                }
+            )
 
         return cleaned
 
@@ -762,14 +890,47 @@ class WorkspaceService:
             raise WorkspaceServiceError(f"Invalid audit period: {error}") from error
 
         try:
+            document.identity.validate_audit_currency()
+        except ValueError as error:
+            raise WorkspaceServiceError(f"Invalid audit currency: {error}") from error
+
+        try:
             self._procedure_parameters_from_raw(document.procedure_parameters)
         except TypeError as error:
             raise WorkspaceServiceError(f"Invalid procedure parameters: {error}") from error
 
         try:
-            self._procedure_execution_stamps_from_raw(document.procedure_execution_stamps)
+            validated_stamps = self._procedure_execution_stamps_from_raw(
+                document.procedure_execution_stamps
+            )
         except TypeError as error:
             raise WorkspaceServiceError(f"Invalid procedure execution stamps: {error}") from error
+
+        try:
+            rerun_requirements = self._procedure_rerun_requirements_from_raw(
+                document.procedure_rerun_requirements
+            )
+        except TypeError as error:
+            raise WorkspaceServiceError(f"Invalid procedure rerun requirements: {error}") from error
+
+        successful_keys = {
+            (
+                str(stamp["procedure_id"]),
+                str(stamp["dataset_id"]),
+            )
+            for stamp in validated_stamps
+        }
+
+        for requirement in rerun_requirements:
+            key = (
+                requirement["procedure_id"],
+                requirement["dataset_id"],
+            )
+
+            if key not in successful_keys:
+                raise WorkspaceServiceError(
+                    "A procedure rerun requirement must reference a successful procedure execution."
+                )
 
         if not document.identity.created_at.strip():
             raise WorkspaceServiceError("Workspace creation date is required.")
