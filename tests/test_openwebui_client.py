@@ -11,6 +11,7 @@ import pytest
 
 from auditor_support_tool.services.openwebui_client import (
     OpenWebUIClient,
+    OpenWebUIModel,
     _CredentialRedirectHandler,
     _TransportPolicyError,
 )
@@ -66,6 +67,37 @@ def test_connection_uses_authenticated_models_endpoint() -> None:
     assert request.get_header("Authorization") == "Bearer sk-test"
     assert result.success is True
     assert result.model_count == 2
+    assert result.models == (
+        OpenWebUIModel(model_id="model-a", display_name="model-a"),
+        OpenWebUIModel(model_id="model-b", display_name="model-b"),
+    )
+
+
+def test_connection_preserves_model_display_names_and_ignores_invalid_entries() -> None:
+    response = StubResponse(
+        b'{"data": ['
+        b'{"id": "model-a", "name": "Model Alpha"}, '
+        b'{"id": "model-b"}, '
+        b'{"id": "model-a", "name": "Duplicate"}, '
+        b'{"name": "Missing ID"}'
+        b']}'
+    )
+
+    with patch(
+        "auditor_support_tool.services.openwebui_client.build_opener",
+        return_value=Mock(open=Mock(return_value=response)),
+    ):
+        result = OpenWebUIClient().test_connection(
+            base_url="https://internal-ai",
+            api_key="sk-test",
+        )
+
+    assert result.success is True
+    assert result.model_count == 2
+    assert result.models == (
+        OpenWebUIModel(model_id="model-a", display_name="Model Alpha"),
+        OpenWebUIModel(model_id="model-b", display_name="model-b"),
+    )
 
 
 def test_connection_reports_rejected_api_key() -> None:

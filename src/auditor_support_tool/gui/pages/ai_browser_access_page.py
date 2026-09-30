@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -32,6 +33,7 @@ from auditor_support_tool.services.administrator_settings_service import (
 from auditor_support_tool.services.openwebui_client import (
     OpenWebUIClient,
     OpenWebUIConnectionResult,
+    OpenWebUIModel,
 )
 from auditor_support_tool.services.openwebui_settings_service import (
     OpenWebUISettings,
@@ -179,9 +181,9 @@ class AIBrowserAccessPage(QWidget):
         heading.setObjectName("profileSectionTitle")
 
         description = QLabel(
-            "The address and enable/disable preference are stored locally. "
-            "The API key remains in the Windows credential vault for the "
-            "current Windows user."
+            "The address, enable/disable preference and approved default model are "
+            "stored locally. The API key remains in the Windows credential vault "
+            "for the current Windows user."
         )
         description.setObjectName("profileSectionDescription")
         description.setWordWrap(True)
@@ -201,12 +203,18 @@ class AIBrowserAccessPage(QWidget):
         )
 
         self._base_url_input = QLineEdit()
-        self._base_url_input.setPlaceholderText("Example: http://server-name:3000")
+        self._base_url_input.setPlaceholderText("Example: https://192.168.9.2")
         self._base_url_input.setClearButtonEnabled(True)
 
         self._api_key_input = QLineEdit()
         self._api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
         self._api_key_input.setPlaceholderText("Leave blank to keep the currently saved API key")
+
+        self._model_input = QComboBox()
+        self._model_input.addItem(
+            "Test connection to load available models",
+            "",
+        )
 
         form.addWidget(
             self._field_label("OpenWebUI address"),
@@ -226,6 +234,16 @@ class AIBrowserAccessPage(QWidget):
         form.addWidget(
             self._api_key_input,
             1,
+            1,
+        )
+        form.addWidget(
+            self._field_label("Approved/default model"),
+            2,
+            0,
+        )
+        form.addWidget(
+            self._model_input,
+            2,
             1,
         )
 
@@ -339,6 +357,7 @@ class AIBrowserAccessPage(QWidget):
         self._enabled_input.setChecked(settings.enabled)
         self._base_url_input.setText(settings.base_url)
         self._api_key_input.clear()
+        self._show_saved_model(settings.model_id)
 
         self._refresh_credential_status()
 
@@ -353,6 +372,7 @@ class AIBrowserAccessPage(QWidget):
                 OpenWebUISettings(
                     enabled=self._enabled_input.isChecked(),
                     base_url=self._base_url_input.text(),
+                    model_id=self._selected_model_id(),
                 )
             )
 
@@ -425,6 +445,9 @@ class AIBrowserAccessPage(QWidget):
         self,
         result: OpenWebUIConnectionResult,
     ) -> None:
+        if result.success:
+            self._populate_models(result.models)
+
         self._set_connection_status(
             result.message,
             "success" if result.success else "error",
@@ -543,11 +566,71 @@ class AIBrowserAccessPage(QWidget):
         self._save_button.setEnabled(
             not testing and self._administrator_settings_service.is_unlocked
         )
+        self._model_input.setEnabled(
+            not testing and self._administrator_settings_service.is_unlocked
+        )
 
         if testing:
             self._remove_key_button.setEnabled(False)
         else:
             self._refresh_credential_status()
+
+    def _selected_model_id(
+        self,
+    ) -> str:
+        model_id = self._model_input.currentData()
+
+        return model_id.strip() if isinstance(model_id, str) else ""
+
+    def _show_saved_model(
+        self,
+        model_id: str,
+    ) -> None:
+        cleaned_model_id = model_id.strip()
+
+        self._model_input.clear()
+
+        if cleaned_model_id:
+            self._model_input.addItem(
+                f"{cleaned_model_id} (saved; availability not checked)",
+                cleaned_model_id,
+            )
+            return
+
+        self._model_input.addItem(
+            "Test connection to load available models",
+            "",
+        )
+
+    def _populate_models(
+        self,
+        models: tuple[OpenWebUIModel, ...],
+    ) -> None:
+        selected_model_id = self._selected_model_id()
+
+        self._model_input.clear()
+        self._model_input.addItem(
+            "Select an approved/default model",
+            "",
+        )
+
+        selected_index = 0
+
+        for model in models:
+            display_text = model.display_name
+
+            if model.display_name != model.model_id:
+                display_text = f"{model.display_name} — {model.model_id}"
+
+            self._model_input.addItem(
+                display_text,
+                model.model_id,
+            )
+
+            if model.model_id == selected_model_id:
+                selected_index = self._model_input.count() - 1
+
+        self._model_input.setCurrentIndex(selected_index)
 
     def _toggle_administrator_lock(
         self,
@@ -577,6 +660,7 @@ class AIBrowserAccessPage(QWidget):
         self._base_url_input.setReadOnly(not unlocked)
         self._base_url_input.setClearButtonEnabled(unlocked)
         self._api_key_input.setEnabled(unlocked)
+        self._model_input.setEnabled(unlocked and self._worker is None)
         self._save_button.setEnabled(unlocked and self._worker is None)
 
         if unlocked:

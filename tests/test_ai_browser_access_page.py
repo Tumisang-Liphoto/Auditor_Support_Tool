@@ -15,6 +15,10 @@ from auditor_support_tool.services.administrator_settings_service import (
     AdministratorSettingsService,
     derive_password_verifier,
 )
+from auditor_support_tool.services.openwebui_client import (
+    OpenWebUIConnectionResult,
+    OpenWebUIModel,
+)
 from auditor_support_tool.services.openwebui_settings_service import (
     OpenWebUISettings,
     OpenWebUISettingsService,
@@ -63,6 +67,7 @@ def _page(
     *,
     enabled: bool = True,
     base_url: str = "http://approved-ai:3000",
+    model_id: str = "",
 ) -> tuple[AIBrowserAccessPage, AdministratorSettingsService, MemoryCredentialStore]:
     _application()
 
@@ -81,6 +86,7 @@ def _page(
         OpenWebUISettings(
             enabled=enabled,
             base_url=base_url,
+            model_id=model_id,
         )
     )
 
@@ -100,6 +106,7 @@ def test_protected_ai_controls_are_locked_by_default(tmp_path: Path, monkeypatch
     assert page._enabled_input.isEnabled() is False
     assert page._base_url_input.isReadOnly() is True
     assert page._api_key_input.isEnabled() is False
+    assert page._model_input.isEnabled() is False
     assert page._save_button.isEnabled() is False
     assert page._remove_key_button.isEnabled() is False
     assert page._test_button.isEnabled() is True
@@ -116,6 +123,7 @@ def test_unlock_enables_protected_ai_controls(tmp_path: Path, monkeypatch) -> No
     assert page._enabled_input.isEnabled() is True
     assert page._base_url_input.isReadOnly() is False
     assert page._api_key_input.isEnabled() is True
+    assert page._model_input.isEnabled() is True
     assert page._save_button.isEnabled() is True
     assert page._administrator_button.text() == "Lock Settings"
 
@@ -152,6 +160,91 @@ def test_saved_api_key_can_be_used_but_not_removed_while_locked(
 
     assert page._remove_key_button.isEnabled() is False
     assert credential_store.values
+
+
+def test_successful_connection_populates_model_selector(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    page, administrator_service, _ = _page(tmp_path, monkeypatch)
+    administrator_service.unlock(_TEST_PASSWORD)
+
+    page._handle_connection_result(
+        OpenWebUIConnectionResult(
+            success=True,
+            message="Connected.",
+            model_count=2,
+            models=(
+                OpenWebUIModel(model_id="model-a", display_name="Model Alpha"),
+                OpenWebUIModel(model_id="model-b", display_name="model-b"),
+            ),
+        )
+    )
+
+    assert page._model_input.count() == 3
+    assert page._model_input.itemData(0) == ""
+    assert page._model_input.itemData(1) == "model-a"
+    assert page._model_input.itemText(1) == "Model Alpha — model-a"
+    assert page._model_input.itemData(2) == "model-b"
+
+
+def test_selected_model_is_saved(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    page, administrator_service, _ = _page(tmp_path, monkeypatch)
+    administrator_service.unlock(_TEST_PASSWORD)
+
+    page._populate_models(
+        (
+            OpenWebUIModel(model_id="model-a", display_name="Model Alpha"),
+            OpenWebUIModel(model_id="model-b", display_name="Model Beta"),
+        )
+    )
+    page._model_input.setCurrentIndex(2)
+
+    page._save_settings()
+
+    saved = page._settings_service.get_settings()
+    assert saved.model_id == "model-b"
+
+
+def test_saved_model_is_preserved_until_availability_is_checked(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    page, _, _ = _page(
+        tmp_path,
+        monkeypatch,
+        model_id="model-b",
+    )
+
+    assert page._model_input.currentData() == "model-b"
+    assert "availability not checked" in page._model_input.currentText()
+
+
+def test_lock_discards_unsaved_model_selection(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    page, administrator_service, _ = _page(
+        tmp_path,
+        monkeypatch,
+        model_id="model-a",
+    )
+    administrator_service.unlock(_TEST_PASSWORD)
+
+    page._populate_models(
+        (
+            OpenWebUIModel(model_id="model-a", display_name="Model Alpha"),
+            OpenWebUIModel(model_id="model-b", display_name="Model Beta"),
+        )
+    )
+    page._model_input.setCurrentIndex(2)
+
+    page._toggle_administrator_lock()
+
+    assert page._model_input.currentData() == "model-a"
 
 
 def test_unconfigured_build_keeps_unlock_action_disabled(tmp_path: Path, monkeypatch) -> None:

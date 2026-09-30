@@ -61,12 +61,21 @@ def _openwebui_ssl_context(
 
 
 @dataclass(frozen=True, slots=True)
+class OpenWebUIModel:
+    """One model exposed to the authenticated OpenWebUI account."""
+
+    model_id: str
+    display_name: str
+
+
+@dataclass(frozen=True, slots=True)
 class OpenWebUIConnectionResult:
     """Outcome of an authenticated OpenWebUI connectivity check."""
 
     success: bool
     message: str
     model_count: int = 0
+    models: tuple[OpenWebUIModel, ...] = ()
 
 
 class _TransportPolicyError(URLError):
@@ -263,23 +272,55 @@ class OpenWebUIClient:
                 ),
             )
 
-        models = payload.get(
-            "data",
-            [],
+        raw_models = (
+            payload.get(
+                "data",
+                [],
+            )
+            if isinstance(payload, dict)
+            else []
         )
 
-        if not isinstance(
-            models,
-            list,
-        ):
-            models = []
+        models: list[OpenWebUIModel] = []
+        seen_model_ids: set[str] = set()
+
+        if isinstance(raw_models, list):
+            for raw_model in raw_models:
+                if not isinstance(raw_model, dict):
+                    continue
+
+                raw_model_id = raw_model.get("id")
+                if not isinstance(raw_model_id, str):
+                    continue
+
+                model_id = raw_model_id.strip()
+                if not model_id or model_id in seen_model_ids:
+                    continue
+
+                raw_display_name = raw_model.get("name")
+                display_name = (
+                    raw_display_name.strip()
+                    if isinstance(raw_display_name, str) and raw_display_name.strip()
+                    else model_id
+                )
+
+                models.append(
+                    OpenWebUIModel(
+                        model_id=model_id,
+                        display_name=display_name,
+                    )
+                )
+                seen_model_ids.add(model_id)
+
+        available_models = tuple(models)
 
         return OpenWebUIConnectionResult(
             success=True,
             message=(
                 "Connected to OpenWebUI successfully. "
-                f"{len(models)} model(s) are available "
+                f"{len(available_models)} model(s) are available "
                 "to this account."
             ),
-            model_count=len(models),
+            model_count=len(available_models),
+            models=available_models,
         )

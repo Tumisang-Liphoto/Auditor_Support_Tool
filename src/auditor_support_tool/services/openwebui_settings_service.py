@@ -22,6 +22,7 @@ class OpenWebUISettings:
 
     enabled: bool = False
     base_url: str = ""
+    model_id: str = ""
 
 
 class OpenWebUISettingsService:
@@ -58,6 +59,10 @@ class OpenWebUISettingsService:
                 "ai/openwebui/base_url",
                 "",
             ),
+            model_id=self._read_string(
+                "ai/openwebui/model_id",
+                "",
+            ),
         )
 
     def save_settings(
@@ -76,6 +81,7 @@ class OpenWebUISettingsService:
         normalized = OpenWebUISettings(
             enabled=bool(settings.enabled),
             base_url=normalized_url,
+            model_id=settings.model_id.strip(),
         )
 
         self._settings.setValue(
@@ -85,6 +91,10 @@ class OpenWebUISettingsService:
         self._settings.setValue(
             "ai/openwebui/base_url",
             normalized.base_url,
+        )
+        self._settings.setValue(
+            "ai/openwebui/model_id",
+            normalized.model_id,
         )
         self._settings.sync()
 
