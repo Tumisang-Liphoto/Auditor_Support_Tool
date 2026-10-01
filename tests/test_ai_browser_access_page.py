@@ -16,6 +16,7 @@ from auditor_support_tool.services.administrator_settings_service import (
     derive_password_verifier,
 )
 from auditor_support_tool.services.openwebui_client import (
+    OpenWebUIAIResponseResult,
     OpenWebUIConnectionResult,
     OpenWebUIModel,
 )
@@ -110,6 +111,7 @@ def test_protected_ai_controls_are_locked_by_default(tmp_path: Path, monkeypatch
     assert page._save_button.isEnabled() is False
     assert page._remove_key_button.isEnabled() is False
     assert page._test_button.isEnabled() is True
+    assert page._test_ai_button.isEnabled() is True
     assert page._open_button.isEnabled() is True
     assert page._administrator_button.text() == "Unlock Settings"
 
@@ -125,6 +127,7 @@ def test_unlock_enables_protected_ai_controls(tmp_path: Path, monkeypatch) -> No
     assert page._api_key_input.isEnabled() is True
     assert page._model_input.isEnabled() is True
     assert page._save_button.isEnabled() is True
+    assert page._test_ai_button.isEnabled() is True
     assert page._administrator_button.text() == "Lock Settings"
 
 
@@ -245,6 +248,44 @@ def test_lock_discards_unsaved_model_selection(
     page._toggle_administrator_lock()
 
     assert page._model_input.currentData() == "model-a"
+
+
+def test_ai_response_result_is_shown_in_status(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    page, _, _ = _page(
+        tmp_path,
+        monkeypatch,
+        model_id="model-a",
+    )
+
+    page._handle_ai_response_result(
+        OpenWebUIAIResponseResult(
+            success=True,
+            message="AI response received successfully from model-a.",
+            response_text="Audit Assistant AI connection successful.",
+        )
+    )
+
+    assert "model-a" in page._connection_status.text()
+    assert "Audit Assistant AI connection successful." in page._connection_status.text()
+
+
+def test_ai_response_requires_selected_model(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    page, _, _ = _page(
+        tmp_path,
+        monkeypatch,
+        model_id="",
+    )
+
+    page._test_ai_response()
+
+    assert "model" in page._connection_status.text().lower()
+    assert page._ai_response_worker is None
 
 
 def test_unconfigured_build_keeps_unlock_action_disabled(tmp_path: Path, monkeypatch) -> None:

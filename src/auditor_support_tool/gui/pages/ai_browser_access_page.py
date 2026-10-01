@@ -24,6 +24,9 @@ from PySide6.QtWidgets import (
 from auditor_support_tool.gui.dialogs.administrator_unlock_dialog import (
     AdministratorUnlockDialog,
 )
+from auditor_support_tool.gui.workers.openwebui_ai_response_worker import (
+    OpenWebUIAIResponseWorker,
+)
 from auditor_support_tool.gui.workers.openwebui_connection_worker import (
     OpenWebUIConnectionWorker,
 )
@@ -31,6 +34,7 @@ from auditor_support_tool.services.administrator_settings_service import (
     AdministratorSettingsService,
 )
 from auditor_support_tool.services.openwebui_client import (
+    OpenWebUIAIResponseResult,
     OpenWebUIClient,
     OpenWebUIConnectionResult,
     OpenWebUIModel,
@@ -71,6 +75,7 @@ class AIBrowserAccessPage(QWidget):
         )
         self._client = OpenWebUIClient()
         self._worker: OpenWebUIConnectionWorker | None = None
+        self._ai_response_worker: OpenWebUIAIResponseWorker | None = None
 
         self._build_interface()
         self._load_settings()
@@ -258,6 +263,10 @@ class AIBrowserAccessPage(QWidget):
         self._test_button.setObjectName("secondaryActionButton")
         self._test_button.clicked.connect(self._test_connection)
 
+        self._test_ai_button = QPushButton("Test AI Response")
+        self._test_ai_button.setObjectName("secondaryActionButton")
+        self._test_ai_button.clicked.connect(self._test_ai_response)
+
         self._open_button = QPushButton("Open OpenWebUI")
         self._open_button.setObjectName("secondaryActionButton")
         self._open_button.clicked.connect(self._open_openwebui)
@@ -268,6 +277,7 @@ class AIBrowserAccessPage(QWidget):
 
         actions.addWidget(self._save_button)
         actions.addWidget(self._test_button)
+        actions.addWidget(self._test_ai_button)
         actions.addWidget(self._open_button)
         actions.addStretch(1)
         actions.addWidget(self._remove_key_button)
@@ -408,6 +418,8 @@ class AIBrowserAccessPage(QWidget):
     ) -> None:
         if self._worker is not None and self._worker.isRunning():
             return
+        if self._ai_response_worker is not None and self._ai_response_worker.isRunning():
+            return
 
         try:
             base_url = normalize_openwebui_url(self._base_url_input.text())
@@ -440,6 +452,95 @@ class AIBrowserAccessPage(QWidget):
         self._worker.completed.connect(self._handle_connection_result)
         self._worker.finished.connect(self._handle_worker_finished)
         self._worker.start()
+
+    def _test_ai_response(
+        self,
+    ) -> None:
+        if self._worker is not None and self._worker.isRunning():
+            return
+        if self._ai_response_worker is not None and self._ai_response_worker.isRunning():
+            return
+
+        model_id = self._selected_model_id()
+
+        if not model_id:
+            self._set_connection_status(
+                "Select an approved/default model before testing an AI response.",
+                "error",
+            )
+            return
+
+        try:
+            base_url = normalize_openwebui_url(self._base_url_input.text())
+            api_key = (
+                self._api_key_input.text().strip()
+                or self._settings_service.get_api_key(base_url)
+                or ""
+            )
+        except (
+            ValueError,
+            CredentialStoreError,
+        ) as error:
+            self._set_connection_status(
+                str(error),
+                "error",
+            )
+            return
+
+        if not api_key:
+            self._set_connection_status(
+                "No OpenWebUI API key is configured for this address.",
+                "error",
+            )
+            return
+
+        self._set_ai_testing_state(True)
+        self._set_connection_status(
+            f"Requesting a test AI response from {model_id}…",
+            "checking",
+        )
+
+        self._ai_response_worker = OpenWebUIAIResponseWorker(
+            client=self._client,
+            base_url=base_url,
+            api_key=api_key,
+            model_id=model_id,
+        )
+        self._ai_response_worker.completed.connect(
+            self._handle_ai_response_result
+        )
+        self._ai_response_worker.finished.connect(
+            self._handle_ai_response_worker_finished
+        )
+        self._ai_response_worker.start()
+
+    def _handle_ai_response_result(
+        self,
+        result: OpenWebUIAIResponseResult,
+    ) -> None:
+        message = result.message
+
+        if result.success and result.response_text:
+            message = (
+                f"{result.message}\n"
+                f"Response: {result.response_text}"
+            )
+
+        self._set_connection_status(
+            message,
+            "success" if result.success else "error",
+        )
+
+    def _handle_ai_response_worker_finished(
+        self,
+    ) -> None:
+        self._set_ai_testing_state(False)
+
+        worker = self._ai_response_worker
+        self._ai_response_worker = None
+
+        if worker is not None:
+            worker.deleteLater()
 
     def _handle_connection_result(
         self,
@@ -563,6 +664,25 @@ class AIBrowserAccessPage(QWidget):
         testing: bool,
     ) -> None:
         self._test_button.setEnabled(not testing)
+        self._test_ai_button.setEnabled(not testing)
+        self._save_button.setEnabled(
+            not testing and self._administrator_settings_service.is_unlocked
+        )
+        self._model_input.setEnabled(
+            not testing and self._administrator_settings_service.is_unlocked
+        )
+
+        if testing:
+            self._remove_key_button.setEnabled(False)
+        else:
+            self._refresh_credential_status()
+
+    def _set_ai_testing_state(
+        self,
+        testing: bool,
+    ) -> None:
+        self._test_ai_button.setEnabled(not testing)
+        self._test_button.setEnabled(not testing)
         self._save_button.setEnabled(
             not testing and self._administrator_settings_service.is_unlocked
         )
@@ -660,8 +780,18 @@ class AIBrowserAccessPage(QWidget):
         self._base_url_input.setReadOnly(not unlocked)
         self._base_url_input.setClearButtonEnabled(unlocked)
         self._api_key_input.setEnabled(unlocked)
-        self._model_input.setEnabled(unlocked and self._worker is None)
-        self._save_button.setEnabled(unlocked and self._worker is None)
+        operation_running = (
+            (self._worker is not None and self._worker.isRunning())
+            or (
+                self._ai_response_worker is not None
+                and self._ai_response_worker.isRunning()
+            )
+        )
+
+        self._model_input.setEnabled(unlocked and not operation_running)
+        self._save_button.setEnabled(unlocked and not operation_running)
+        self._test_button.setEnabled(not operation_running)
+        self._test_ai_button.setEnabled(not operation_running)
 
         if unlocked:
             self._administrator_status.setText(

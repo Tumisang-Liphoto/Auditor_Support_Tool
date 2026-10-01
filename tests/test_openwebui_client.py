@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 from unittest.mock import Mock, patch
 from urllib.error import HTTPError, URLError
 from urllib.request import Request
@@ -10,6 +11,7 @@ from urllib.request import Request
 import pytest
 
 from auditor_support_tool.services.openwebui_client import (
+    OpenWebUIAIResponseResult,
     OpenWebUIClient,
     OpenWebUIModel,
     _CredentialRedirectHandler,
@@ -98,6 +100,143 @@ def test_connection_preserves_model_display_names_and_ignores_invalid_entries() 
         OpenWebUIModel(model_id="model-a", display_name="Model Alpha"),
         OpenWebUIModel(model_id="model-b", display_name="model-b"),
     )
+
+
+def test_ai_response_uses_selected_model_and_chat_completions_endpoint() -> None:
+    response = StubResponse(
+        b'{"choices":[{"message":{"role":"assistant","content":"'
+        b'Audit Assistant AI connection successful."}}]}'
+    )
+
+    with patch(
+        "auditor_support_tool.services.openwebui_client.build_opener",
+        return_value=Mock(open=Mock(return_value=response)),
+    ) as mocked:
+        result = OpenWebUIClient().test_ai_response(
+            base_url="https://internal-ai",
+            api_key="sk-test",
+            model_id="qwen2.5:14b",
+        )
+
+    request = mocked.return_value.open.call_args.args[0]
+    body = json.loads(request.data.decode("utf-8"))
+
+    assert request.full_url == "https://internal-ai/api/chat/completions"
+    assert request.get_method() == "POST"
+    assert request.get_header("Authorization") == "Bearer sk-test"
+    assert request.get_header("Content-type") == "application/json"
+    assert body["model"] == "qwen2.5:14b"
+    assert body["stream"] is False
+    assert body["messages"][0]["role"] == "user"
+    assert mocked.return_value.open.call_args.kwargs["timeout"] == 120.0
+    assert result == OpenWebUIAIResponseResult(
+        success=True,
+        message="AI response received successfully from qwen2.5:14b.",
+        response_text="Audit Assistant AI connection successful.",
+    )
+
+
+def test_ai_response_uses_separate_inference_timeout() -> None:
+    response = StubResponse(
+        b'{"choices":[{"message":{"content":"ok"}}]}'
+    )
+
+    with patch(
+        "auditor_support_tool.services.openwebui_client.build_opener",
+        return_value=Mock(open=Mock(return_value=response)),
+    ) as mocked:
+        result = OpenWebUIClient(
+            timeout_seconds=7.0,
+            ai_response_timeout_seconds=45.0,
+        ).test_ai_response(
+            base_url="https://internal-ai",
+            api_key="sk-test",
+            model_id="model-a",
+        )
+
+    assert result.success is True
+    assert mocked.return_value.open.call_args.kwargs["timeout"] == 45.0
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        TimeoutError("synthetic-timeout"),
+        URLError(TimeoutError("synthetic-timeout")),
+    ],
+)
+def test_ai_response_timeout_has_specific_message(error) -> None:
+    with patch(
+        "auditor_support_tool.services.openwebui_client.build_opener"
+    ) as factory:
+        factory.return_value.open.side_effect = error
+
+        result = OpenWebUIClient(
+            ai_response_timeout_seconds=0.25
+        ).test_ai_response(
+            base_url="https://internal-ai",
+            api_key="synthetic-secret",
+            model_id="model-a",
+        )
+
+    assert result.success is False
+    assert "did not respond within 0.25 seconds" in result.message
+    assert "still be loading" in result.message
+    assert "synthetic-secret" not in repr(result)
+
+
+def test_ai_response_timeout_must_be_positive() -> None:
+    with pytest.raises(
+        ValueError,
+        match="AI response timeout must be greater than zero",
+    ):
+        OpenWebUIClient(ai_response_timeout_seconds=0)
+
+
+def test_ai_response_requires_https_before_io() -> None:
+    with patch(
+        "auditor_support_tool.services.openwebui_client.build_opener"
+    ) as factory:
+        result = OpenWebUIClient().test_ai_response(
+            base_url="http://internal-ai",
+            api_key="synthetic-secret",
+            model_id="model-a",
+        )
+
+    factory.assert_not_called()
+    assert result.success is False
+    assert "HTTPS" in result.message
+    assert "synthetic-secret" not in repr(result)
+
+
+def test_ai_response_requires_api_key_before_io() -> None:
+    with patch(
+        "auditor_support_tool.services.openwebui_client.build_opener"
+    ) as factory:
+        result = OpenWebUIClient().test_ai_response(
+            base_url="https://internal-ai",
+            api_key="",
+            model_id="model-a",
+        )
+
+    factory.assert_not_called()
+    assert result.success is False
+    assert "API key" in result.message
+
+
+def test_ai_response_requires_model_before_io() -> None:
+    with patch(
+        "auditor_support_tool.services.openwebui_client.build_opener"
+    ) as factory:
+        result = OpenWebUIClient().test_ai_response(
+            base_url="https://internal-ai",
+            api_key="sk-test",
+            model_id="",
+        )
+
+    factory.assert_not_called()
+    assert result.success is False
+    assert "model" in result.message.lower()
 
 
 def test_connection_reports_rejected_api_key() -> None:
